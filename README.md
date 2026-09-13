@@ -21,34 +21,6 @@ skills/<skill 名>/<辅助文件>     # 可选：参考文档、脚本、模板
 |:---|:---|
 | `plain-language` | 回答或文档读不懂时用：黑话、无必要的中英文夹杂、英文没给中文翻译。无参数重说最近一条回答，给文档路径出问题清单。只读不改。 |
 
-## 取用方式
-
-**逐个 skill 取用，不是整仓库一起装。** 本仓库不发布到任何包管理器，用 git + 符号链接：克隆到固定位置，全局只此一份——
-
-```bash
-git clone https://github.com/zhcmeng/shared-skills.git
-```
-
-克隆到哪个目录由你决定，下文示例统一写作 `C:\path\to\shared-skills`。再把要用到的 skill 链接到目标位置（`<skill 名>` 换成上表里的名字，要几个就重复几次）：
-
-```cmd
-:: 工程级 —— 只有该工程可用
-mklink /D "C:\path\to\project\.claude\skills\<skill 名>" "C:\path\to\shared-skills\skills\<skill 名>"
-
-:: user 级 —— 本机所有工程可用
-mklink /D "%USERPROFILE%\.claude\skills\<skill 名>" "C:\path\to\shared-skills\skills\<skill 名>"
-```
-
-例如把 `plain-language` 挂到 user 级：
-
-```cmd
-mklink /D "%USERPROFILE%\.claude\skills\plain-language" "C:\path\to\shared-skills\skills\plain-language"
-```
-
-链接指向同一份文件，不是副本：改仓库里的内容，所有工程立刻看到；更新只需 `git pull`。
-
-> Windows 建目录符号链接需要管理员权限或开发者模式。PowerShell 等价命令是 `New-Item -ItemType SymbolicLink -Path <链接路径> -Target <目标路径>`。
-
 ## 维护
 
 - **新增一个 skill**：在 `skills/` 下建目录，写 `SKILL.md`，并在上方表格补一行
