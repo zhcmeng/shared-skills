@@ -29,28 +29,34 @@ skills/<skill 名>/<辅助文件>     # 可选：参考文档、脚本、模板
 git clone https://github.com/zhcmeng/shared-skills.git
 ```
 
-再把要用到的 skill 链接到目标位置（`<skill 名>` 换成上表里的名字，要几个就重复几次）：
+克隆到哪个目录由你决定，下文示例统一写作 `C:\path\to\shared-skills`。再把要用到的 skill 链接到目标位置（`<skill 名>` 换成上表里的名字，要几个就重复几次）：
 
 ```cmd
 :: 工程级 —— 只有该工程可用
-mklink /D "C:\path\to\project\.claude\skills\<skill 名>" "C:\work\shared-skills\skills\<skill 名>"
+mklink /D "C:\path\to\project\.claude\skills\<skill 名>" "C:\path\to\shared-skills\skills\<skill 名>"
 
 :: user 级 —— 本机所有工程可用
-mklink /D "%USERPROFILE%\.claude\skills\<skill 名>" "C:\work\shared-skills\skills\<skill 名>"
+mklink /D "%USERPROFILE%\.claude\skills\<skill 名>" "C:\path\to\shared-skills\skills\<skill 名>"
 ```
 
 例如把 `plain-language` 挂到 user 级：
 
 ```cmd
-mklink /D "%USERPROFILE%\.claude\skills\plain-language" "C:\work\shared-skills\skills\plain-language"
+mklink /D "%USERPROFILE%\.claude\skills\plain-language" "C:\path\to\shared-skills\skills\plain-language"
 ```
 
 链接指向同一份文件，不是副本：改仓库里的内容，所有工程立刻看到；更新只需 `git pull`。
 
-> Windows 建目录符号链接需要管理员权限或开发者模式（本机未开开发者模式，管理员会话下可建）。PowerShell 等价命令是 `New-Item -ItemType SymbolicLink -Path <链接路径> -Target <目标路径>`。
+> Windows 建目录符号链接需要管理员权限或开发者模式。PowerShell 等价命令是 `New-Item -ItemType SymbolicLink -Path <链接路径> -Target <目标路径>`。
 
 ## 维护
 
 - **新增一个 skill**：在 `skills/` 下建目录，写 `SKILL.md`，并在上方表格补一行
 - **改 skill**：只改本仓库。各工程放的是指向这里的链接，不在工程内改副本
 - **收录判据**：跟具体工程无关、别的工程拿去也能直接用。绑死某个工程的不收
+
+## 许可证
+
+[MIT](./LICENSE) © 2026 zhcmeng
+
+取用、修改、再分发都可以，保留版权声明即可。
