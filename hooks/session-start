@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# SessionStart hook：把 plain-language 的写作规则注入上下文。
+# 任何异常都静默退出——绝不阻塞会话。
+set -uo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PLUGIN_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+RULES_FILE="${PLUGIN_ROOT}/skills/plain-language/rules.md"
+
+[ -f "$RULES_FILE" ] || exit 0
+rules_content="$(cat "$RULES_FILE" 2>/dev/null)" || exit 0
+[ -n "$rules_content" ] || exit 0
+
+# 单次参数替换转义，比逐字符循环快几个数量级
+escape_for_json() {
+    local s="$1"
+    s="${s//\\/\\\\}"
+    s="${s//\"/\\\"}"
+    s="${s//$'\n'/\\n}"
+    s="${s//$'\r'/\\r}"
+    s="${s//$'\t'/\\t}"
+    printf '%s' "$s"
+}
+
+rules_escaped="$(escape_for_json "$rules_content")"
+context="<EXTREMELY_IMPORTANT>\n你写给人看的文字，一律按下面这份规则来：回答、文档、说明、提交信息正文。\n</EXTREMELY_IMPORTANT>\n\n${rules_escaped}"
+
+printf '{\n  "hookSpecificOutput": {\n    "hookEventName": "SessionStart",\n    "additionalContext": "%s"\n  }\n}\n' "$context"
+
+exit 0
