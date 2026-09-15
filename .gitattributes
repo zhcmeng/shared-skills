@@ -1,0 +1,6 @@
+# 仓库内容一律 LF 存、LF 检出。
+# 不写这条：Git for Windows 的出厂默认是 core.autocrlf=true，clone 出来就是 CRLF 工作区。
+# 后果一：shell 侧 cat（MSYS 文本模式）吃掉 CR、node 侧按原始字节读，
+#         verify.sh 会在完好的仓库上误报 FAIL（实测过）。
+# 后果二：文档里的字节数（注入 2449 字节等）只在 LF 工作区成立。
+* text=auto eol=lf

@@ -20,7 +20,7 @@
 | Claude Code 二进制里的字符串 | `defaultShell` 的完整说明是「Default shell for input-box `!` commands. Defaults to 'bash' on all platforms (no Windows auto-flip).」——限定在**输入框 `!` 命令**上，拿来论证 hook 走哪个 shell 只能算弱旁证 |
 | 二进制里的 Windows 探测 | ``return r.endsWith(".sh") ? `bash ${e}` : e`` —— 只对 `.sh` 前置 bash |
 
-superpowers 的文档说 Git Bash，它自己的注释说 cmd.exe。文档里那句「`"shell": "bash"` 强制走 Git Bash」，我们的 `hooks/hooks.json` 里也照样写着（两个文件逐字节相同），实测却仍是批处理分支——声明和实际执行对不上。实测是唯一出路。
+superpowers 的文档说 Git Bash，它自己的注释说 cmd.exe。文档里那句「`"shell": "bash"` 强制走 Git Bash」，我们的 `hooks/hooks.json` 里也照样写着（两个文件逐字节相同），实测却仍是批处理分支——声明和实际执行对不上。机制其实是**两层**：终审读 Claude Code 2.1.269 二进制确认，Windows 上 `shell:"bash"` 确实经 Git Bash 启动（`bash.exe -c "<命令原文>"`），而 **Git Bash 收到 `.cmd` 后把它交给 cmd.exe 执行**。所以「`shell:"bash"` 走 Git Bash」在它自己那一层成立，失效的是那份文档隐含的下一步推论。实测是唯一出路。
 
 ## 方法（可复现）
 

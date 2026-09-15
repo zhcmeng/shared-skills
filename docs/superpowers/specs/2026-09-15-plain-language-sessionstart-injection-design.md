@@ -157,7 +157,7 @@ hook 绝不能让会话开不起来：读不到文件、JSON 转义失败、任�
 | 2 | GREEN 注入有效吗 | 同样任务带注入跑，同样 5 次取样 | 黑话与英文夹杂的出现次数下降；代码标识符、路径、命令、公认缩写、专业术语未被改写。**已完成（`deepseek-flash`）：未解释的术语 5 / 5 → 0 / 5，见「措辞实测结论」二；英文夹杂两臂都是 0，没有观测空间；后半条本次未覆盖** |
 | 3 | 方案乙的致命点：会不会读 `rules.md` | 带注入调用 plain-language skill | 确实读了 `rules.md` 并照它改，而不是只看 SKILL.md 就动手。**已完成（`deepseek-flash`）：5 个一次性 subagent 5 / 5 都读取了 `rules.md` 并照它改，改动理由引用的是规则表里的判据；`skills/plain-language/SKILL.md` 自那次取样之后没有再改过，结论对当前产物仍然成立。本项只有结论、没有原始记录（取样时没落盘），第 1、2、4 项的原始输出都随仓库提交了。两条限定：一是取样 prompt 末尾要求 subagent「列出读过的文件」，而被测量的恰好就是「读没读 `rules.md`」，这让该行为变得显眼，属轻度干扰；二是 5 / 5 不能归因于指向句——见「措辞实测结论」三：本仓库里 agent 本来就会自己去读规则文件（Task 4 第一轮 GREEN 的对照组 5 / 5 自己读了 `rules.md`，那一轮因此作废重跑）。只在 `deepseek-flash` 上跑，不可外推到 Opus** |
 | 4 | 豁免句到底管不管用 | 限定语写豁免句 vs 不写，两组对照 | 两组有差别才采用豁免句。**已完成（`deepseek-flash`）：四个观测点两组完全相同（代码块 0 / 5 vs 0 / 5、API 0 / 5 vs 0 / 5、REST / GraphQL 2 / 5 vs 2 / 5、QPS 5 / 5 vs 5 / 5），故不写豁免句，见「措辞实测结论」一** |
-| 5 | hook 本身没坏 | `bash hooks/verify.sh` | 输出是合法 JSON、注入文本的结尾与 `rules.md` 原文逐字一致、限定语块结尾结构完整（`rules.md` 原文前紧接 `</EXTREMELY_IMPORTANT>` 加一个空行）、含关键词；`run-hook.cmd` 的输出与直接调用 `session-start` 一致 |
+| 5 | hook 本身没坏 | `bash hooks/verify.sh` | 输出是合法 JSON、注入文本的结尾与 `rules.md` 原文逐字一致、限定语块首尾结构完整并含正文、含关键词；`run-hook.cmd` 的输出与直接调用 `session-start` 一致；Windows 上还自动跑一遍 cmd.exe、比对批处理分支的输出 |
 
 第 2、3、4 项已于 2026-09-15 完成——第 2、4 项的结论见上面的「措辞实测结论」，
 第 3 项的结论见表中该行；三条结论都只跑在 `deepseek-flash`（`CLAUDE_CODE_SUBAGENT_MODEL`）上，
@@ -172,3 +172,14 @@ hook 绝不能让会话开不起来：读不到文件、JSON 转义失败、任�
   **结论不能直接外推到 Opus**。报告里每一条结论都要标注这个局限
 - 不安装插件，就无法做真实会话的端到端验证。`verify.sh` 只覆盖 hook 脚本本身，
   覆盖不到「Claude Code 确实读了 hooks.json 并执行了它」
+- `verify.sh` 里比对 cmd.exe 批处理分支的那条只在 MSYS / MINGW / CYGWIN 上跑；
+  其它平台跳过并打印提示（那里生产路径就是 bash 分支，冒烟对比已经覆盖）
+- `clear` / `compact` 两种时机的 matcher 只验过字面量，没有端到端实测
+- `rules.md` 里若有裸的 C0 控制字符（`\n` `\r` `\t` 之外的），`session-start` 的
+  `escape_for_json` 不会转义，hook 会吐出非法 JSON、注入静默失效。触发条件牵强
+  （手写的 markdown 里出现裸 `\x01`），而且 hook 仍 `exit 0`、会话照开、`verify.sh` 能抓到，故不修
+
+## 设计取舍
+
+`verify.sh` **故意不比对限定语正文**——那等于在脚本里再存一份限定语副本，两处维护必然漂移。
+它只验结构：开标签、非空正文、闭标签，以及与 `rules.md` 的连接。
