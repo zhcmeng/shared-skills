@@ -44,7 +44,7 @@
 | 新增 | `hooks/hooks.json` | 声明 SessionStart |
 | 新增 | `hooks/run-hook.cmd` | 跨平台包装，照抄 superpowers 的 polyglot 写法 |
 | 新增 | `hooks/session-start` | 读 `rules.md` → 转义成 JSON → `hookSpecificOutput.additionalContext` |
-| 新增 | `hooks/verify.sh` | 跑 `session-start`、验 JSON 合法、断言注入文本的结尾与 `rules.md` 原文逐字一致、限定语块结尾结构完整且含关键词；再比对 `run-hook.cmd` 的输出与直接调用 `session-start` 一致 |
+| 新增 | `hooks/verify.sh` | 跑 `session-start`、验 JSON 合法、断言注入文本的结尾与 `rules.md` 原文逐字一致、限定语块首尾结构完整并含正文、含关键词；再比对 `run-hook.cmd` 的输出与直接调用 `session-start` 一致，Windows 上还自动跑一遍 cmd.exe、比对批处理分支的输出 |
 | 新增 | `skills/plain-language/rules.md` | 规则唯一真相 |
 | 改动 | `skills/plain-language/SKILL.md` | 规则段移走，开头加指向 `rules.md` 的强指令 |
 | 改动 | `README.md` | 安装方式改为插件；维护节补一条「改 rules.md 即改注入」 |

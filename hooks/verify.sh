@@ -9,8 +9,12 @@ fail() { echo "FAIL: $1" >&2; fails=$((fails + 1)); }
 
 # rules.md 带 CR 时字节数会和文档记录的对不上，多半是编辑器写回的。只是提示，不算失败——
 # 仓库内容应统一 LF，见 .gitattributes。
-# 用 tr 数 CR，别用 grep：Git Bash 的 grep 读文件时会吃掉 CR，grep $'\r' 永远匹配不上（实测）。
-if [ "$(LC_ALL=C tr -dc '\r' < "$RULES_FILE" | wc -c)" -gt 0 ]; then
+# 用 tr 数 CR，别用 grep。Git Bash 的 grep 在文本模式下匹配不到 CR，两条死路都会骗人：
+# CR 取自变量时 grep "$CR" 恒为 0；grep -c $'\r' 这种写法取输出时 $'\r' 会退化成空模式，
+# 返回的其实是**行数**——看着像「检测到了 CR」，其实每行都算命中
+# （实测：3 行 1 个 CR 的文件返回 3，全 LF 的 3 行文件也返回 3）。
+# 文件不在时别让重定向的报错漏到 stderr（先判可读，判定语义不变）。
+if [ -r "$RULES_FILE" ] && [ "$(LC_ALL=C tr -dc '\r' < "$RULES_FILE" | wc -c)" -gt 0 ]; then
   echo "提示：rules.md 含 CR 行尾，字节数与文档记录对不上（多半是编辑器写回的）。仓库内容应统一 LF，见 .gitattributes"
 fi
 
@@ -86,7 +90,8 @@ case "$(uname -s)" in
       # 必须在仓库根跑（批处理分支用相对路径 hooks 下的 run-hook.cmd）。
       # MSYS_NO_PATHCONV=1 必需：Git Bash 会把 /c 当路径改写（cygpath -w /c 得到 C:\），
       #   cmd.exe 于是丢掉 /c 开关、进交互模式。
-      # < /dev/null 也必需：交互模式下 cmd.exe 一直等输入，实测卡到 120 秒超时。
+      # < /dev/null 也必需：交互模式下 cmd.exe 会一直等输入（实测 timeout 10 能把它杀掉，rc=124），
+      #   接上 /dev/null 它读到 EOF 就正常退出。120 秒是宿主工具的超时值，不是 cmd.exe 的属性。
       cmd_out="$(cd "${SCRIPT_DIR}/.." && MSYS_NO_PATHCONV=1 $cmd_bin /c "hooks\run-hook.cmd session-start" < /dev/null 2>/dev/null)"
       cmd_rc=$?
       [ "$cmd_rc" -eq 0 ] || fail "cmd.exe 走批处理分支退出码是 ${cmd_rc}（应为 0）"

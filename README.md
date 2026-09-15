@@ -43,8 +43,9 @@ skills/<skill 名>/<辅助文件>     # 可选：参考文档、脚本、模板
 - **改 skill**：只改本仓库。各工程放的是指向这里的链接，不在工程内改副本
 - **收录判据**：跟具体工程无关、别的工程拿去也能直接用。绑死某个工程的不收
 - **改规则**：`skills/plain-language/rules.md` 是规则的唯一真相，改它同时改变 skill 行为和常驻注入。改完跑 `bash hooks/verify.sh` 确认注入没断
-- **改 hook 脚本**：`hooks/run-hook.cmd` 里只能有 ASCII 字符，中文注释也不行。cmd.exe 读到中文就崩，
-  注入机制随之失效，而且不报错——会话照开，规则却夹着 cmd 回显垃圾混进上下文。改完跑一次
+- **改 hook 脚本**：`hooks/run-hook.cmd` 里只能有 ASCII 字符，中文注释也不行。cmd.exe 读到中文会解析错位，
+  而且不报错——会话照开。规则到没到却取决于崩在哪一步：实测两种都出现过，有时规则整段没进上下文
+  （本机实测退出码 255），有时规则到了、却被一层 cmd 回显垃圾裹着（实测退出码 0）。改完跑一次
   `bash hooks/verify.sh`：在 Windows 上它会自动跑一遍 cmd.exe、比对输出。手工排查时再跑
   `cmd.exe /c "hooks\run-hook.cmd" session-start`，输出要和 `bash hooks/session-start` 一样。
   别只看退出码：写法不对时它也是 0（Git Bash 里要写成 `cmd.exe //c "hooks\run-hook.cmd" session-start`）
