@@ -43,7 +43,10 @@ skills/<skill 名>/<辅助文件>     # 可选：参考文档、脚本、模板
 - **改 skill**：只改本仓库。各工程放的是指向这里的链接，不在工程内改副本
 - **收录判据**：跟具体工程无关、别的工程拿去也能直接用。绑死某个工程的不收
 - **改规则**：`skills/plain-language/rules.md` 是规则的唯一真相，改它同时改变 skill 行为和常驻注入。改完跑 `bash hooks/verify.sh` 确认注入没断
-- **改 hook 脚本**：`hooks/run-hook.cmd` 里只能有 ASCII 字符，中文注释也不行——cmd.exe 读到中文就崩，hook 在 Windows 上静默失效（实测 4 行中文注释，退出码变 255）。改完跑 `bash hooks/verify.sh`，它会比对改后的输出和直接调用是否一致
+- **改 hook 脚本**：`hooks/run-hook.cmd` 里只能有 ASCII 字符，中文注释也不行。cmd.exe 读到中文就崩，
+  hook 在 Windows 上不工作，也不报错（实测：4 行中文注释就崩）。改完在 Windows 上跑一次
+  `cmd.exe /c "hooks\run-hook.cmd" session-start`，输出要和 `bash hooks/session-start` 一样。
+  别只看退出码：写法不对时它也是 0（Git Bash 里要写成 `cmd.exe //c "hooks\run-hook.cmd" session-start`）
 
 ## 许可证
 

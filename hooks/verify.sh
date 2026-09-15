@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 校验 SessionStart hook：输出必须是合法 JSON，且注入文本与 rules.md 原文一致、含关键词。
+# 校验 SessionStart hook：输出必须是合法 JSON；注入文本的结尾与 rules.md 原文逐字一致、限定语块首尾结构完整；含关键词。
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -7,11 +7,13 @@ RULES_FILE="${SCRIPT_DIR}/../skills/plain-language/rules.md"
 fails=0
 fail() { echo "FAIL: $1" >&2; fails=$((fails + 1)); }
 
-# 解析注入文本要用 node。缺了就直接说清楚，别把「没装 node」误报成「JSON 不合法」
-if ! command -v node >/dev/null 2>&1; then
-  echo "FAIL: 需要 node 才能校验 hook 的注入内容" >&2
-  exit 1
-fi
+# 解析注入文本要用 node，接住它的报错要用 mktemp。缺了就直接说清楚，别把「工具没装」误报成「JSON 不合法」
+for dep in node mktemp; do
+  if ! command -v "$dep" >/dev/null 2>&1; then
+    echo "FAIL: 需要 ${dep} 才能校验 hook 的注入内容" >&2
+    exit 1
+  fi
+done
 
 out="$(bash "${SCRIPT_DIR}/session-start" 2>/dev/null)"
 if [ -z "$out" ]; then
