@@ -5,21 +5,22 @@
 
 这条结论支撑两个判断：
 - R8（把 4 行中文 `REM` 注释改成 ASCII）是必要的，不是洁癖
-- Task 5 评审的 Critical 成立：README 把读者指向 `bash hooks/verify.sh`，
+- Task 5 评审的 Critical 成立：当时的 README 把读者指向 `bash hooks/verify.sh`，
   而那个检查走的是 bash 分支，**结构上看不到批处理段坏掉**
+  （README 已改为「在 cmd.exe 或 PowerShell 里手工跑一次并比对输出」）
 
 ## 为什么需要实测
 
-两份材料互相矛盾，谁也不能直接采信：
+四行来源给不出一个干净答案（其中两行同出 Claude Code 二进制，实为三份材料），谁也不能直接采信：
 
 | 来源 | 说法 |
 |:---|:---|
-| `hooks/run-hook.cmd` 里的注释 | 「On Windows: cmd.exe runs the batch portion」 |
-| superpowers `docs/windows/polyglot-hooks.md` | 「Windows with Git Bash installed: **Git Bash**」「`"shell": "bash"` … **forces the Git Bash route**」 |
-| Claude Code 二进制里的字符串 | `defaultShell` 的说明是「Defaults to 'bash' on all platforms」 |
-| 二进制里的 Windows 探测 | `return r.endsWith(".sh") ? \`bash ${e}\` : e` —— 只对 `.sh` 前置 bash |
+| superpowers 的 `hooks/run-hook.cmd`（第 4 行，我们的文件照抄它的 polyglot 写法） | 「On Windows: cmd.exe runs the batch portion, which finds and calls bash」 |
+| superpowers `docs/windows/polyglot-hooks.md` | 「**Windows with Git Bash installed**: Git Bash」「`"shell": "bash"` … which forces the Git Bash route」 |
+| Claude Code 二进制里的字符串 | `defaultShell` 的完整说明是「Default shell for input-box `!` commands. Defaults to 'bash' on all platforms (no Windows auto-flip).」——限定在**输入框 `!` 命令**上，拿来论证 hook 走哪个 shell 只能算弱旁证 |
+| 二进制里的 Windows 探测 | ``return r.endsWith(".sh") ? `bash ${e}` : e`` —— 只对 `.sh` 前置 bash |
 
-文档说 Git Bash，注释说 cmd.exe。实测是唯一出路。
+superpowers 的文档说 Git Bash，它自己的注释说 cmd.exe。文档里那句「`"shell": "bash"` 强制走 Git Bash」，我们的 `hooks/hooks.json` 里也照样写着（两个文件逐字节相同），实测却仍是批处理分支——声明和实际执行对不上。实测是唯一出路。
 
 ## 方法（可复现）
 
@@ -52,8 +53,8 @@ bash 分支 未执行（无 marker-bash.txt）
         provided additionalContext (980 chars)
 ```
 
-- 注入**成功**了：980 字符，与直接 `bash hooks/session-start` 量到的字符数一致
-- 注入内容含限定语与 `rules.md` 全文（`要改的` / `保留` / `护城河` 三个特征词各命中 1 次）
+- 注入**成功**了：注入文本 980 字符，与从 `bash hooks/session-start` 的输出里解析出的 `additionalContext` 字符数一致
+- 注入内容含限定语与 `rules.md` 全文（`要改的` 1 次、`保留` 3 次、`护城河` 1 次）
 - 同一次会话也注册了**已安装的** superpowers 的 hook，它的 `hooks.json` 与我们的逐字节相同，
   走的是同一条执行路径
 
@@ -82,8 +83,9 @@ Task 3 的修复轮裁定**不加**自动的 cmd.exe 检查，理由是「从 ba
 
 ## 附：cmd.exe 调用写法的实测（给 README 用）
 
-同一个 `cmd.exe /c "hooks\run-hook.cmd" session-start`，从**不同 shell** 里敲效果完全不同。
-四种写法逐个实测，基准是 `bash hooks/session-start`（2449 字节，sha256 `7d3c2427646dac0…`）：
+从**不同 shell** 里敲 `cmd.exe`，能用的写法完全不同；同一串命令文本换个 shell 环境，
+结果就可能从 2449 字节掉到 109 字节（C 与 E 只差一个 `MSYS_NO_PATHCONV=1`）。
+五种写法逐个实测，基准是 `bash hooks/session-start`（2449 字节，sha256 `7d3c2427646dac0…`）：
 
 | # | 在哪敲 | 命令 | 结果 |
 |:--|:---|:---|:---|
@@ -93,8 +95,9 @@ Task 3 的修复轮裁定**不加**自动的 cmd.exe 检查，理由是「从 ba
 | D | Git Bash | `cmd //c "hooks\run-hook.cmd session-start"` | **2449 字节，逐字节相同** ✓ |
 | E | Git Bash | `MSYS_NO_PATHCONV=1 cmd.exe /c 'hooks\run-hook.cmd session-start'` | **2449 字节，逐字节相同** ✓ |
 
-从 Git Bash 敲 B/C 时 bash 会先吃掉反斜杠、MSYS 又转换路径，cmd.exe 收到的是残缺的命令，
-于是**进了交互模式**，输出一屏横幅就退出。
+从 Git Bash 敲 B/C 时，MSYS 把 `/c` 当成 POSIX 路径改写掉（`cygpath -w /c` 输出 `C:\`），cmd.exe 收不到 `/c` 开关，
+于是**进了交互模式**，输出一屏横幅就退出。实测佐证：给 B、C 两条命令加上 `MSYS_NO_PATHCONV=1`
+（关掉路径转换、命令原文不动），两条都立刻输出与基准逐字节相同的 2449 字节。
 
 **要命的细节：B 和 C 的退出码都是 0。** 只看退出码会判成「通过」——
-正是这个仓库要消灭的那种虚假的安心。所以 README 里必须写「**比对输出**」，不能写「看退出码」。
+正是这个仓库要消灭的那种虚假的安心。所以 README 那条写的是「**比对输出**」，不是「看退出码」。
