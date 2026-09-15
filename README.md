@@ -11,6 +11,7 @@
 ```
 skills/<skill 名>/SKILL.md      # 必需，一个子目录 = 一个独立 skill
 skills/<skill 名>/<辅助文件>     # 可选：参考文档、脚本、模板
+statusline/<脚本名>.py          # 状态栏脚本，会被同步到配置目录，见下方「状态栏」
 ```
 
 `skills/` 放在仓库根，与 `obra/superpowers` 的内部布局一致——将来若改用其它分发方式（`npx skills`、插件市场），目录无需重排。
@@ -27,7 +28,8 @@ skills/<skill 名>/<辅助文件>     # 可选：参考文档、脚本、模板
 ## 安装
 
 本仓库同时是一个 Claude Code 插件，`skills/` 会被自动注册，SessionStart hook 会把
-`plain-language` 的写作规则注入每个会话（`startup` / `clear` / `compact` 三种时机）。
+`plain-language` 的写作规则注入每个会话（`startup` / `clear` / `compact` 三种时机），
+同一个 hook 还会把 `statusline/` 下的脚本同步到配置目录（见下方「状态栏」）。
 
 ```
 /plugin marketplace add zhcmeng/shared-skills
@@ -35,7 +37,50 @@ skills/<skill 名>/<辅助文件>     # 可选：参考文档、脚本、模板
 ```
 
 其它 agent 工具读 `~/.agents/skills/`，把 `skills/<名字>` 复制或链接过去即可；
-两条路互不干扰。只要技能不要常驻注入，删掉 `hooks/` 即可，`skills/` 不受影响。
+两条路互不干扰。只要技能不要常驻注入，删掉 `hooks/` 即可，`skills/` 不受影响
+（代价是状态栏脚本也不再同步，那种情况下得自己把 `statusline/` 下的脚本拷到配置目录）。
+
+## 状态栏
+
+插件带两个状态栏脚本，SessionStart 时自动同步到配置目录（设了 `CLAUDE_CONFIG_DIR`
+就是它，没设就是 `~/.claude`）：
+
+| 脚本 | 显示什么 |
+|:---|:---|
+| `statusline.py` | 主状态栏：本会话累计 token、缓存命中率、费用（按高峰/空闲分别计价） |
+| `subagent-statusline.py` | 子代理面板每一行：那个子代理自己的费用、缓存命中率、token |
+
+两个都是 Python 3 脚本，命令里的 `python` 要在 PATH 上。
+
+### 为什么要复制，而不是让 settings.json 直接指向插件目录
+
+插件安装目录带版本号（`.../cache/shared-skills/shared-skills/<版本号>/`），升级后旧目录就没了；
+而 `statusLine` 命令里**拿不到** `CLAUDE_PLUGIN_ROOT`——官方列举的占位符解析位置
+（skill/agent 正文、hook 命令、MCP 配置、LSP 配置）不含 statusLine。
+两条加起来，指向插件目录的写法升级一次就失效。所以脚本得落到一个与版本无关的固定路径。
+
+### 为什么不顺便把 settings.json 也写了
+
+插件系统不允许。插件根目录的 `settings.json` 官方只支持 `agent` 和 `subagentStatusLine`
+两个键，其他键静默忽略，`statusLine` 不在其中（[issue #65513](https://github.com/anthropics/claude-code/issues/65513)
+请求扩容，已关成 not planned）。所以这一项得自己配，路径按自己机器上的来：
+
+```json
+"statusLine": {
+  "type": "command",
+  "command": "python C:/Users/<你的用户名>/.claude/statusline.py"
+},
+"subagentStatusLine": {
+  "type": "command",
+  "command": "python C:/Users/<你的用户名>/.claude/subagent-statusline.py"
+}
+```
+
+### 幂等与覆盖
+
+同步是「内容一致就不动文件」，所以每次会话都跑一遍没有代价（实测增量约 1.5 毫秒，
+整个 hook 的耗时量不出差别）。**仓库是唯一真相**：配置目录里的那两个脚本会被仓库版本
+覆盖，改脚本请改仓库里的 `statusline/`，别改副本。
 
 ## 维护
 
@@ -43,6 +88,9 @@ skills/<skill 名>/<辅助文件>     # 可选：参考文档、脚本、模板
 - **改 skill**：只改本仓库。各工程放的是指向这里的链接，不在工程内改副本
 - **收录判据**：跟具体工程无关、别的工程拿去也能直接用。绑死某个工程的不收
 - **改规则**：`skills/plain-language/rules.md` 是规则的唯一真相，改它同时改变 skill 行为和常驻注入。改完跑 `bash hooks/verify.sh` 确认注入没断
+- **改状态栏脚本**：只改 `statusline/` 下的。配置目录里的副本每次会话都会被覆盖回去，改了不作数。
+  改完跑 `bash hooks/verify.sh`：它会校验同步有没有断（内容一致时不重写、被改坏能修回、
+  `CLAUDE_CONFIG_DIR` 优先于 `HOME`）。校验全程在临时目录里跑，不会动你真实的配置目录
 - **改 hook 脚本**：`hooks/run-hook.cmd` 里只能有 ASCII 字符，中文注释也不行。cmd.exe 读到中文会解析错位，
   而且不报错——会话照开。规则到没到却取决于崩在哪一步：实测两种都出现过，有时规则整段没进上下文
   （本机实测退出码 255），有时规则到了、却被一层 cmd 回显垃圾裹着（实测退出码 0）。改完跑一次

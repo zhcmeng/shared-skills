@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 校验 SessionStart hook：输出必须是合法 JSON；注入文本的结尾与 rules.md 原文逐字一致、限定语块首尾结构完整且正文非空；含关键词；polyglot 的两个分支（bash 与 Windows 上的 cmd 批处理）输出都与直接调用 session-start 一致。
+# 校验 SessionStart hook：输出必须是合法 JSON；注入文本的结尾与 rules.md 原文逐字一致、限定语块首尾结构完整且正文非空；含关键词；polyglot 的两个分支（bash 与 Windows 上的 cmd 批处理）输出都与直接调用 session-start 一致；statusline/ 下的脚本被同步到配置目录、内容逐字一致、内容相同时不重写、被改坏能修回、CLAUDE_CONFIG_DIR 优先于 HOME。
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -18,15 +18,20 @@ if [ -r "$RULES_FILE" ] && [ "$(LC_ALL=C tr -dc '\r' < "$RULES_FILE" | wc -c)" -
   echo "提示：rules.md 含 CR 行尾，字节数与文档记录对不上（多半是编辑器写回的）。仓库内容应统一 LF，见 .gitattributes"
 fi
 
-# 解析注入文本要用 node，接住它的报错要用 mktemp。缺了就直接说清楚，别把「工具没装」误报成「JSON 不合法」
-for dep in node mktemp; do
+# 解析注入文本要用 node，接住它的报错要用 mktemp，比对同步过去的脚本要用 cmp。缺了就直接说清楚，别把「工具没装」误报成「JSON 不合法」
+for dep in node mktemp cmp; do
   if ! command -v "$dep" >/dev/null 2>&1; then
-    echo "FAIL: 需要 ${dep} 才能校验 hook 的注入内容" >&2
+    echo "FAIL: 需要 ${dep} 才能校验 hook" >&2
     exit 1
   fi
 done
 
-out="$(bash "${SCRIPT_DIR}/session-start" 2>/dev/null)"
+# 下面每一处调用 session-start 都要把 HOME 换掉：这个 hook 会把 statusline/ 下的脚本
+# 同步到配置目录，不换就会写进真实用户的 ~/.claude。校验脚本不该动真东西。
+# 后面的同步校验复用同一个临时目录。
+test_home="$(mktemp -d)"
+
+out="$(HOME="$test_home" bash "${SCRIPT_DIR}/session-start" 2>/dev/null)"
 if [ -z "$out" ]; then
   fail "session-start 没有输出（应为一行 JSON）"
   echo "1 项失败" >&2
@@ -74,7 +79,7 @@ if [ "$parse_ok" -eq 1 ]; then
 fi
 
 # polyglot 包装没人测过就等于没护住：run-hook.cmd 的输出必须与直接调用 session-start 一致
-wrapped="$(bash "${SCRIPT_DIR}/run-hook.cmd" session-start 2>/dev/null)"
+wrapped="$(HOME="$test_home" bash "${SCRIPT_DIR}/run-hook.cmd" session-start 2>/dev/null)"
 [ "$wrapped" = "$out" ] || fail "run-hook.cmd 的输出与直接调用 session-start 不一致"
 
 # run-hook.cmd 在 Windows 上的生产路径是 cmd 批处理分支，上面那条只走了 bash 分支。
@@ -92,7 +97,9 @@ case "$(uname -s)" in
       #   cmd.exe 于是丢掉 /c 开关、进交互模式。
       # < /dev/null 也必需：交互模式下 cmd.exe 会一直等输入（实测 timeout 10 能把它杀掉，rc=124），
       #   接上 /dev/null 它读到 EOF 就正常退出。120 秒是宿主工具的超时值，不是 cmd.exe 的属性。
-      cmd_out="$(cd "${SCRIPT_DIR}/.." && MSYS_NO_PATHCONV=1 $cmd_bin /c "hooks\run-hook.cmd session-start" < /dev/null 2>/dev/null)"
+      # HOME 也必须传进去：cmd.exe 会继承环境变量，bash 分支再把 HOME 传给 session-start，
+      # 否则这一跑会往真实用户的 ~/.claude 里同步脚本（实测过，环境变量能穿透 cmd.exe）。
+      cmd_out="$(cd "${SCRIPT_DIR}/.." && HOME="$test_home" MSYS_NO_PATHCONV=1 $cmd_bin /c "hooks\run-hook.cmd session-start" < /dev/null 2>/dev/null)"
       cmd_rc=$?
       [ "$cmd_rc" -eq 0 ] || fail "cmd.exe 走批处理分支退出码是 ${cmd_rc}（应为 0）"
       [ "$cmd_out" = "$out" ] || fail "cmd.exe 走批处理分支的输出与 session-start 不一致（Windows 上的生产路径已坏）"
@@ -102,6 +109,55 @@ case "$(uname -s)" in
     echo "（非 Windows：跳过 cmd.exe 批处理分支检查。此处的生产路径就是 bash 分支，上面那条冒烟对比已覆盖）"
     ;;
 esac
+
+# ── statusline 脚本同步 ────────────────────────────────────────────
+# settings.json 里的 statusLine 命令指向的是配置目录下的固定路径（插件安装目录带版本号，
+# 指不得），所以这两个脚本有没有被放到那儿，直接决定状态栏能不能用。
+statusline_src="${SCRIPT_DIR}/../statusline"
+test_cfg="${test_home}/.claude"
+
+for f in statusline.py subagent-statusline.py; do
+  if [ ! -f "${statusline_src}/${f}" ]; then
+    fail "仓库里缺 statusline/${f}（同步的源文件）"
+  elif [ ! -f "${test_cfg}/${f}" ]; then
+    fail "session-start 没有把 statusline/${f} 同步到配置目录"
+  elif ! cmp -s "${statusline_src}/${f}" "${test_cfg}/${f}"; then
+    fail "同步到配置目录的 ${f} 与仓库里的不一致"
+  fi
+done
+
+# 幂等：内容一致时不该重写。把目标的时间戳拨回 2000-01-01 再跑一次，然后拿一个
+# 2000-01-02 的参照文件去比——没被重写就还是 2000-01-01（比参照旧），被重写了就是
+# 「现在」（比参照新）。用参照文件而不是拿源文件的 mtime 比，是因为源文件的 mtime
+# 是 checkout 时间，刚克隆完就跑校验时它会和「现在」撞在同一秒，判据就不成立了。
+if [ -f "${test_cfg}/statusline.py" ]; then
+  touch -t 200001010000 "${test_cfg}/statusline.py"
+  idem_ref="$(mktemp)"
+  touch -t 200001020000 "$idem_ref"
+  HOME="$test_home" bash "${SCRIPT_DIR}/session-start" >/dev/null 2>&1
+  [ "${test_cfg}/statusline.py" -ot "$idem_ref" ] \
+    || fail "内容一致时仍重写了 statusline.py（同步不幂等）"
+  rm -f "$idem_ref"
+fi
+
+# 目标被改坏要能修回，否则「仓库是唯一真相」这句话不成立
+if [ -f "${test_cfg}/statusline.py" ]; then
+  printf '\n# 校验脚本塞的杂质\n' >> "${test_cfg}/statusline.py"
+  HOME="$test_home" bash "${SCRIPT_DIR}/session-start" >/dev/null 2>&1
+  cmp -s "${statusline_src}/statusline.py" "${test_cfg}/statusline.py" \
+    || fail "目标被改坏后没能同步回仓库版本"
+fi
+
+# 设了 CLAUDE_CONFIG_DIR 就该写到那儿，而不是继续写 $HOME/.claude
+cfg_alt="$(mktemp -d)"
+home_alt="$(mktemp -d)"
+CLAUDE_CONFIG_DIR="$cfg_alt" HOME="$home_alt" bash "${SCRIPT_DIR}/session-start" >/dev/null 2>&1
+[ -f "${cfg_alt}/statusline.py" ] || fail "设了 CLAUDE_CONFIG_DIR 时没有同步到该目录"
+if [ -d "${home_alt}/.claude" ]; then
+  fail "设了 CLAUDE_CONFIG_DIR 时仍往 HOME/.claude 写了"
+fi
+rm -rf "$cfg_alt" "$home_alt"
+rm -rf "$test_home"
 
 if [ "$fails" -eq 0 ]; then
   echo "全部通过"

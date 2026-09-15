@@ -1,11 +1,57 @@
 #!/usr/bin/env bash
-# SessionStart hook：把 plain-language 的写作规则注入上下文。
+# SessionStart hook：把 plain-language 的写作规则注入上下文；顺带把 statusline/ 下的
+# 状态栏脚本同步到配置目录。
 # 任何异常都静默退出——绝不阻塞会话。
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PLUGIN_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 RULES_FILE="${PLUGIN_ROOT}/skills/plain-language/rules.md"
+
+# ── 状态栏脚本同步 ────────────────────────────────────────────────
+# 为什么要复制，而不是让 settings.json 直接指向插件目录：插件安装目录带版本号
+# （.../cache/shared-skills/shared-skills/<版本号>/），升级后旧目录就没了；而
+# statusLine 命令里又拿不到 CLAUDE_PLUGIN_ROOT（官方列举的占位符解析位置不含
+# statusLine）。所以插件带脚本还不够，必须把它落到一个与版本无关的固定位置。
+#
+# 为什么放在这个 hook 里、而不是单独挂一个：单独挂要走一次 run-hook.cmd，本机实测
+# 光进程启动就约 140ms；折在这里复用已算好的 PLUGIN_ROOT，增量只有比较文件的
+# 约 1.5ms。插件系统没有「安装时触发」的 hook 事件，每次会话顺带同步也是唯一
+# 能让脚本随插件升级自动跟上的做法。
+#
+# 全程不往 stdout 写一个字：SessionStart 的纯文本输出会被当成上下文喂给模型。
+sync_statusline() {
+    local src_dir="${PLUGIN_ROOT}/statusline"
+    [ -d "$src_dir" ] || return 0
+
+    local dst_dir
+    if [ -n "${CLAUDE_CONFIG_DIR:-}" ]; then
+        dst_dir="$CLAUDE_CONFIG_DIR"
+    elif [ -n "${HOME:-}" ]; then
+        dst_dir="${HOME}/.claude"
+    else
+        return 0
+    fi
+
+    local f src dst
+    for f in statusline.py subagent-statusline.py; do
+        src="${src_dir}/${f}"
+        [ -f "$src" ] || continue
+        dst="${dst_dir}/${f}"
+        # 内容一致就不动文件，所以这一步是幂等的。用 bash 内建读入比较，不用 cmp：
+        # cmp 是外部程序，本机实测起一次进程约 58ms，读进变量只要约 1.2ms。
+        # 代价是 $(<file) 会剥掉末尾换行，两个文件只在末尾换行上不同时看不出来——
+        # 后果仅仅是那次不复制，可以接受。
+        if [ -f "$dst" ] && [ "$(<"$src")"$'\n' = "$(<"$dst")"$'\n' ]; then
+            continue
+        fi
+        [ -d "$dst_dir" ] || mkdir -p "$dst_dir" 2>/dev/null || return 0
+        cp "$src" "$dst" 2>/dev/null || true
+    done
+    return 0
+}
+
+sync_statusline
 
 [ -f "$RULES_FILE" ] || exit 0
 rules_content="$(cat "$RULES_FILE" 2>/dev/null)" || exit 0
