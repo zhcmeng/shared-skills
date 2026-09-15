@@ -155,7 +155,7 @@ hook 绝不能让会话开不起来：读不到文件、JSON 转义失败、任�
 | 2 | GREEN 注入有效吗 | 同样任务带注入跑，同样 5 次取样 | 黑话与英文夹杂的出现次数下降；代码标识符、路径、命令、公认缩写、专业术语未被改写。**已完成（`deepseek-flash`）：未解释的术语 5 / 5 → 0 / 5，见「措辞实测结论」二；英文夹杂两臂都是 0，没有观测空间；后半条本次未覆盖** |
 | 3 | 方案乙的致命点：会不会读 `rules.md` | 带注入调用 plain-language skill | 确实读了 `rules.md` 并照它改，而不是只看 SKILL.md 就动手 |
 | 4 | 豁免句到底管不管用 | 限定语写豁免句 vs 不写，两组对照 | 两组有差别才采用豁免句。**已完成（`deepseek-flash`）：四个观测点两组完全相同（代码块 0 / 5 vs 0 / 5、API 0 / 5 vs 0 / 5、REST / GraphQL 2 / 5 vs 2 / 5、QPS 5 / 5 vs 5 / 5），故不写豁免句，见「措辞实测结论」一** |
-| 5 | hook 本身没坏 | `bash hooks/verify.sh` | 输出是合法 JSON、规则文字非空、含关键词 |
+| 5 | hook 本身没坏 | `bash hooks/verify.sh` | 输出是合法 JSON、注入文本与 `rules.md` 原文逐字一致、含关键词；`run-hook.cmd` 的输出与直接调用 `session-start` 一致 |
 
 第 2、4 项已于 2026-09-15 完成，结论见上面的「措辞实测结论」；两条结论都只跑在 `deepseek-flash`
 （`CLAUDE_CODE_SUBAGENT_MODEL`）上，不能外推到 Opus。
