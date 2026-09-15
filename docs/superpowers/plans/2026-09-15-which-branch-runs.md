@@ -7,7 +7,7 @@
 - R8（把 4 行中文 `REM` 注释改成 ASCII）是必要的，不是洁癖
 - Task 5 评审的 Critical 成立：当时的 README 把读者指向 `bash hooks/verify.sh`，
   而那个检查走的是 bash 分支，**结构上看不到批处理段坏掉**
-  （README 已改为「在 cmd.exe 或 PowerShell 里手工跑一次并比对输出」）
+  （README 已改为要求在 cmd.exe 或 PowerShell 里跑一次并比对输出）
 
 ## 为什么需要实测
 
@@ -56,7 +56,9 @@ bash 分支 未执行（无 marker-bash.txt）
 - 注入**成功**了：注入文本 980 字符，与从 `bash hooks/session-start` 的输出里解析出的 `additionalContext` 字符数一致
 - 注入内容含限定语与 `rules.md` 全文（`要改的` 1 次、`保留` 3 次、`护城河` 1 次）
 - 同一次会话也注册了**已安装的** superpowers 的 hook，它的 `hooks.json` 与我们的逐字节相同，
-  走的是同一条执行路径
+  日志里两个 hook 都成功返回（它 3321 字符、我们 980 字符）。
+  但**埋标记的只有 `--plugin-dir` 加载的那份副本**：我们那份走批处理分支是量到的事实，
+  superpowers 那份走哪条分支只是**推断**（同 `hooks.json`、同一串命令），没有单独量过。
 
 ## 环境
 
@@ -96,7 +98,8 @@ Task 3 的修复轮裁定**不加**自动的 cmd.exe 检查，理由是「从 ba
 | E | Git Bash | `MSYS_NO_PATHCONV=1 cmd.exe /c 'hooks\run-hook.cmd session-start'` | **2449 字节，逐字节相同** ✓ |
 
 从 Git Bash 敲 B/C 时，MSYS 把 `/c` 当成 POSIX 路径改写掉（`cygpath -w /c` 输出 `C:\`），cmd.exe 收不到 `/c` 开关，
-于是**进了交互模式**，输出一屏横幅就退出。实测佐证：给 B、C 两条命令加上 `MSYS_NO_PATHCONV=1`
+于是**进了交互模式**：管道里 stdin 一到 EOF 它就吐一屏横幅退出；交互式终端里则会一直等输入、
+不自己结束（控制器第一次跑时卡到 120 秒超时）。实测佐证：给 B、C 两条命令加上 `MSYS_NO_PATHCONV=1`
 （关掉路径转换、命令原文不动），两条都立刻输出与基准逐字节相同的 2449 字节。
 
 **要命的细节：B 和 C 的退出码都是 0。** 只看退出码会判成「通过」——
