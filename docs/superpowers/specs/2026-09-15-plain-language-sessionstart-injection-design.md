@@ -44,7 +44,7 @@
 | 新增 | `hooks/hooks.json` | 声明 SessionStart |
 | 新增 | `hooks/run-hook.cmd` | 跨平台包装，照抄 superpowers 的 polyglot 写法 |
 | 新增 | `hooks/session-start` | 读 `rules.md` → 转义成 JSON → `hookSpecificOutput.additionalContext` |
-| 新增 | `hooks/verify.sh` | 跑 hook 脚本、验 JSON 合法、断言规则文字非空且含关键词 |
+| 新增 | `hooks/verify.sh` | 跑 `session-start`、验 JSON 合法、断言注入文本与 `rules.md` 原文逐字一致且含关键词；再比对 `run-hook.cmd` 的输出与直接调用 `session-start` 一致 |
 | 新增 | `skills/plain-language/rules.md` | 规则唯一真相 |
 | 改动 | `skills/plain-language/SKILL.md` | 规则段移走，开头加指向 `rules.md` 的强指令 |
 | 改动 | `README.md` | 安装方式改为插件；维护节补一条「改 rules.md 即改注入」 |
@@ -80,12 +80,12 @@
 
 取样一律用一次性 subagent、每次全新上下文、每组 5 次，模型是 `deepseek-flash`
 （`CLAUDE_CODE_SUBAGENT_MODEL`）。**下面每一条结论都只在这个模型上成立，不能外推到 Opus。**
-原始输出（未随仓库提交）：`.superpowers/sdd/2026-09-15-plain-language-sessionstart-injection/` 下的
-`task-4-ab-raw.md`（A/B）与 `task-4-green-raw.md`（GREEN）。
+原始输出随仓库提交：`docs/superpowers/plans/2026-09-15-ab-exemption.md`（A/B 两组全文）与
+`docs/superpowers/plans/2026-09-15-green-injection.md`（GREEN 两轮全文）。
 
 **一、豁免句 A/B：两组无差别，取更短的那版（不含豁免句）**
 
-假设来自 `superpowers:writing-skills` 的断言（「'这条限制不适用于代码块' 仍然会抑制代码块」）。
+假设来自 `superpowers:writing-skills` 的断言（「'这条限制不适用于代码块' 仍然会抑制代码块，该改结构而非写豁免」）。
 那是针对**现有 skill** 的断言，没有直接采信，做了对照实验：A 组限定语就是现在定稿这句，
 B 组在这句后面多一句「代码、命令、路径、引用原文不在此列。」
 
@@ -104,23 +104,25 @@ B 组在这句后面多一句「代码、命令、路径、引用原文不在此
   可能掩盖了 A 组把规则过度套用到代码上的倾向。所以本实验支持的是「两组无差别」，
   **不能用来支持「豁免句有害」**。
 
-**二、GREEN：注入有效**
+**二、GREEN：注入在「术语首次出现不解释」这一条上有效**
 
 - 跑在 `deepseek-flash` 上（`CLAUDE_CODE_SUBAGENT_MODEL`），不能外推到 Opus。
 - 任务逐字取自 Task 2 的 RED 基线（`docs/superpowers/plans/2026-09-15-baseline.md`）：
   给公司管理层写一段 300 字左右的缓存方案摘要。不带注入 5 次，带注入 5 次，逐条人工读。
-- **出现未解释的术语：不带注入 5 / 5，带注入 0 / 5。** 不带注入组 5 个样本合计 11 个一次都没解释的词：
-  分布式缓存层（5 次）、主动失效机制（5）、缓存穿透（3）、灰度（3）、限流 / 降级（2）、回源（2）、
+- **出现未解释的术语：不带注入 5 / 5，带注入 0 / 5。** 不带注入组 5 个样本出现的**一次都没解释**的词（列代表性词，非穷举）：
+  分布式缓存层（5 次）、主动失效机制（5）、缓存穿透（3）、灰度（3）、限流 / 降级（2 / 3）、回源（3）、
   雪崩（1）、旁路读模式（1）、键规范（1）、强一致（1）、降本增效（1）。这 11 个词在带注入组一个都没出现。
 - **「缓存」这个词本身：不带注入 0 / 5 就地解释，带注入 5 / 5 就地解释**
   （如「把刚查过的结果暂存下来的中间层」）。
-- 自造压缩黑话：不带注入 1 / 5（「降本增效」），带注入 0 / 5。
+- 自造压缩黑话：不带注入 1 / 5（「降本增效」），带注入 0 / 5。**但这一条不构成成效证据**：
+  该类别基线为零（见 `docs/superpowers/plans/2026-09-15-baseline.md`），n=1，本来就没什么可下降的；
+  且「降本增效」是现成的中文成语，是否算 `rules.md`「要改的」表里那种自造压缩黑话存疑。
 - **英文夹杂两组都是 0 / 5，这一条没有观测空间**：Task 2 的 RED 基线已经显示模型本来就不夹英文，
   所以不能用它当成效证据（基线文件当时已写明要重点看「术语不解释」）。
 - 判据后半条「代码标识符、路径、命令、公认缩写、专业术语未被改写」**本次没有覆盖**——
   这个写作任务里就没有这些内容。它们的保护靠 `rules.md` 的「保留」段，不是靠这次取样。
 
-**三、顺带的发现：放在仓库里的规则文件，agent 会自己去读**
+**三、顺带的发现：本次取样里，agent 会自己去读放在仓库里的规则文件**
 
 - 跑在 `deepseek-flash` 上（`CLAUDE_CODE_SUBAGENT_MODEL`），不能外推到 Opus。
 - GREEN **第一轮的 10 个样本全部作废**：对照组 5 / 5 的 subagent 自己打开并照着写了工作目录里的
