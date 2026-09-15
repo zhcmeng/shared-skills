@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 校验 SessionStart hook：输出必须是合法 JSON；注入文本的结尾与 rules.md 原文逐字一致、限定语块首尾结构完整；含关键词。
+# 校验 SessionStart hook：输出必须是合法 JSON；注入文本的结尾与 rules.md 原文逐字一致、限定语块结尾结构完整（rules.md 原文前紧接 </EXTREMELY_IMPORTANT> 加一个空行）；含关键词。
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"

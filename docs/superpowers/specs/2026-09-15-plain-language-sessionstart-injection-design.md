@@ -44,7 +44,7 @@
 | 新增 | `hooks/hooks.json` | 声明 SessionStart |
 | 新增 | `hooks/run-hook.cmd` | 跨平台包装，照抄 superpowers 的 polyglot 写法 |
 | 新增 | `hooks/session-start` | 读 `rules.md` → 转义成 JSON → `hookSpecificOutput.additionalContext` |
-| 新增 | `hooks/verify.sh` | 跑 `session-start`、验 JSON 合法、断言注入文本与 `rules.md` 原文逐字一致且含关键词；再比对 `run-hook.cmd` 的输出与直接调用 `session-start` 一致 |
+| 新增 | `hooks/verify.sh` | 跑 `session-start`、验 JSON 合法、断言注入文本的结尾与 `rules.md` 原文逐字一致、限定语块结尾结构完整且含关键词；再比对 `run-hook.cmd` 的输出与直接调用 `session-start` 一致 |
 | 新增 | `skills/plain-language/rules.md` | 规则唯一真相 |
 | 改动 | `skills/plain-language/SKILL.md` | 规则段移走，开头加指向 `rules.md` 的强指令 |
 | 改动 | `README.md` | 安装方式改为插件；维护节补一条「改 rules.md 即改注入」 |
@@ -155,9 +155,9 @@ hook 绝不能让会话开不起来：读不到文件、JSON 转义失败、任�
 |:---|:---|:---|:---|
 | 1 | RED 基线：模型自然会写黑话吗 | 不带注入跑写作任务，5 次取样，逐条人工读 | 记录原话；若基线不犯，这功能就没有存在理由 |
 | 2 | GREEN 注入有效吗 | 同样任务带注入跑，同样 5 次取样 | 黑话与英文夹杂的出现次数下降；代码标识符、路径、命令、公认缩写、专业术语未被改写。**已完成（`deepseek-flash`）：未解释的术语 5 / 5 → 0 / 5，见「措辞实测结论」二；英文夹杂两臂都是 0，没有观测空间；后半条本次未覆盖** |
-| 3 | 方案乙的致命点：会不会读 `rules.md` | 带注入调用 plain-language skill | 确实读了 `rules.md` 并照它改，而不是只看 SKILL.md 就动手 |
+| 3 | 方案乙的致命点：会不会读 `rules.md` | 带注入调用 plain-language skill | 确实读了 `rules.md` 并照它改，而不是只看 SKILL.md 就动手。**已完成（`deepseek-flash`）：5 个一次性 subagent 5 / 5 都读取了 `rules.md` 并照它改，改动理由引用的是规则表里的判据（例如「闭环保留：读者一次就能读懂」）；`skills/plain-language/SKILL.md` 自那次取样之后没有再改过，结论对当前产物仍然成立。本项只有结论、没有原始记录（取样时没落盘），第 1、2、4 项的原始输出都随仓库提交了。只在 `deepseek-flash` 上跑，不可外推到 Opus** |
 | 4 | 豁免句到底管不管用 | 限定语写豁免句 vs 不写，两组对照 | 两组有差别才采用豁免句。**已完成（`deepseek-flash`）：四个观测点两组完全相同（代码块 0 / 5 vs 0 / 5、API 0 / 5 vs 0 / 5、REST / GraphQL 2 / 5 vs 2 / 5、QPS 5 / 5 vs 5 / 5），故不写豁免句，见「措辞实测结论」一** |
-| 5 | hook 本身没坏 | `bash hooks/verify.sh` | 输出是合法 JSON、注入文本的结尾与 `rules.md` 原文逐字一致、限定语块首尾结构完整、含关键词；`run-hook.cmd` 的输出与直接调用 `session-start` 一致 |
+| 5 | hook 本身没坏 | `bash hooks/verify.sh` | 输出是合法 JSON、注入文本的结尾与 `rules.md` 原文逐字一致、限定语块结尾结构完整（`rules.md` 原文前紧接 `</EXTREMELY_IMPORTANT>` 加一个空行）、含关键词；`run-hook.cmd` 的输出与直接调用 `session-start` 一致 |
 
 第 2、4 项已于 2026-09-15 完成，结论见上面的「措辞实测结论」；两条结论都只跑在 `deepseek-flash`
 （`CLAUDE_CODE_SUBAGENT_MODEL`）上，不能外推到 Opus。
