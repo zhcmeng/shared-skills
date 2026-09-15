@@ -24,11 +24,26 @@ skills/<skill 名>/<辅助文件>     # 可选：参考文档、脚本、模板
 | `md-export` | 把 Markdown 导出为 PDF 或 HTML：表格、数学公式、本地图片都支持，样式对齐 Markdown Preview Enhanced 的预览主题。支持单文件与目录批量。只需一个 Chromium 浏览器。 |
 | `whatis` | 快速了解一个对象（开源仓库、工具、概念、术语）：一段对话速览——是什么、能做什么、大概原理、什么场景用，末尾列出可直接回复字母继续追问的问题。 |
 
+## 安装
+
+本仓库同时是一个 Claude Code 插件，`skills/` 会被自动注册，SessionStart hook 会把
+`plain-language` 的写作规则注入每个会话（`startup` / `clear` / `compact` 三种时机）。
+
+```
+/plugin marketplace add zhcmeng/shared-skills
+/plugin install shared-skills@shared-skills
+```
+
+其它 agent 工具读 `~/.agents/skills/`，把 `skills/<名字>` 复制或链接过去即可；
+两条路互不干扰。只要技能不要常驻注入，删掉 `hooks/` 即可，`skills/` 不受影响。
+
 ## 维护
 
 - **新增一个 skill**：在 `skills/` 下建目录，写 `SKILL.md`，并在上方表格补一行
 - **改 skill**：只改本仓库。各工程放的是指向这里的链接，不在工程内改副本
 - **收录判据**：跟具体工程无关、别的工程拿去也能直接用。绑死某个工程的不收
+- **改规则**：`skills/plain-language/rules.md` 是规则的唯一真相，改它同时改变 skill 行为和常驻注入。改完跑 `bash hooks/verify.sh` 确认注入没断
+- **改 hook 脚本**：`hooks/run-hook.cmd` 里只能有 ASCII 字符，中文注释也不行——cmd.exe 读到中文就崩，hook 在 Windows 上静默失效（实测 4 行中文注释，退出码变 255）。改完跑 `bash hooks/verify.sh`，它会比对改后的输出和直接调用是否一致
 
 ## 许可证
 
