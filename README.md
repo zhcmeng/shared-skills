@@ -143,6 +143,10 @@ statusline/<脚本名>.py          # 状态栏脚本，会被同步到配置目�
 
 ## 维护
 
+- **校验脚本**：`bash hooks/verify.sh` 跑全部，`bash hooks/verify.sh notify` 只跑文件名含该关键词的模块。
+  脚本拆在 `hooks/verify.d/` 下，一个模块管一件事，入口只负责按序加载和汇总：
+  `10-session-start`（注入文本、polyglot 两个分支）、`20-statusline-sync`、`30-statusline-smoke`、
+  `40-notify`（判定）、`50-notify-render`、`60-wiring`（hooks.json 接线）。加校验就加模块，别往入口里塞
 - **新增一个 skill**：在 `skills/` 下建目录，写 `SKILL.md`，并在上方表格补一行
 - **改 skill**：只改本仓库。各工程放的是指向这里的链接，不在工程内改副本
 - **收录判据**：跟具体工程无关、别的工程拿去也能直接用。绑死某个工程的不收

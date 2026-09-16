@@ -1,0 +1,186 @@
+# ── 通知判定 ───────────────────────────────────────────────────────
+# 判定的全部内容就一条：事件来自的会话，是不是你最后打过字的那个。所以这里把
+# 「标记文件里写的是谁」和「事件来自谁」两个变量穷举一遍，看决定是弹还是不弹。
+#
+# 用一个假的 PowerShell，不真弹：真弹既打扰人，也没法断言弹了什么。假的把收到的参数
+# 记进日志，断言的就是「真实运行时会交给 PowerShell 什么」。CLAUDE_NOTIFY_PS 是为此
+# 留的口子，顺带也让换别的 PowerShell 成为可能。
+notify_dir="$(scratch_dir)"
+notify_cfg="${notify_dir}/cfg"
+notify_log="${notify_dir}/log"
+notify_stub="${notify_dir}/ps-stub"
+mkdir -p "$notify_cfg"
+: > "$notify_log"
+
+cat > "$notify_stub" <<'STUB'
+#!/usr/bin/env bash
+# 假的 PowerShell：把参数原样记进日志，什么都不弹
+{ printf 'CALL'; for a in "$@"; do printf ' [%s]' "$a"; done; printf '\n'; } >> "$STUB_LOG"
+exit 0
+STUB
+chmod +x "$notify_stub"
+
+# 事件 JSON 一律用 printf 拼，不在源码里手写转义：源码里写的双反斜杠会被中转链路
+# 削成单个，JSON 随之非法，而 notify 碰到坏 JSON 是静默退出的——测试会以「一条都没弹」
+# 的形式挂掉，真正的原因看不出来（本仓库栽过一次）。反斜杠同理，用 awk 现造一个。
+# 这几个拼装器不做转义，只喂下面这些固定数据，别拿它拼带引号的内容。
+bs="$(awk 'BEGIN{printf "%c",92}')"
+win_cwd="C:${bs}${bs}work${bs}${bs}demo"
+ev_stop()  { printf '{"hook_event_name":"Stop","session_id":"%s","cwd":"%s","last_assistant_message":"%s"}' "$1" "$2" "$3"; }
+ev_ask()   { printf '{"hook_event_name":"PreToolUse","session_id":"%s","tool_name":"AskUserQuestion","cwd":"%s","tool_input":{"questions":[{"question":"%s"}]}}' "$1" "$2" "$3"; }
+ev_tool()  { printf '{"hook_event_name":"PreToolUse","session_id":"%s","tool_name":"%s","cwd":"%s","tool_input":{"command":"ls"}}' "$1" "$2" "$3"; }
+ev_prompt(){ printf '{"hook_event_name":"UserPromptSubmit","session_id":"%s","source":"%s","cwd":"%s"}' "$1" "$2" "$3"; }
+ev_note()  { printf '{"hook_event_name":"Notification","session_id":"%s","notification_type":"%s","cwd":"%s","message":"%s"}' "$1" "$2" "$3" "$4"; }
+
+# 标记文件名是 hooks/notify 与校验脚本之间的约定，改名两边都要改
+MARK_NAME=".notify-current-session"
+mark() { printf '%s' "$1" > "${notify_cfg}/${MARK_NAME}"; }
+notify() {
+  printf '%s' "$1" | STUB_LOG="$notify_log" CLAUDE_CONFIG_DIR="$notify_cfg" \
+    CLAUDE_NOTIFY_PS="$notify_stub" bash "${SCRIPT_DIR}/notify" 2>/dev/null
+  return 0
+}
+calls() { cat "$notify_log" 2>/dev/null; }
+reset_calls() { : > "$notify_log"; }
+# 断言「这一跑弹了，且弹的是这些内容」。片段按顺序都得出现，避免只对上事件名就算过
+expect_toast() {
+  local desc="$1"; shift
+  local line; line="$(tail -n 1 "$notify_log" 2>/dev/null)"
+  case "$line" in
+    *"[-Mode] [toast]"*) ;;
+    *) fail "${desc}：没有弹通知（实际：${line:-无调用}）"; return ;;
+  esac
+  local frag
+  for frag in "$@"; do
+    case "$line" in
+      *"$frag"*) ;;
+      *) fail "${desc}：通知里没有「${frag}」（实际：${line}）" ;;
+    esac
+  done
+}
+expect_silent() {
+  local desc="$1"
+  [ -z "$(calls)" ] || fail "${desc}：不该弹却弹了（实际：$(calls)）"
+}
+
+# 别的会话答完 → 弹。正文用 last_assistant_message，不用去翻记录。
+# 标题取 cwd 末段，顺带压住 session_label 对反斜杠路径的处理。
+reset_calls; mark "session-other"
+notify "$(ev_stop session-a "$win_cwd" "把 hook 加好了")"
+expect_toast "别的会话答完" "[-Tag] [sessiona]" "[-Title] [Claude Code · demo]" "[-Body] [答完了：把 hook 加好了]"
+
+# 当前会话答完 → 不弹。这是整个功能的中心：你正看着它，不需要提醒
+reset_calls; mark "session-a"
+notify "$(ev_stop session-a "$win_cwd" "把 hook 加好了")"
+expect_silent "当前会话答完"
+
+# 从来没有标记过（非交互会话，比如 claude -p）：无从判断你在哪，宁可弹
+reset_calls; rm -f "${notify_cfg}/${MARK_NAME}"
+notify "$(ev_stop session-a "$win_cwd" "跑完了")"
+expect_toast "没有标记文件时答完"
+
+# 正文取不到时只留前缀，不该出现「答完了：」后面空一截还带着冒号
+reset_calls; mark "session-other"
+notify "$(ev_stop session-a "$win_cwd" "")"
+expect_toast "答完但没有正文" "[-Body] [答完了]"
+
+# 提醒只有两行位置，长正文要截断，且按字符截而不是按字节（中文一个字三字节，
+# 按字节截会把最后一个字劈成半个，显示成乱码）
+reset_calls; mark "session-other"
+long="$(printf '一%.0s' $(seq 1 200))"
+notify "$(ev_stop session-a "$win_cwd" "$long")"
+case "$(tail -n 1 "$notify_log")" in
+  *"…"*) ;;
+  *) fail "超长正文没有被截断" ;;
+esac
+# 截断要按字符数，不是字节数。中文一个字三字节，按字节截会把最后一个字劈成半个。
+# 数一数留下几个「一」最直接：正好 90 个才对，多一个少一个都说明截错了单位。
+ones="$(tail -n 1 "$notify_log" | grep -o '一' | wc -l | tr -d ' ')"
+[ "$ones" = "90" ] || fail "超长中文正文截断的字符数不对（应留 90 个「一」，实际 ${ones} 个）"
+
+# 正文里的换行和制表符会把通知版面撑坏，要压成一行
+reset_calls; mark "session-other"
+notify "$(ev_stop session-a "$win_cwd" "第一行${bs}n第二行${bs}t带制表符")"
+expect_toast "正文压成一行" "[-Body] [答完了：第一行 第二行 带制表符]"
+
+# 你敲字了 → 记下「当前会话是这个」，并撤掉这个会话遗留的提醒。
+# 撤这一步不能省：常驻通知不会自己消失，你答完那道选择题，屏幕上还挂着「等你选」。
+reset_calls; mark "session-other"
+notify "$(ev_prompt session-a user "$win_cwd")"
+[ "$(cat "${notify_cfg}/${MARK_NAME}" 2>/dev/null)" = "session-a" ] \
+  || fail "UserPromptSubmit 没有把标记改成当前会话（实际：$(cat "${notify_cfg}/${MARK_NAME}" 2>/dev/null)）"
+case "$(calls)" in
+  *"[-Mode] [clear]"*"[-Tag] [sessiona]"*) ;;
+  *) fail "回到会话后没有撤掉它的旧提醒（实际：${calls:-无调用}）" ;;
+esac
+
+# /loop 唤醒、定时唤醒、非交互调用走的是同一个事件，但那些时刻你并不在，
+# 不该把「当前会话」抢过去 —— 抢了的话，那个会话之后出事就不再提醒你了
+for src in loop_wakeup schedule_wakeup poll_event sdk system; do
+  reset_calls; mark "session-other"
+  notify "$(ev_prompt session-a "$src" "$win_cwd")"
+  [ "$(cat "${notify_cfg}/${MARK_NAME}" 2>/dev/null)" = "session-other" ] \
+    || fail "source=${src} 时不该改写当前会话标记"
+  expect_silent "source=${src} 的 UserPromptSubmit"
+done
+
+# 弹选择题：正文是问题原文，这样你不切窗口也能先看一眼问的是什么
+reset_calls; mark "session-other"
+notify "$(ev_ask session-a "$win_cwd" "要放进插件还是只在本机配？")"
+expect_toast "别的会话弹选择题" "[-Body] [等你选：要放进插件还是只在本机配？]"
+
+# 同一个事件名也被别的工具用着，只认 AskUserQuestion
+reset_calls; mark "session-other"
+notify "$(ev_tool session-a Bash "$win_cwd")"
+expect_silent "PreToolUse 但不是 AskUserQuestion"
+
+# 要你批准：只认 permission_prompt。空闲提醒（idle_prompt）是你明确不要的那条，
+# 它和你答完一轮是同一件事，弹两遍纯属吵
+reset_calls; mark "session-other"
+notify "$(ev_note session-a permission_prompt "$win_cwd" "Claude needs your permission")"
+expect_toast "别的会话要权限" "[-Body] [要批准：Claude needs your permission]"
+
+reset_calls; mark "session-other"
+notify "$(ev_note session-a idle_prompt "$win_cwd" "Claude is waiting for your input")"
+expect_silent "空闲等待提醒（明确不要）"
+
+# 坏输入不该让 hook 挂掉。hook 挂掉比通知弹不出来严重得多
+reset_calls; mark "session-other"
+notify '这不是 JSON'
+[ $? -eq 0 ] || fail "非 JSON 输入没有正常退出"
+expect_silent "非 JSON 输入"
+notify ''
+expect_silent "空输入"
+notify '{"hook_event_name":"Stop","cwd":"/tmp"}'
+expect_silent "缺 session_id"
+notify '{"hook_event_name":"没听说过的事件","session_id":"session-a"}'
+expect_silent "不认识的 hook 事件"
+
+# 标记文件跟着 CLAUDE_CONFIG_DIR 走，而不是写死 $HOME/.claude
+reset_calls
+alt_cfg="$(scratch_dir)"; alt_home="$(scratch_dir)"
+STUB_LOG="$notify_log" CLAUDE_CONFIG_DIR="$alt_cfg" HOME="$alt_home" \
+  CLAUDE_NOTIFY_PS="$notify_stub" bash "${SCRIPT_DIR}/notify" >/dev/null 2>&1 \
+  <<< "$(ev_prompt session-a user "$win_cwd")"
+[ "$(cat "${alt_cfg}/${MARK_NAME}" 2>/dev/null)" = "session-a" ] \
+  || fail "标记文件没有写在 CLAUDE_CONFIG_DIR 下"
+[ -f "${alt_home}/.claude/${MARK_NAME}" ] && fail "设了 CLAUDE_CONFIG_DIR 时仍往 HOME/.claude 写了标记"
+
+# run-hook.cmd 的 bash 分支要能把 notify 透传进去
+STUB_LOG="$notify_log" CLAUDE_CONFIG_DIR="$notify_cfg" CLAUDE_NOTIFY_PS="$notify_stub" \
+  bash "${SCRIPT_DIR}/run-hook.cmd" notify >/dev/null 2>&1 <<< '{"hook_event_name":"不认识的","session_id":"x"}'
+[ $? -eq 0 ] || fail "run-hook.cmd 透传 notify 时退出码非 0"
+
+# Windows 上的生产路径是 cmd 批处理分支。notify 还得靠标准输入拿到事件数据，
+# 标准输入能不能穿过 cmd.exe 到 bash，只有真跑一次才知道。
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*)
+    if command -v cmd.exe >/dev/null 2>&1 && command -v timeout >/dev/null 2>&1; then
+      reset_calls; mark "session-other"
+      (cd "${SCRIPT_DIR}/.." && STUB_LOG="$notify_log" CLAUDE_CONFIG_DIR="$notify_cfg" \
+        CLAUDE_NOTIFY_PS="$notify_stub" MSYS_NO_PATHCONV=1 timeout 20 cmd.exe /c "hooks\run-hook.cmd notify" \
+        <<< "$(ev_stop session-cmd "$win_cwd" "走批处理分支")" 2>/dev/null)
+      expect_toast "cmd.exe 批处理分支" "[-Tag] [sessioncmd]" "[-Body] [答完了：走批处理分支]"
+    fi
+    ;;
+esac
