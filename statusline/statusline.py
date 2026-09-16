@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Claude Code 状态栏：本会话总 token / 缓存命中率 / 费用。
+"""Claude Code 状态栏：本会话总 token / 缓存命中率 / 费用 / 已运行多久。
 
-输入：Claude Code 从 stdin 喂进来的会话 JSON（取其中的 transcript_path）。
+输入：Claude Code 从 stdin 喂进来的会话 JSON（取其中的 transcript_path，以及
+      cost.total_duration_ms）。
 数据：会话累计 token 不在 stdin JSON 里（context_window.current_usage 只是最后一次
       调用的数字），只能逐条累计会话记录里的 usage。
+时长：直接取 stdin 里的 cost.total_duration_ms（会话挂钟时长，含等待与停顿），
+      不从记录里推。记录只能给出「首末两条之间」的跨度，开头到第一条、最后一条
+      到现在这两段都会漏掉，代理越闲漏得越多。
 计价：按每条记录自己的时间戳判定空闲/高峰，按该条记录的模型选价目，逐条累加。
 
 价目来源：DeepSeek 官方定价页 https://api-docs.deepseek.com/zh-cn/quick_start/pricing
@@ -161,6 +165,27 @@ def fmt_money(y):
     return f"{y:.4f}" if y < 0.01 else f"{y:.2f}"
 
 
+def fmt_duration(ms):
+    """挂钟时长，紧凑写：45s / 12m / 2h05m / 1d03h。
+
+    取不到就返回 None，由调用方决定不显示这一截——不编一个数出来充数。
+    本函数在 subagent-statusline.py 里有一份同样的，见那边的说明。
+    """
+    if not isinstance(ms, (int, float)) or ms < 0:
+        return None
+    secs = int(ms // 1000)
+    if secs < 60:
+        return f"{secs}s"
+    mins = secs // 60
+    if mins < 60:
+        return f"{mins}m"
+    hours, mins = divmod(mins, 60)
+    if hours < 24:
+        return f"{hours}h{mins:02d}m"
+    days, hours = divmod(hours, 24)
+    return f"{days}d{hours:02d}h"
+
+
 def main():
     try:
         data = json.load(sys.stdin)
@@ -184,9 +209,15 @@ def main():
     rate = (hit / denom * 100) if denom else 0.0
     zone = "峰" if saw_peak and not saw_off else ("闲" if saw_off and not saw_peak else "峰闲")
 
+    cost_info = data.get("cost")
+    elapsed = fmt_duration(
+        cost_info.get("total_duration_ms") if isinstance(cost_info, dict) else None
+    )
+    tail = f" · {elapsed}" if elapsed else ""
+
     print(
         f"本会话 ¥{fmt_money(cost)}({zone}) · 缓存命中 {rate:.1f}% · "
-        f"总token {fmt_tokens(total)}"
+        f"总token {fmt_tokens(total)}{tail}"
     )
 
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Claude Code 子代理面板行：每个子代理显示自己的费用 / 缓存命中率 / token。
+"""Claude Code 子代理面板行：每个子代理显示自己的费用 / 缓存命中率 / token / 已运行多久。
 
 Claude Code 从 stdin 喂进来 {"columns": N, "tasks": [...], ...}；其中每个 task 是
 面板里的一行，字段为 id / name / type / status / description / label / startTime /
@@ -10,6 +10,10 @@ model / effort / contextWindowSize / tokenCount / tokenSamples / cwd。
 但 task 的 id 就是 agent id，其用量记录在
     <会话记录同名目录>/subagents/agent-<id>.jsonl
 里，带完整的 hit / miss / output 三类计数，因此本脚本去读那份记录来算。
+
+时长：口径与主状态栏一致，都算挂钟时间（含等待与停顿）。还在跑的取「现在 −
+      startTime」；已结束的必须停在它末条记录的时刻——任务行里只有 startTime、
+      没有结束时刻，用「现在」会让跑完的代理一直涨下去。
 
 输出：每个要覆盖的行写一行 JSON 到 stdout —— {"id": "<task id>", "content": "<行内容>"}。
 不输出的行保持默认渲染。
@@ -66,14 +70,15 @@ def rates_for(model):
 
 
 def summarize(path):
-    """读某个 agent 的记录，返回 (命中, 未命中, 输出, 费用, 是否跨高峰, 是否跨空闲)。
+    """读某个 agent 的记录，返回 (命中, 未命中, 输出, 费用, 是否跨高峰, 是否跨空闲, 末条时间)。
 
-    读不到返回 None。
+    读不到返回 None。末条时间给已结束的代理当终点用，见文件头的时长说明。
     """
     hit = miss = out = 0
     cost = 0.0
     found = False
     saw_peak = saw_off = False
+    last_ts = None
     try:
         f = open(path, encoding="utf-8", errors="replace")
     except OSError:
@@ -101,7 +106,10 @@ def summarize(path):
             miss += m
             out += o
 
-            peak = is_peak(parse_ts(rec.get("timestamp")))
+            ts = parse_ts(rec.get("timestamp"))
+            if ts is not None:
+                last_ts = ts
+            peak = is_peak(ts)
             if peak:
                 saw_peak = True
             else:
@@ -113,7 +121,7 @@ def summarize(path):
                 h * rate["hit"][k] + m * rate["miss"][k] + o * rate["out"][k]
             ) / 1_000_000
 
-    return (hit, miss, out, cost, saw_peak, saw_off) if found else None
+    return (hit, miss, out, cost, saw_peak, saw_off, last_ts) if found else None
 
 
 def agent_transcript(session_dir, agent_id):
@@ -160,6 +168,72 @@ def fmt_money(y):
     return f"{y:.4f}" if y < 0.01 else f"{y:.2f}"
 
 
+def fmt_duration(ms):
+    """挂钟时长，紧凑写：45s / 12m / 2h05m / 1d03h。
+
+    取不到就返回 None，由调用方决定不显示这一截——不编一个数出来充数。
+    主状态栏 statusline.py 里有一份同样的。两份独立放着，是因为 hook 只把这两个
+    文件复制到配置目录，抽成共享模块就得多同步一个文件，不划算。
+    """
+    if not isinstance(ms, (int, float)) or ms < 0:
+        return None
+    secs = int(ms // 1000)
+    if secs < 60:
+        return f"{secs}s"
+    mins = secs // 60
+    if mins < 60:
+        return f"{mins}m"
+    hours, mins = divmod(mins, 60)
+    if hours < 24:
+        return f"{hours}h{mins:02d}m"
+    days, hours = divmod(hours, 24)
+    return f"{days}d{hours:02d}h"
+
+
+# 已经跑完的代理，时长要停在末条记录；其余（pending / running / paused）按「现在」算
+FINISHED_STATUSES = ("completed", "failed", "killed")
+
+# 起点字段是外部喂进来的，不能全信。0 在这套数据里是「未设置」的哨兵值（不是 1970 年），
+# 顺着算会得出「20712d01h」这种荒谬结果——那等于编一个数出来充数，不如不显示。
+# 一年是给「算出来的时长」兜底的上限：没有代理能跑这么久。
+MAX_ELAPSED_MS = 365 * 24 * 60 * 60 * 1000
+
+
+def parse_start(v):
+    """任务行里的 startTime 是 Date.now() 的毫秒整数；字符串形式也认，以防格式变。"""
+    if isinstance(v, bool) or v is None:
+        return None
+    if isinstance(v, (int, float)):
+        try:
+            return datetime.datetime.fromtimestamp(v / 1000, tz=datetime.timezone.utc)
+        except (OverflowError, OSError, ValueError):
+            return None
+    return parse_ts(v)
+
+
+def elapsed_ms(task, last_ts):
+    """这个代理已经跑了多久（挂钟，含等待与停顿，与主状态栏同口径）。
+
+    起点取不到、或算出来的数不可信（倒挂、超过 MAX_ELAPSED_MS），一律返回 None，
+    由 fmt_duration 决定不显示这一截。
+    """
+    start = parse_start(task.get("startTime"))
+    if start is None:
+        return None
+    if task.get("status") in FINISHED_STATUSES:
+        # 跑完的代理必须停在末条记录。没有记录就没有终点，这时宁可这一截不显示，
+        # 也不能退回用「现在」——那样数字会一直涨，比不显示更误导。
+        if last_ts is None:
+            return None
+        end = last_ts
+    else:
+        end = datetime.datetime.now(datetime.timezone.utc)
+    delta = (end - start).total_seconds() * 1000
+    if delta < 0 or delta > MAX_ELAPSED_MS:
+        return None
+    return delta
+
+
 def clip(s, width):
     s = str(s or "")
     return s if len(s) <= width else s[: max(0, width - 1)] + "…"
@@ -203,7 +277,7 @@ def main():
         label = task.get("description") or task.get("label") or task.get("name") or tid
 
         if stats:
-            hit, miss, out, cost, saw_peak, saw_off = stats
+            hit, miss, out, cost, saw_peak, saw_off, last_ts = stats
             total = hit + miss + out
             denom = hit + miss
             pct = (hit / denom * 100) if denom else 0.0
@@ -217,8 +291,13 @@ def main():
                 f"总token {fmt_tokens(total)}"
             )
         else:
+            last_ts = None
             # 拿不到记录（子代理可能还没落盘）：退回行数据里的 tokenCount
             body = f"{fmt_tokens(task.get('tokenCount') or 0)} tok"
+
+        elapsed = fmt_duration(elapsed_ms(task, last_ts))
+        if elapsed:
+            body += f" · {elapsed}"
 
         text = clip(label, max(10, width - len(body) - 4)) + "  " + body
         out_lines.append(json.dumps({"id": tid, "content": text}, ensure_ascii=False))

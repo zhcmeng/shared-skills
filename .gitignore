@@ -1,3 +1,6 @@
 .claude/
 .DS_Store
 Thumbs.db
+
+# Python 字节码缓存（仓库里现在有 .py，本机跑测试会生成）
+__pycache__/
