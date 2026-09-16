@@ -30,6 +30,8 @@ ev_stop()  { printf '{"hook_event_name":"Stop","session_id":"%s","cwd":"%s","las
 ev_ask()   { printf '{"hook_event_name":"PreToolUse","session_id":"%s","tool_name":"AskUserQuestion","cwd":"%s","tool_input":{"questions":[{"question":"%s"}]}}' "$1" "$2" "$3"; }
 ev_tool()  { printf '{"hook_event_name":"PreToolUse","session_id":"%s","tool_name":"%s","cwd":"%s","tool_input":{"command":"ls"}}' "$1" "$2" "$3"; }
 ev_prompt(){ printf '{"hook_event_name":"UserPromptSubmit","session_id":"%s","source":"%s","cwd":"%s"}' "$1" "$2" "$3"; }
+# 真实形状：payload 里根本没有 source 字段（本机抓包确认），但带提示词
+ev_prompt_txt(){ printf '{"hook_event_name":"UserPromptSubmit","session_id":"%s","cwd":"%s","prompt":"%s"}' "$1" "$2" "$3"; }
 ev_note()  { printf '{"hook_event_name":"Notification","session_id":"%s","notification_type":"%s","cwd":"%s","message":"%s"}' "$1" "$2" "$3" "$4"; }
 
 # 标记文件名是 hooks/notify 与校验脚本之间的约定，改名两边都要改
@@ -207,6 +209,53 @@ for src in loop_wakeup schedule_wakeup poll_event sdk system; do
   [ "$(cat "${notify_cfg}/${MARK_NAME}" 2>/dev/null)" = "session-other" ] \
     || fail "source=${src} 时不该改写当前会话标记"
   expect_silent "source=${src} 的 UserPromptSubmit"
+done
+
+# ── 哪些提示词算「你在用这个会话」 ───────────────────────────────────
+# 事件名的字面意思骗人：UserPromptSubmit 不只在你敲字时触发，机器也会借它把会话叫醒。
+# 判别不能靠 payload 里的 source —— CLI 的 schema 里声明了它（任务通知按设计该报
+# system），但 2.1.269 实测从不发这个字段：人打的提示词和后台任务注入的字段集一模一样
+# （本机抓包逐字段比对过）。所以只能看提示词本身。
+#
+# 机器注入的一律以 < 开头。这条不是我定的，是 Claude Code 自己认「人打的」用的形状。
+# 后台任务完成是抢标记的主力：本机 1591 份会话记录里 <task-notification> 出现 1000 次。
+# 它一轮完成就把标记挪到自己身上，你正看着的会话于是成了「后台」，通知开始乱弹
+# —— 这正是这次报上来的 bug。
+tn='<task-notification>'
+reset_calls; mark "session-other"
+notify "$(ev_prompt_txt session-a "$win_cwd" "${tn}${bs}n<task-id>x</task-id>${bs}n</task-notification>")"
+[ "$(cat "${notify_cfg}/${MARK_NAME}" 2>/dev/null)" = "session-other" ] \
+  || fail "后台任务完成的提示词不该改写当前会话标记"
+expect_silent "后台任务完成的 UserPromptSubmit"
+
+# 前面带空白也一样挡掉，不然加个换行就绕过去了
+reset_calls; mark "session-other"
+notify "$(ev_prompt_txt session-a "$win_cwd" "${bs}n${bs}n  ${tn}</task-notification>")"
+[ "$(cat "${notify_cfg}/${MARK_NAME}" 2>/dev/null)" = "session-other" ] \
+  || fail "带前导空白的机器注入提示词不该改写当前会话标记"
+
+# 同类的机器注入一律挡掉，不是只挡后台任务通知这一种
+for t in '<local-command-stdout>' '<fork-boilerplate>' '<system-reminder>'; do
+  reset_calls; mark "session-other"
+  notify "$(ev_prompt_txt session-a "$win_cwd" "${t}机器塞进来的")"
+  [ "$(cat "${notify_cfg}/${MARK_NAME}" 2>/dev/null)" = "session-other" ] \
+    || fail "${t} 开头的提示词不该改写当前会话标记"
+done
+
+# 反过来，真敲的字必须算数 —— 而且要在最贴近真实的形状下验：payload 里没有 source 字段。
+# 这一条钉的是「将来 CLI 真的开始发 source 时，别把正常输入也一起挡掉」
+reset_calls; mark "session-other"
+notify "$(ev_prompt_txt session-a "$win_cwd" "把通知的标题改成带上会话名")"
+[ "$(cat "${notify_cfg}/${MARK_NAME}" 2>/dev/null)" = "session-a" ] \
+  || fail "人打的提示词没有把标记改成当前会话（实际：$(cat "${notify_cfg}/${MARK_NAME}" 2>/dev/null)）"
+
+# 斜杠命令和 ! 命令也是你敲的，虽然它们同样以标签开头。例外就这三个，别的一律按机器
+# 注入挡掉。反过来列黑名单不行：CLI 加一个新标签它就开始抢标记，也就是这个 bug 的由来
+for t in '<command-message>' '<command-name>' '<bash-input>'; do
+  reset_calls; mark "session-other"
+  notify "$(ev_prompt_txt session-a "$win_cwd" "${t}foo</command-name>")"
+  [ "$(cat "${notify_cfg}/${MARK_NAME}" 2>/dev/null)" = "session-a" ] \
+    || fail "${t} 开头（你敲的命令）应当记成当前会话"
 done
 
 # 弹选择题：正文是问题原文，这样你不切窗口也能先看一眼问的是什么

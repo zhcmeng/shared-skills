@@ -139,11 +139,32 @@ mark_path="${cfg}/${MARK_NAME}"
 
 case "$event" in
     UserPromptSubmit)
-        # 只有你亲手敲的才算「你在用这个会话」。循环唤醒、定时唤醒、非交互调用
-        # 走的是同一个事件，但那些时刻你并不在，不该把标记抢过去 —— 抢了的话，
-        # 那个会话之后出事就不再提醒你了。
+        # 只有你亲手敲的才算「你在用这个会话」。这个事件被复用在很多场合，别的一概不算。
+        #
+        # 判别不能只看 payload 里的 source 字段。CLI 的 schema 里确实声明了它，按设计
+        # 后台任务通知该报 system —— 但 2.1.269 实测从不发这个字段：人打的提示词和机器
+        # 注入的字段集一模一样（本机抓包逐字段比对过）。下面这行留给将来，哪天 CLI 真的
+        # 开始发了，它就自动生效。
         case "$source" in
             sdk|loop_wakeup|schedule_wakeup|poll_event|system) exit 0 ;;
+        esac
+        # 那只好看提示词本身。机器注入的一律以 < 开头 —— 这条形状不是我定的，是 Claude
+        # Code 自己认「人打的」用的判据。后台任务完成是抢标记的主力：本机 1591 份会话
+        # 记录里 <task-notification> 出现 1000 次，它一轮完成就把标记挪到自己身上，你正
+        # 看着的会话于是成了「后台」，通知乱弹 —— 这次报上来的就是这个。
+        #
+        # 单取一次而不是塞进上面那条 meta 管道：提示词开头常是换行，而换行会把值从管道里
+        # 截断（read 遇到换行就停，IFS 只管怎么切字段）。
+        # 空白用 explode 按码点筛，不在源码里写正则转义：那个转义会被中转链路吃掉一个
+        # 反斜杠，jq 拿到的是真换行，程序直接语法错（本仓库栽过）。
+        phead="$(printf '%s' "$input" | "$jq_bin" -r '(.prompt // "")
+            | if type == "string" then . else "" end
+            | explode | map(select(. > 32)) | implode | .[0:40]' 2>/dev/null)"
+        case "$phead" in
+            # 例外就这三个，它们确实是你敲的：/命令 和 !命令
+            '<command-message>'*|'<command-name>'*|'<bash-input>'*) ;;
+            # 反着列黑名单不行：CLI 加一个新标签，它就开始抢标记 —— 这个 bug 就是这么来的
+            '<'*) exit 0 ;;
         esac
         mkdir -p "$cfg" 2>/dev/null || exit 0
         # 先写临时文件再改名：改名是原子的，读的一方不会读到写了一半的会话号
