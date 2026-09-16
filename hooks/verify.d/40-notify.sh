@@ -64,10 +64,95 @@ expect_silent() {
 }
 
 # 别的会话答完 → 弹。正文用 last_assistant_message，不用去翻记录。
-# 标题取 cwd 末段，顺带压住 session_label 对反斜杠路径的处理。
+# 这条没给转录路径，标题就只有「应用名 · 项目名」两段，项目名取 cwd 末段；
+# 反斜杠形式的 cwd 顺带在这里被压住。
 reset_calls; mark "session-other"
 notify "$(ev_stop session-a "$win_cwd" "把 hook 加好了")"
 expect_toast "别的会话答完" "[-Tag] [sessiona]" "[-Title] [Claude Code · demo]" "[-Body] [答完了：把 hook 加好了]"
+
+# ── 会话名从哪来 ─────────────────────────────────────────────────────
+# 标题写成「Claude Code · 项目名 · 会话名」，缺哪段少哪段。会话名有三种来源，取用顺序
+# 不是我定的，是从 Claude Code 自己那里挖出来的（它显示会话名用的是
+# agentName 优先于 customTitle 优先于 aiTitle）。跟着它走，弹窗上的名字才和别处一致。
+#
+# 三种记录各占一行 JSON，追加在转录里；同一种记录随会话反复重写，所以取最后一条。
+tr_dir="$(scratch_dir)"
+tr_file="${tr_dir}/session.jsonl"
+put() { printf '%s\n' "$1" >> "$tr_file"; }
+
+# 带转录路径的 Stop 事件。会话名要从转录里读，所以路径得给进去
+ev_stop_tr(){ printf '{"hook_event_name":"Stop","session_id":"%s","cwd":"%s","transcript_path":"%s","last_assistant_message":"%s"}' "$1" "$2" "$3" "$4"; }
+
+# 自动生成的标题
+reset_calls; : > "$tr_file"; put '{"type":"ai-title","aiTitle":"自动生成的标题"}'
+mark "session-other"
+notify "$(ev_stop_tr session-a "$win_cwd" "$tr_file" "跑完了")"
+expect_toast "会话名取自动生成的标题" "[-Title] [Claude Code · demo · 自动生成的标题]"
+
+# 同一种记录写了多条 → 取最后一条（会话过程中标题会反复重写）
+reset_calls; : > "$tr_file"
+put '{"type":"ai-title","aiTitle":"旧标题"}'
+put '{"type":"ai-title","aiTitle":"新标题"}'
+mark "session-other"
+notify "$(ev_stop_tr session-a "$win_cwd" "$tr_file" "跑完了")"
+expect_toast "同名记录取最后一条" "[-Title] [Claude Code · demo · 新标题]"
+
+# 三种记录同时在 → 按优先级取，不是按谁写在最后。这里故意把优先级最高的写在最前面、
+# 把自动标题写在最后：按「取最后一条」实现会得到「自动生成的」，正好被这条挡住
+reset_calls; : > "$tr_file"
+put '{"type":"agent-name","agentName":"优先级最高的"}'
+put '{"type":"custom-title","customTitle":"改名记录"}'
+put '{"type":"ai-title","aiTitle":"自动生成的"}'
+mark "session-other"
+notify "$(ev_stop_tr session-a "$win_cwd" "$tr_file" "跑完了")"
+expect_toast "三种记录同时在时的优先级" "[-Title] [Claude Code · demo · 优先级最高的]"
+
+# 少了最高那档 → 落到 /rename 改的名上，仍然赢过自动标题
+reset_calls; : > "$tr_file"
+put '{"type":"ai-title","aiTitle":"自动生成的"}'
+put '{"type":"custom-title","customTitle":"改名记录"}'
+mark "session-other"
+notify "$(ev_stop_tr session-a "$win_cwd" "$tr_file" "跑完了")"
+expect_toast "改名优先于自动标题" "[-Title] [Claude Code · demo · 改名记录]"
+
+# 转录里一条标题记录都没有 → 回落到项目目录名，标题只剩两段
+reset_calls; : > "$tr_file"
+mark "session-other"
+notify "$(ev_stop_tr session-a "$win_cwd" "$tr_file" "跑完了")"
+expect_toast "转录里没有标题记录" "[-Title] [Claude Code · demo]"
+
+# 转录文件根本不存在（会话刚开始、路径写错）→ 同样回落，不报错也不留空标题
+reset_calls
+notify "$(ev_stop_tr session-a "$win_cwd" "${tr_dir}/不存在.jsonl" "跑完了")"
+expect_toast "转录文件不存在" "[-Title] [Claude Code · demo]"
+
+# 标题字段是空的 → 当作没取到，别在标题里留一截孤零零的分隔点
+reset_calls; : > "$tr_file"; put '{"type":"ai-title","aiTitle":""}'
+mark "session-other"
+notify "$(ev_stop_tr session-a "$win_cwd" "$tr_file" "跑完了")"
+expect_toast "标题字段为空" "[-Title] [Claude Code · demo]"
+
+# 转录会很大，只回看末尾一段。标题记录在近处要能取到，而且不能被窗口开头那半行
+# 断掉的 JSON 带偏——窗口按字节切，首行几乎注定是断的
+reset_calls; : > "$tr_file"
+put '{"type":"ai-title","aiTitle":"远处的旧标题"}'
+put "{\"type\":\"assistant\",\"message\":\"$(head -c 400000 /dev/zero | tr '\0' 'x')\"}"
+put '{"type":"ai-title","aiTitle":"近处的新标题"}'
+mark "session-other"
+notify "$(ev_stop_tr session-a "$win_cwd" "$tr_file" "跑完了")"
+expect_toast "标题记录落在末尾窗口内" "[-Title] [Claude Code · demo · 近处的新标题]"
+
+# Windows 上 Claude Code 给的是反斜杠路径，得能读。路径本身要先转义成合法 JSON，
+# 否则 notify 拿到坏 JSON 会静默退出，断言只会以「没弹」的形式挂掉，看不出真原因
+if command -v cygpath >/dev/null 2>&1; then
+  reset_calls; : > "$tr_file"; put '{"type":"ai-title","aiTitle":"反斜杠路径"}'
+  tr_win="$(cygpath -w "$tr_file")"
+  mark "session-other"
+  # 模式那侧的 $bs 必须加引号。不加的话 bash 会把模式里的反斜杠当成转义符，替换变成
+  # 空操作，路径原样进 JSON —— 成了非法转义，notify 收到坏 JSON 静默退出（本仓库栽过）
+  notify "$(ev_stop_tr session-a "$win_cwd" "${tr_win//"$bs"/"$bs$bs"}" "跑完了")"
+  expect_toast "反斜杠形式的转录路径" "[-Title] [Claude Code · demo · 反斜杠路径]"
+fi
 
 # 当前会话答完 → 不弹。这是整个功能的中心：你正看着它，不需要提醒
 reset_calls; mark "session-a"

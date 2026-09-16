@@ -87,18 +87,29 @@ clear_toast() {
     return 0
 }
 
-# 标签：优先用会话标题，那正是终端标签上显示的字，你扫一眼标签就能对上是哪个窗口。
-# 标题存在会话记录（transcript）里，类型是 ai-title。取不到就退成项目目录名。
+# 项目名：cwd 的末段。它是标题里最稳的一段——会话名取不到时，标题就只剩它。
+project_label() { printf '%s' "${cwd:-}" | sed -e 's#.*[\\/]##'; }
+
+# 会话名：优先用会话标题，那正是终端标签上显示的字，你扫一眼标签就能对上是哪个窗口。
+# 三种记录都可能是它，取用顺序照抄 Claude Code 自己的显示规则（你改的名优先于自动
+# 生成的标题），这样弹窗上的名字和别处显示的才一致。取不到就输出空，由调用方决定
+# 怎么办——现在是不写这一段。
 session_label() {
-    local t=""
-    if [ -n "${tpath:-}" ] && [ -r "$tpath" ]; then
-        # 只读末尾一段：会话记录可能很大，而标题记录在会话过程中会反复重写，
-        # 最后一条通常就在近处。漏掉也不出错，退成目录名而已。
-        t="$(tail -c 262144 "$tpath" 2>/dev/null | grep -F '"ai-title"' | tail -n 1 \
-             | "$jq_bin" -r '.aiTitle // empty' 2>/dev/null)"
-    fi
-    [ -n "$t" ] || t="$(printf '%s' "${cwd:-}" | sed -e 's#.*[\\/]##')"
-    printf '%s' "$t"
+    if [ -z "${tpath:-}" ] || [ ! -r "$tpath" ]; then return 0; fi
+    # 只读末尾一段：会话记录可能很大，而标题记录在会话过程中会反复重写，最后一条通常
+    # 就在近处。窗口按字节切，首行几乎注定是断的，所以逐行解析时允许失败，跳过即可。
+    # 用 inputs 而不是 -s：逐个读行就不用关心行尾是什么字符，也就绕开了在源码里写
+    # 换行转义——那个转义会被中转链路吃掉，jq 拿到的是真换行，程序直接语法错。
+    tail -c 262144 "$tpath" 2>/dev/null \
+        | grep -F -e '"agent-name"' -e '"custom-title"' -e '"ai-title"' \
+        | "$jq_bin" -n -R -r '
+            [ inputs | fromjson? // empty
+              | {t: .type, v: (.agentName // .customTitle // .aiTitle // "")} ]
+            | map(select(.v != ""))
+            | [ (map(select(.t == "agent-name"))   | last | .v // ""),
+                (map(select(.t == "custom-title")) | last | .v // ""),
+                (map(select(.t == "ai-title"))     | last | .v // "") ]
+            | map(select(. != "")) | first // ""' 2>/dev/null
 }
 
 input="$(cat 2>/dev/null)"
@@ -182,8 +193,14 @@ text="$("$jq_bin" -n -r --arg t "$raw" --argjson max "$BODY_MAX" '
        | sub("^ +"; "") | sub(" +$"; "")
        | if length > $max then .[0:$max] + "…" else . end' 2>/dev/null)"
 
-label="$(session_label)"
-if [ -n "$label" ]; then title="Claude Code · ${label}"; else title="Claude Code"; fi
+# 标题：应用名、项目名、会话名依次排开，缺哪段少哪段。实测标题会自动换行而不是截断
+# （80 个字符排两行仍然全部可读），所以不做截断——硬截有把会话名切掉的风险，
+# 而会话名恰恰是这条通知里最该看清的部分。
+proj="$(project_label)"
+sess="$(session_label)"
+title="Claude Code"
+[ -n "$proj" ] && title="${title} · ${proj}"
+[ -n "$sess" ] && title="${title} · ${sess}"
 if [ -n "$text" ];  then body="${prefix}：${text}";     else body="$prefix"; fi
 
 show_toast "$sid" "$title" "$body"
