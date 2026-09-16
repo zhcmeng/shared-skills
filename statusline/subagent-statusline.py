@@ -6,6 +6,9 @@ Claude Code 从 stdin 喂进来 {"columns": N, "tasks": [...], ...}；其中每�
 面板里的一行，字段为 id / name / type / status / description / label / startTime /
 model / effort / contextWindowSize / tokenCount / tokenSamples / cwd。
 
+同一条回复会被按内容块拆成多条记录、每条都带同一份完整 usage，所以先按
+message.id 收敛成一条再累加，否则费用和 token 会按内容块个数翻倍。
+
 行数据里只有 tokenCount 一个总数，没有缓存命中/未命中的拆分，算不出费用。
 但 task 的 id 就是 agent id，其用量记录在
     <会话记录同名目录>/subagents/agent-<id>.jsonl
@@ -69,16 +72,28 @@ def rates_for(model):
     return RATES.get(MODEL_ALIASES.get(model, model), RATES[FALLBACK_MODEL])
 
 
+def dedup_rank(msg):
+    """同一条回复被拆成多条记录时，用这个分数挑出该留下的一条。
+
+    Claude Code 把一条回复的思考、正文、工具调用各写成一条记录，每条都带同一份完整
+    usage 和同一个 message.id；流式过程中的中间记录则是 output_tokens 偏小、
+    stop_reason 还没有值。所以先比有没有 stop_reason（有的大），再比 output_tokens。
+    主状态栏 statusline.py 里有一份同样的，见那边的说明。
+    """
+    usage = msg.get("usage")
+    out = usage.get("output_tokens") if isinstance(usage, dict) else 0
+    return (1 if msg.get("stop_reason") else 0, out or 0)
+
+
 def summarize(path):
     """读某个 agent 的记录，返回 (命中, 未命中, 输出, 费用, 是否跨高峰, 是否跨空闲, 末条时间)。
 
     读不到返回 None。末条时间给已结束的代理当终点用，见文件头的时长说明。
+    同一条回复的多条记录先按 message.id 收敛成一条再累加，否则费用和 token 会按
+    内容块个数翻倍（真实会话实测被放大 2.6~4.2 倍）。
     """
-    hit = miss = out = 0
-    cost = 0.0
-    found = False
-    saw_peak = saw_off = False
-    last_ts = None
+    kept = {}
+
     try:
         f = open(path, encoding="utf-8", errors="replace")
     except OSError:
@@ -94,34 +109,50 @@ def summarize(path):
             msg = rec.get("message")
             if not isinstance(msg, dict) or not isinstance(msg.get("usage"), dict):
                 continue
-            usage = msg["usage"]
-            found = True
 
-            h = usage.get("cache_read_input_tokens") or 0
-            m = (usage.get("input_tokens") or 0) + (
-                usage.get("cache_creation_input_tokens") or 0
-            )
-            o = usage.get("output_tokens") or 0
-            hit += h
-            miss += m
-            out += o
+            key = msg.get("id")
+            if not isinstance(key, str) or not key:
+                key = ("无 id", len(kept))
+            prev = kept.get(key)
+            if prev is None or dedup_rank(msg) > dedup_rank(prev[0]):
+                kept[key] = (msg, rec)
 
-            ts = parse_ts(rec.get("timestamp"))
-            if ts is not None:
-                last_ts = ts
-            peak = is_peak(ts)
-            if peak:
-                saw_peak = True
-            else:
-                saw_off = True
+    if not kept:
+        return None
 
-            rate = rates_for(msg.get("model"))
-            k = 1 if peak else 0
-            cost += (
-                h * rate["hit"][k] + m * rate["miss"][k] + o * rate["out"][k]
-            ) / 1_000_000
+    hit = miss = out = 0
+    cost = 0.0
+    saw_peak = saw_off = False
+    last_ts = None
 
-    return (hit, miss, out, cost, saw_peak, saw_off, last_ts) if found else None
+    for msg, rec in kept.values():
+        usage = msg["usage"]
+
+        h = usage.get("cache_read_input_tokens") or 0
+        m = (usage.get("input_tokens") or 0) + (
+            usage.get("cache_creation_input_tokens") or 0
+        )
+        o = usage.get("output_tokens") or 0
+        hit += h
+        miss += m
+        out += o
+
+        ts = parse_ts(rec.get("timestamp"))
+        if ts is not None and (last_ts is None or ts > last_ts):
+            last_ts = ts
+        peak = is_peak(ts)
+        if peak:
+            saw_peak = True
+        else:
+            saw_off = True
+
+        rate = rates_for(msg.get("model"))
+        k = 1 if peak else 0
+        cost += (
+            h * rate["hit"][k] + m * rate["miss"][k] + o * rate["out"][k]
+        ) / 1_000_000
+
+    return hit, miss, out, cost, saw_peak, saw_off, last_ts
 
 
 def agent_transcript(session_dir, agent_id):

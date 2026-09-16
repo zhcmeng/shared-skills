@@ -231,6 +231,38 @@ SYNTHJSONL
     || fail "起点为 0 的子代理不该显示时长（实际：$(line_of zero)）"
   [ "$(line_of nostart)" = '{"id": "nostart", "content": "无起点  ¥0.64(峰) · 缓存命中 90.0% · 总token 1.05M"}' ]     || fail "取不到起点的子代理不该显示时长（实际：$(line_of nostart)）"
 
+  # ── 同一条回复被拆成多条记录时不能重复累加 ──
+  # Claude Code 把一条回复的思考、正文、工具调用各写成一条记录，每条都带同一份完整
+  # usage 和同一个 message.id。照着行数累加会把一次调用算成好几遍（真实会话实测被
+  # 放大 2.6~4.2 倍）。下面把一次调用写成三条，另加一次独立调用（id 不同）作对照：
+  # 合计只该按两次调用计 —— 总 token 2.10M、费用 ¥1.27、命中率仍 90.0%。
+  smoke_dup="$(mktemp -d)"
+  smoke_dsub="$(mktemp -d)"
+  mkdir -p "${smoke_dsub}/sess/subagents"
+  cat > "${smoke_dup}/dup.jsonl" <<'SYNTHJSONL'
+{"timestamp":"2026-09-16T02:00:00.000Z","message":{"id":"msg_a","stop_reason":"tool_use","model":"deepseek-flash","usage":{"input_tokens":100000,"cache_read_input_tokens":900000,"cache_creation_input_tokens":0,"output_tokens":50000}}}
+{"timestamp":"2026-09-16T02:00:00.200Z","message":{"id":"msg_a","stop_reason":"tool_use","model":"deepseek-flash","usage":{"input_tokens":100000,"cache_read_input_tokens":900000,"cache_creation_input_tokens":0,"output_tokens":50000}}}
+{"timestamp":"2026-09-16T02:00:00.400Z","message":{"id":"msg_a","stop_reason":"tool_use","model":"deepseek-flash","usage":{"input_tokens":100000,"cache_read_input_tokens":900000,"cache_creation_input_tokens":0,"output_tokens":50000}}}
+{"timestamp":"2026-09-16T02:05:00.000Z","message":{"id":"msg_b","stop_reason":"end_turn","model":"deepseek-flash","usage":{"input_tokens":100000,"cache_read_input_tokens":900000,"cache_creation_input_tokens":0,"output_tokens":50000}}}
+SYNTHJSONL
+  cp "${smoke_dup}/dup.jsonl" "${smoke_dsub}/sess/subagents/agent-dup.jsonl"
+
+  dup_main="$(cd "$smoke_dup" && printf '{"transcript_path":"dup.jsonl"}' \
+    | python "${statusline_src}/statusline.py" 2>/dev/null)"
+  for frag in '¥1.27(峰)' '缓存命中 90.0%' '总token 2.10M'; do
+    case "$dup_main" in
+      *"$frag"*) ;;
+      *) fail "主状态栏把同一个 message.id 的多条记录重复累加了（没有「${frag}」，实际：${dup_main}）" ;;
+    esac
+  done
+
+  # startTime 定在末条记录前 300 秒，时长才与跑的时刻无关，能写死成 5m
+  dup_sub="$(cd "$smoke_dsub" && printf '{"columns":160,"transcript_path":"sess.jsonl","tasks":[{"id":"dup","description":"重复","status":"completed","startTime":1789524000000}]}' \
+    | python "${statusline_src}/subagent-statusline.py" 2>/dev/null)"
+  [ "$dup_sub" = '{"id": "dup", "content": "重复  ¥1.27(峰) · 缓存命中 90.0% · 总token 2.10M · 5m"}' ] \
+    || fail "子代理状态栏把同一个 message.id 的多条记录重复累加了（实际：${dup_sub}）"
+  rm -rf "$smoke_dup" "$smoke_dsub"
+
   rm -rf "$smoke_main" "$smoke_sub"
 fi
 

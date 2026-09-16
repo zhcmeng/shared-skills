@@ -5,7 +5,8 @@
 输入：Claude Code 从 stdin 喂进来的会话 JSON（取其中的 transcript_path，以及
       cost.total_duration_ms）。
 数据：会话累计 token 不在 stdin JSON 里（context_window.current_usage 只是最后一次
-      调用的数字），只能逐条累计会话记录里的 usage。
+      调用的数字），只能逐条累计会话记录里的 usage。同一条回复会被按内容块拆成多条
+      记录、每条都带同一份 usage，累计前先按 message.id 收敛成一条（见 dedup_rank）。
 时长：直接取 stdin 里的 cost.total_duration_ms（会话挂钟时长，含等待与停顿），
       不从记录里推。记录只能给出「首末两条之间」的跨度，开头到第一条、最后一条
       到现在这两段都会漏掉，代理越闲漏得越多。
@@ -80,10 +81,23 @@ def rates_for(model):
     return RATES.get(key, RATES[FALLBACK_MODEL])
 
 
+def dedup_rank(msg):
+    """同一条回复被拆成多条记录时，用这个分数挑出该留下的一条。
+
+    Claude Code 把一条回复的思考、正文、工具调用各写成一条记录，每条都带同一份完整
+    usage 和同一个 message.id；流式过程中的中间记录则是 output_tokens 偏小、
+    stop_reason 还没有值。所以先比有没有 stop_reason（有的大），再比 output_tokens。
+    """
+    usage = msg.get("usage")
+    out = usage.get("output_tokens") if isinstance(usage, dict) else 0
+    return (1 if msg.get("stop_reason") else 0, out or 0)
+
+
 def collect(paths):
-    hit = miss = out = 0
-    cost = 0.0
-    saw_peak = saw_off = False
+    # 先按 message.id 把同一次调用的多条记录收敛成一条，再统一累加：照着行数累加
+    # 会把一次调用算成内容块的个数倍（真实会话实测被放大 2.6~4.2 倍）。取不到 id 的
+    # 记录各算各的——宁可多算，也不能把两次不同的调用并成一次。
+    kept = {}
 
     for path in paths:
         try:
@@ -101,32 +115,43 @@ def collect(paths):
                 msg = rec.get("message")
                 if not isinstance(msg, dict):
                     continue
-                usage = msg.get("usage")
-                if not isinstance(usage, dict):
+                if not isinstance(msg.get("usage"), dict):
                     continue
 
-                h = usage.get("cache_read_input_tokens") or 0
-                # 缓存创建按"未命中输入"计价：官方价目表无独立的缓存写入计费项
-                m = (usage.get("input_tokens") or 0) + (
-                    usage.get("cache_creation_input_tokens") or 0
-                )
-                o = usage.get("output_tokens") or 0
+                key = msg.get("id")
+                if not isinstance(key, str) or not key:
+                    key = ("无 id", len(kept))
+                prev = kept.get(key)
+                if prev is None or dedup_rank(msg) > dedup_rank(prev[0]):
+                    kept[key] = (msg, rec)
 
-                hit += h
-                miss += m
-                out += o
+    hit = miss = out = 0
+    cost = 0.0
+    saw_peak = saw_off = False
 
-                peak = is_peak(parse_ts(rec.get("timestamp")))
-                if peak:
-                    saw_peak = True
-                else:
-                    saw_off = True
+    for msg, rec in kept.values():
+        usage = msg["usage"]
 
-                rate = rates_for(msg.get("model"))
-                k = 1 if peak else 0
-                cost += (
-                    h * rate["hit"][k] + m * rate["miss"][k] + o * rate["out"][k]
-                ) / 1_000_000
+        h = usage.get("cache_read_input_tokens") or 0
+        # 缓存创建按"未命中输入"计价：官方价目表无独立的缓存写入计费项
+        m = (usage.get("input_tokens") or 0) + (
+            usage.get("cache_creation_input_tokens") or 0
+        )
+        o = usage.get("output_tokens") or 0
+
+        hit += h
+        miss += m
+        out += o
+
+        peak = is_peak(parse_ts(rec.get("timestamp")))
+        if peak:
+            saw_peak = True
+        else:
+            saw_off = True
+
+        rate = rates_for(msg.get("model"))
+        k = 1 if peak else 0
+        cost += (h * rate["hit"][k] + m * rate["miss"][k] + o * rate["out"][k]) / 1_000_000
 
     return hit, miss, out, cost, saw_peak, saw_off
 
