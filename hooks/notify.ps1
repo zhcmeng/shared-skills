@@ -31,6 +31,12 @@ function Initialize-AppId {
 
 function New-ToastXml {
     param([string]$Title, [string]$Body, [bool]$Reminder)
+    # 通知必须带一个可点的按钮，否则留不住。光写 scenario="reminder" 系统会静默忽略它：
+    # 通知 25 秒后照样自己消失（那个 25 秒正是 duration="long" 的时长），而且不报错——
+    # 所以下面那个「系统不接受就退成长时间显示」的兜底也永远不会触发。本机实测：同样
+    # 条件下带按钮的通知挂了 100 秒仍在屏幕上，不带按钮的 25 秒就没了。
+    # 常驻那一档的语义本来就是「你处理它才走」，按钮就是这个「处理」。
+    # 按钮用系统内置的 dismiss，点了就是把这条通知关掉，不需要我们再做什么。
     # 标题和正文里的 & < > 会被 XML 解析器当成标签，必须转义
     $lines = "<text>$([System.Security.SecurityElement]::Escape($Title))</text>"
     if ($Body -ne '') {
@@ -46,6 +52,9 @@ function New-ToastXml {
       $lines
     </binding>
   </visual>
+  <actions>
+    <action content="知道了" arguments="dismiss" activationType="system" />
+  </actions>
   <audio src="ms-winsoundevent:Notification.Reminder" />
 </toast>
 "@
