@@ -1,0 +1,190 @@
+#!/usr/bin/env bash
+# 通知 hook：后台会话需要你时弹一条 Windows 通知，当前会话不弹。
+#
+# 判定的全部内容就一条：事件来自的会话，是不是你最后打过字的那个。是 —— 你正看着它，
+# 不弹；不是 —— 那是后台会话，弹一条提醒你切过去。
+#
+# 为什么按会话判断、而不按窗口焦点：同一台机器上多个会话常常共用一个终端窗口
+# （Windows Terminal 的多标签页就是），拿窗口判断分不出你在哪个标签。而「最后在哪个
+# 会话敲过字」是每个会话自己的属性，分得清，也不依赖任何窗口接口。
+#
+# 任何异常都静默退出 —— 通知弹不出来是小事，挡住 Claude 是大事。
+set -uo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+NOTIFY_PS1="${SCRIPT_DIR}/notify.ps1"
+
+# 标记文件名是 hooks/notify 与 hooks/verify.sh 之间的约定，改名两边都要改
+MARK_NAME=".notify-current-session"
+# 通知正文只有两行位置，超了就截。按字符数截（jq 数的是字符），不是字节数——
+# 中文一个字三字节，按字节截会把最后一个字劈成半个。
+BODY_MAX=90
+
+# C:\Users\x → /c/Users/x（Git Bash 认这种形式）
+win_to_posix() {
+    local p="$1"
+    p="${p//\\//}"
+    case "$p" in
+        [A-Za-z]:/*) printf '/%s%s' "$(printf '%s' "${p%%:*}" | tr 'A-Z' 'a-z')" "${p#*:}" ;;
+        *)           printf '%s' "$p" ;;
+    esac
+}
+
+# jq 定位：先看 PATH，PATH 上没有就按已知安装位置挨个试。
+# 为什么要兜这一手：hook 是 Claude Code 的子进程，继承的是 Claude Code 启动那一刻的
+# PATH。刚装完 jq、还没重启会话时，PATH 上就是找不到它（本机实测）。
+find_jq() {
+    local c
+    c="$(command -v jq 2>/dev/null)"
+    if [ -n "$c" ]; then printf '%s' "$c"; return 0; fi
+    if [ -n "${LOCALAPPDATA:-}" ]; then
+        c="$(win_to_posix "$LOCALAPPDATA")/Microsoft/WinGet/Links/jq.exe"
+        if [ -x "$c" ]; then printf '%s' "$c"; return 0; fi
+    fi
+    for c in \
+        /c/ProgramData/chocolatey/bin/jq.exe \
+        "${HOME:-/nonexistent}/scoop/shims/jq.exe" \
+        "/c/Program Files/jq/jq.exe"
+    do
+        if [ -x "$c" ]; then printf '%s' "$c"; return 0; fi
+    done
+    return 1
+}
+
+# PowerShell 7 调不了系统通知接口（实测那个类型加载不出来），只能用 Windows 自带的
+# 5.1。它的 powershell.exe 和 7 的 pwsh.exe 是两个程序，不会被 PATH 顺序影响。
+find_powershell() {
+    if [ -n "${CLAUDE_NOTIFY_PS:-}" ]; then printf '%s' "$CLAUDE_NOTIFY_PS"; return 0; fi
+    local c
+    c="$(command -v powershell.exe 2>/dev/null)"
+    if [ -n "$c" ]; then printf '%s' "$c"; return 0; fi
+    printf '%s/System32/WindowsPowerShell/v1.0/powershell.exe' \
+        "$(win_to_posix "${SystemRoot:-C:\\Windows}")"
+}
+
+# 配置目录：跟状态栏脚本同一套规矩，设了 CLAUDE_CONFIG_DIR 就听它的
+cfg_dir() {
+    if [ -n "${CLAUDE_CONFIG_DIR:-}" ]; then printf '%s' "$CLAUDE_CONFIG_DIR"
+    elif [ -n "${HOME:-}" ]; then printf '%s' "${HOME}/.claude"
+    fi
+}
+
+# 通知的标签最长 16 个字符，会话号是 36 位的 UUID，得截短。去掉连字符取前 16 位，
+# 对 UUID 来说够区分了。弹和撤必须用同一个标签，所以两边都走这个函数。
+short_tag() { local t="${1//-/}"; printf '%s' "${t:0:16}"; }
+
+show_toast() {
+    local ps; ps="$(find_powershell)"
+    "$ps" -NoProfile -ExecutionPolicy Bypass -File "$NOTIFY_PS1" \
+        -Mode toast -Tag "$(short_tag "$1")" -Title "$2" -Body "$3" >/dev/null 2>&1
+    return 0
+}
+
+clear_toast() {
+    local ps; ps="$(find_powershell)"
+    "$ps" -NoProfile -ExecutionPolicy Bypass -File "$NOTIFY_PS1" \
+        -Mode clear -Tag "$(short_tag "$1")" >/dev/null 2>&1
+    return 0
+}
+
+# 标签：优先用会话标题，那正是终端标签上显示的字，你扫一眼标签就能对上是哪个窗口。
+# 标题存在会话记录（transcript）里，类型是 ai-title。取不到就退成项目目录名。
+session_label() {
+    local t=""
+    if [ -n "${tpath:-}" ] && [ -r "$tpath" ]; then
+        # 只读末尾一段：会话记录可能很大，而标题记录在会话过程中会反复重写，
+        # 最后一条通常就在近处。漏掉也不出错，退成目录名而已。
+        t="$(tail -c 262144 "$tpath" 2>/dev/null | grep -F '"ai-title"' | tail -n 1 \
+             | "$jq_bin" -r '.aiTitle // empty' 2>/dev/null)"
+    fi
+    [ -n "$t" ] || t="$(printf '%s' "${cwd:-}" | sed -e 's#.*[\\/]##')"
+    printf '%s' "$t"
+}
+
+input="$(cat 2>/dev/null)"
+[ -n "$input" ] || exit 0
+
+jq_bin="$(find_jq)" || exit 0
+[ -n "$jq_bin" ] || exit 0
+
+# 一次 jq 取齐所有要用到的字段。分隔符用 ASCII 的单元分隔符（0x1f），不用制表符：
+# read 把 IFS 里的空白字符（制表符在内）的连续出现当成一个分隔符，字段一空就整体错位
+# ——本机实测过，缺 session_id 的输入会把 cwd 读成 session_id，然后照着 cwd 去弹通知。
+# 0x1f 不是空白字符，连续出现就是一个空字段，正合需要。值里万一混进 0x1f 会撑坏结构，
+# 所以先剔掉；这几个字段本来就都是短标识，剔掉毫无损失。
+# 空值和单元素数组都要归一成字符串，否则 gsub 会报错。
+meta="$(printf '%s' "$input" | "$jq_bin" -r '[
+    (.hook_event_name // ""), (.session_id // ""), (.source // ""),
+    (.notification_type // ""), (.tool_name // ""), (.cwd // ""), (.transcript_path // "")
+] | map(if type == "string" then gsub(""; "") else "" end) | join("")' 2>/dev/null)" || exit 0
+[ -n "$meta" ] || exit 0
+
+IFS=$'\x1f' read -r event sid source ntype tname cwd tpath <<<"$meta"
+[ -n "$sid" ] || exit 0
+
+cfg="$(cfg_dir)"
+[ -n "$cfg" ] || exit 0
+mark_path="${cfg}/${MARK_NAME}"
+
+case "$event" in
+    UserPromptSubmit)
+        # 只有你亲手敲的才算「你在用这个会话」。循环唤醒、定时唤醒、非交互调用
+        # 走的是同一个事件，但那些时刻你并不在，不该把标记抢过去 —— 抢了的话，
+        # 那个会话之后出事就不再提醒你了。
+        case "$source" in
+            sdk|loop_wakeup|schedule_wakeup|poll_event|system) exit 0 ;;
+        esac
+        mkdir -p "$cfg" 2>/dev/null || exit 0
+        # 先写临时文件再改名：改名是原子的，读的一方不会读到写了一半的会话号
+        tmp="${mark_path}.$$"
+        printf '%s' "$sid" > "$tmp" 2>/dev/null || exit 0
+        mv -f "$tmp" "$mark_path" 2>/dev/null || rm -f "$tmp"
+        # 你已经回到这个会话，它之前留下的提醒就该撤掉 —— 常驻通知不会自己消失，
+        # 不撤的话，你答完那道选择题，屏幕上还挂着「等你选」。
+        clear_toast "$sid"
+        exit 0
+        ;;
+    Stop)
+        prefix="答完了"
+        filter='.last_assistant_message // ""'
+        ;;
+    PreToolUse)
+        # 事件名是所有工具共用的，只认弹选择题那个
+        [ "$tname" = "AskUserQuestion" ] || exit 0
+        prefix="等你选"
+        filter='.tool_input.questions[0].question // ""'
+        ;;
+    Notification)
+        # 只认权限请求。空闲提醒（idle_prompt）是明确不要的那条：它和你答完一轮
+        # 说的是同一件事，弹两遍纯属吵。
+        [ "$ntype" = "permission_prompt" ] || exit 0
+        prefix="要批准"
+        filter='.message // .title // ""'
+        ;;
+    *)
+        exit 0
+        ;;
+esac
+
+# 当前会话不弹。读到一半的标记文件按「不是当前会话」处理，宁可多弹一次
+if [ -r "$mark_path" ] && [ "$(cat "$mark_path" 2>/dev/null)" = "$sid" ]; then
+    exit 0
+fi
+
+# 正文压成一行并截断：通知只有两行位置，换行和制表符会把版面撑坏。
+# 分两步、先把原文字符串整个取出来再交给第二步，是因为第二步若用 jq -R 逐行读输入，
+# 正文里的换行在压缩之前就已经把输入切成好几条了，压了个寂寞（实测：通知正文会断成两行）。
+# 第二步用 --arg 传值、不喂 stdin，jq 拿到的就是一个完整字符串。length 数的是字符数，
+# 不是字节数——中文一个字三字节，按字节截会把最后一个字劈成半个。
+raw="$(printf '%s' "$input" | "$jq_bin" -r "$filter" 2>/dev/null)"
+text="$("$jq_bin" -n -r --arg t "$raw" --argjson max "$BODY_MAX" '
+    $t | gsub("[\\r\\n\\t]+"; " ") | gsub("  +"; " ")
+       | sub("^ +"; "") | sub(" +$"; "")
+       | if length > $max then .[0:$max] + "…" else . end' 2>/dev/null)"
+
+label="$(session_label)"
+if [ -n "$label" ]; then title="Claude Code · ${label}"; else title="Claude Code"; fi
+if [ -n "$text" ];  then body="${prefix}：${text}";     else body="$prefix"; fi
+
+show_toast "$sid" "$title" "$body"
+exit 0

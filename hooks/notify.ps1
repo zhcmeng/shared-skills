@@ -1,0 +1,107 @@
+﻿# 通知渲染层：只干两件事 —— 弹一条通知、撤掉某条通知。
+# 判定逻辑一概不在这里，在 hooks/notify 里（那一半纯逻辑、verify.sh 能测；这一半只能肉眼验）。
+#
+# 为什么必须是 Windows PowerShell 5.1 而不是 7：这套系统通知接口属于 WinRT，PowerShell 7
+# 加载不出来（本机实测报 "Unable to find type ToastNotificationManager"），只有系统自带的
+# 5.1 能调。所以 hooks/notify 里是写死调 powershell.exe 的。
+#
+# 为什么通知的正文走命令行参数而不是文件：中文经 Git Bash 传给 5.1 不会乱码（本机按字符
+# 码点实测过，参数和 UTF-8 文件两条路都对）。之前看着像乱码，那是 PowerShell 往管道写
+# 输出的编码问题，不是入参问题。
+param(
+    [Parameter(Mandatory = $true)][ValidateSet('toast', 'clear')][string]$Mode,
+    [Parameter(Mandatory = $true)][string]$Tag,
+    [string]$Title = '',
+    [string]$Body = '',
+    [switch]$DryRun
+)
+
+# 应用标识：不登记的话，通知署名会显示成「Windows PowerShell」。登记一次就够，系统之后
+# 就认这个名字。写在 HKCU 下，不需要管理员权限，也不动系统里的任何东西。
+$Aumid = 'ClaudeCode.Notify'
+# 分组名配合标签用：同一个标签的通知会互相顶替，而不是堆成一串
+$Group = 'claude-code'
+
+function Initialize-AppId {
+    $key = "HKCU:\SOFTWARE\Classes\AppUserModelId\$Aumid"
+    if (Test-Path $key) { return }
+    New-Item -Path $key -Force | Out-Null
+    New-ItemProperty -Path $key -Name 'DisplayName' -Value 'Claude Code' -PropertyType String -Force | Out-Null
+}
+
+function New-ToastXml {
+    param([string]$Title, [string]$Body, [bool]$Reminder)
+    # 标题和正文里的 & < > 会被 XML 解析器当成标签，必须转义
+    $lines = "<text>$([System.Security.SecurityElement]::Escape($Title))</text>"
+    if ($Body -ne '') {
+        $lines += "`n      <text>$([System.Security.SecurityElement]::Escape($Body))</text>"
+    }
+    # duration 用 long：即便常驻那一档不被系统接受，也能多留一会儿
+    $attrs = 'duration="long"'
+    if ($Reminder) { $attrs = 'scenario="reminder" ' + $attrs }
+    @"
+<toast $attrs>
+  <visual>
+    <binding template="ToastGeneric">
+      $lines
+    </binding>
+  </visual>
+  <audio src="ms-winsoundevent:Notification.Reminder" />
+</toast>
+"@
+}
+
+function New-Notifier {
+    [void][Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime]
+    [void][Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime]
+    [void][Windows.UI.Notifications.ToastNotification, Windows.UI.Notifications, ContentType = WindowsRuntime]
+    [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($Aumid)
+}
+
+function Show-Toast {
+    param([string]$Title, [string]$Body)
+    $notifier = New-Notifier
+    # 常驻那一档先试。系统不接受就退成长时间显示，自己消失总好过什么都不弹。
+    foreach ($reminder in @($true, $false)) {
+        try {
+            $xml = New-ToastXml -Title $Title -Body $Body -Reminder $reminder
+            $doc = New-Object Windows.Data.Xml.Dom.XmlDocument
+            $doc.LoadXml($xml)
+            $toast = New-Object Windows.UI.Notifications.ToastNotification $doc
+            # 标签 + 分组决定「同一个会话的新通知顶掉旧的」，而不是越堆越多
+            $toast.Tag = $Tag
+            $toast.Group = $Group
+            $notifier.Show($toast)
+            return
+        } catch {
+            if (-not $reminder) { throw }
+        }
+    }
+}
+
+function Remove-Toast {
+    [void][Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime]
+    [Windows.UI.Notifications.ToastNotificationManager]::History.Remove($Tag, $Group, $Aumid)
+}
+
+try {
+    if ($Mode -eq 'clear') {
+        if ($DryRun) { Write-Output "clear $Tag"; exit 0 }
+        Remove-Toast
+        exit 0
+    }
+
+    if ($DryRun) {
+        # 校验脚本要读这段 XML。PowerShell 默认按控制台的编码往管道写，中文会乱码，
+        # 所以先掰成 UTF-8 再输出。
+        [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+        Write-Output (New-ToastXml -Title $Title -Body $Body -Reminder $true)
+        exit 0
+    }
+
+    Initialize-AppId
+    Show-Toast -Title $Title -Body $Body
+} catch {
+    # 静默：通知弹不出来是小事，让 hook 报错是大事
+}
+exit 0
