@@ -6,7 +6,7 @@
     {
       "name": "shared-skills",
       "description": "跨工程共享的 Agent Skill 集合：说人话规则（会话启动时常驻注入）、提交、Markdown 导出、快速了解一个对象、状态栏脚本",
-      "version": "1.1.1",
+      "version": "1.1.2",
       "source": "./",
       "author": { "name": "zhcmeng" }
     }
