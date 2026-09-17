@@ -16,6 +16,10 @@ NOTIFY_PS1="${SCRIPT_DIR}/notify.ps1"
 
 # 标记文件名是 hooks/notify 与 hooks/verify.sh 之间的约定，改名两边都要改
 MARK_NAME=".notify-current-session"
+# 这个目录里放着「屏幕上现在挂着哪几条通知」，一条一个空文件，文件名是通知标签。
+# 撤通知要起一次 PowerShell（本机实测约 750 毫秒），而 PostToolUse 是唯一每个工具调用
+# 都会来的事件 —— 先查这里，没有再动 PowerShell，省下的是大头。
+TOAST_NAME=".notify-toast-up"
 # 通知正文只有两行位置，超了就截。按字符数截（jq 数的是字符），不是字节数——
 # 中文一个字三字节，按字节截会把最后一个字劈成半个。
 BODY_MAX=90
@@ -75,6 +79,9 @@ short_tag() { local t="${1//-/}"; printf '%s' "${t:0:16}"; }
 
 show_toast() {
     local ps; ps="$(find_powershell)"
+    # 先记上「屏幕上要挂它了」，再真去弹。反过来的话，你手快、抢在 PowerShell 起来之前
+    # 就把选择题答了，那条撤通知会因为查不到记录而被跳过，提醒就留在屏幕上了
+    mkdir -p "$toast_dir" 2>/dev/null && : > "${toast_dir}/$(short_tag "$1")" 2>/dev/null
     "$ps" -NoProfile -ExecutionPolicy Bypass -File "$NOTIFY_PS1" \
         -Mode toast -Tag "$(short_tag "$1")" -Title "$2" -Body "$3" >/dev/null 2>&1
     return 0
@@ -84,6 +91,9 @@ clear_toast() {
     local ps; ps="$(find_powershell)"
     "$ps" -NoProfile -ExecutionPolicy Bypass -File "$NOTIFY_PS1" \
         -Mode clear -Tag "$(short_tag "$1")" >/dev/null 2>&1
+    # 销账放在真撤之后：万一 PowerShell 没起来，记录还在，下一次事件会再试一遍，
+    # 而撤一条不存在的通知是无害的空操作。反过来先销账的话，那次失败就没人补了
+    rm -f "${toast_dir}/$(short_tag "$1")" 2>/dev/null
     return 0
 }
 
@@ -136,6 +146,7 @@ IFS=$'\x1f' read -r event sid source ntype tname cwd tpath <<<"$meta"
 cfg="$(cfg_dir)"
 [ -n "$cfg" ] || exit 0
 mark_path="${cfg}/${MARK_NAME}"
+toast_dir="${cfg}/${TOAST_NAME}"
 
 case "$event" in
     UserPromptSubmit)
@@ -173,6 +184,23 @@ case "$event" in
         mv -f "$tmp" "$mark_path" 2>/dev/null || rm -f "$tmp"
         # 你已经回到这个会话，它之前留下的提醒就该撤掉 —— 常驻通知不会自己消失，
         # 不撤的话，你答完那道选择题，屏幕上还挂着「等你选」。
+        clear_toast "$sid"
+        exit 0
+        ;;
+    PostToolUse)
+        # 那个会话的工具真的跑起来了 —— 它不再等你，它自己的提醒该撤。
+        #
+        # 这是「你已经到了那个会话」能拿到的唯一可靠信号。切窗口这个动作本身看不到：
+        # Claude Code 不把终端焦点暴露给 hook（33 个 hook 事件里没有焦点事件），焦点只在
+        # 它内部用来发「客户端在线」心跳、以及决定要不要跳过它自己那条通知。
+        #
+        # 补的是两种提醒的空档：「等你选」和「要批准」都不是打字撤掉的 —— 你是在界面上
+        # 点掉的，UserPromptSubmit 不触发，提醒于是挂着不走。（「答完了」靠打字撤，那条
+        # 早在 UserPromptSubmit 里就有。）
+        #
+        # 先查记录：这是唯一每个工具调用都会来的事件，而撤一次要起 PowerShell，本机实测
+        # 约 750 毫秒。屏幕上没挂着它的时候，一次都不该起。
+        [ -e "${toast_dir}/$(short_tag "$sid")" ] || exit 0
         clear_toast "$sid"
         exit 0
         ;;

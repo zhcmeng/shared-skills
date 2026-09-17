@@ -278,6 +278,49 @@ reset_calls; mark "session-other"
 notify "$(ev_note session-a idle_prompt "$win_cwd" "Claude is waiting for your input")"
 expect_silent "空闲等待提醒（明确不要）"
 
+# ── 你回到那个会话动了手 → 撤掉它自己的提醒 ─────────────────────────
+# 「切到那个会话」这个动作本身，hook 侧看不见：Claude Code 不把终端焦点暴露给 hook
+# （它的 33 个 hook 事件里没有焦点事件，焦点只在内部用来发「客户端在线」心跳和决定
+# 要不要跳过它自己的通知）。所以只能认「你在那个会话里真的动了手」。
+#
+# 三种提醒里，「答完了」是你打字撤的，那条已经有了。「等你选」和「要批准」不是打字
+# —— 你是在界面上点掉的，UserPromptSubmit 不会触发，提醒于是留在屏幕上不走。
+# 工具真的跑起来，才是这两种「已经处理了」的可靠信号。
+ev_post() { printf '{"hook_event_name":"PostToolUse","session_id":"%s","tool_name":"%s","cwd":"%s","tool_input":{"command":"ls"}}' "$1" "$2" "$3"; }
+
+# 先弹一条挂上，再模拟你在那个会话里动手
+reset_calls; mark "session-other"
+notify "$(ev_stop session-a "$win_cwd" "跑完了")"
+reset_calls
+notify "$(ev_post session-a Bash "$win_cwd")"
+case "$(calls)" in
+  *"[-Mode] [clear]"*"[-Tag] [sessiona]"*) ;;
+  *) fail "在那个会话里动了手，它自己的提醒没有被撤掉（实际：${calls:-无调用}）" ;;
+esac
+
+# 撤的是「事件来自的那个会话」的提醒，不是别的会话的。每个会话的通知各有各的标签，
+# 撤错标签等于把别人的提醒误删，或者自己的删不掉
+reset_calls; mark "session-other"
+notify "$(ev_stop session-a "$win_cwd" "跑完了")"
+reset_calls
+notify "$(ev_post session-b Bash "$win_cwd")"
+case "$(calls)" in
+  *"[-Tag] [sessiona]"*) fail "别的会话动手，却撤了 session-a 的提醒（实际：${calls}）" ;;
+esac
+
+# 动手不是说话，不该把「当前会话」标记抢过去。抢了的话，那个会话之后出事就不再提醒你
+reset_calls; mark "session-other"
+notify "$(ev_post session-a Bash "$win_cwd")"
+[ "$(cat "${notify_cfg}/${MARK_NAME}" 2>/dev/null)" = "session-other" ] \
+  || fail "工具跑起来不该改写当前会话标记"
+
+# 屏幕上根本没有这个会话的通知时，一次 PowerShell 都不该起。PostToolUse 是唯一每个
+# 工具调用都会来的事件（本机实测：一次会话的工具调用中位数 17 次），而一次 PowerShell
+# 约 750 毫秒 —— 撤一个不存在的东西不值这个价
+reset_calls; mark "session-other"
+notify "$(ev_post session-b Bash "$win_cwd")"
+expect_silent "没有通知挂着时的 PostToolUse"
+
 # 坏输入不该让 hook 挂掉。hook 挂掉比通知弹不出来严重得多
 reset_calls; mark "session-other"
 notify '这不是 JSON'
