@@ -1,4 +1,4 @@
-﻿# 通知渲染层：只干两件事 —— 弹一条通知、撤掉某条通知。
+﻿# 通知渲染层：弹一条通知、撤掉某条通知，外加回一个事实（前台窗口标题里有没有某段字）。
 # 判定逻辑一概不在这里，在 hooks/notify 里（那一半纯逻辑、verify.sh 能测；这一半只能肉眼验）。
 #
 # 为什么必须是 Windows PowerShell 5.1 而不是 7：这套系统通知接口属于 WinRT，PowerShell 7
@@ -9,10 +9,11 @@
 # 码点实测过，参数和 UTF-8 文件两条路都对）。之前看着像乱码，那是 PowerShell 往管道写
 # 输出的编码问题，不是入参问题。
 param(
-    [Parameter(Mandatory = $true)][ValidateSet('toast', 'clear')][string]$Mode,
-    [Parameter(Mandatory = $true)][string]$Tag,
+    [Parameter(Mandatory = $true)][ValidateSet('toast', 'clear', 'focused')][string]$Mode,
+    [string]$Tag = '',
     [string]$Title = '',
     [string]$Body = '',
+    [string]$Name = '',
     [switch]$DryRun
 )
 
@@ -93,7 +94,37 @@ function Remove-Toast {
     [Windows.UI.Notifications.ToastNotificationManager]::History.Remove($Tag, $Group, $Aumid)
 }
 
+
+# 前台窗口的标题里有没有这段字。用来回答「你现在看的是不是这个会话」—— 标题里带着会话名
+# （终端标签上显示的就是它）。判定不在这里：这里只把窗口上写着什么这个事实取回来，怎么用
+# 由 hooks/notify 决定。
+function Test-ForegroundTitle {
+    param([string]$Text)
+    if ($Text -eq '') { return $false }
+    Add-Type @"
+using System;
+using System.Text;
+using System.Runtime.InteropServices;
+public class ClaudeNotifyFg {
+    [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetWindowText(IntPtr h, StringBuilder s, int n);
+}
+"@
+    $h = [ClaudeNotifyFg]::GetForegroundWindow()
+    if ($h -eq [IntPtr]::Zero) { return $false }
+    $sb = New-Object System.Text.StringBuilder 1024
+    [void][ClaudeNotifyFg]::GetWindowText($h, $sb, 1024)
+    return $sb.ToString().Contains($Text)
+}
+
 try {
+    if ($Mode -eq 'focused') {
+        # 只回 yes / no 两个 ASCII 词。中文经管道回给 bash 会乱码（入参方向不会，出参
+        # 方向会，本机实测过），所以别让标题本身过管道。取不到就当没看着
+        if (Test-ForegroundTitle -Text $Name) { Write-Output 'yes' } else { Write-Output 'no' }
+        exit 0
+    }
+
     if ($Mode -eq 'clear') {
         if ($DryRun) { Write-Output "clear $Tag"; exit 0 }
         Remove-Toast

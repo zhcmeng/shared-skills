@@ -14,7 +14,14 @@ mkdir -p "$notify_cfg"
 
 cat > "$notify_stub" <<'STUB'
 #!/usr/bin/env bash
-# 假的 PowerShell：把参数原样记进日志，什么都不弹
+# 假的 PowerShell。focused 模式是一次「问」、不是一次「做」，不进日志 —— 日志只记
+# 弹和撤，断言才好写。回答由 STUB_FOCUSED 给：yes / no / 空（空 = 标题读不到）
+case " $* " in
+  *" -Mode focused "*)
+    [ -n "${STUB_FOCUSED:-}" ] && printf '%s' "$STUB_FOCUSED"
+    exit 0 ;;
+esac
+# 其余：把参数原样记进日志，什么都不弹
 { printf 'CALL'; for a in "$@"; do printf ' [%s]' "$a"; done; printf '\n'; } >> "$STUB_LOG"
 exit 0
 STUB
@@ -38,8 +45,9 @@ ev_note()  { printf '{"hook_event_name":"Notification","session_id":"%s","notifi
 MARK_NAME=".notify-current-session"
 mark() { printf '%s' "$1" > "${notify_cfg}/${MARK_NAME}"; }
 notify() {
-  printf '%s' "$1" | STUB_LOG="$notify_log" CLAUDE_CONFIG_DIR="$notify_cfg" \
-    CLAUDE_NOTIFY_PS="$notify_stub" bash "${SCRIPT_DIR}/notify" 2>/dev/null
+  printf '%s' "$1" | STUB_LOG="$notify_log" STUB_FOCUSED="${STUB_FOCUSED:-}" \
+    CLAUDE_CONFIG_DIR="$notify_cfg" CLAUDE_NOTIFY_PS="$notify_stub" \
+    bash "${SCRIPT_DIR}/notify" 2>/dev/null
   return 0
 }
 calls() { cat "$notify_log" 2>/dev/null; }
@@ -155,6 +163,34 @@ if command -v cygpath >/dev/null 2>&1; then
   notify "$(ev_stop_tr session-a "$win_cwd" "${tr_win//"$bs"/"$bs$bs"}" "跑完了")"
   expect_toast "反斜杠形式的转录路径" "[-Title] [Claude Code · demo · 反斜杠路径]"
 fi
+
+# ── 你眼睛看着哪个会话 ───────────────────────────────────────────────
+# 标记记的是「你最后在哪儿敲过字」，不是「你现在看着哪儿」。两个窗口轮流用的时候这两件
+# 事会分家：你在 A 敲完就切到 B，A 于是成了「后台」，它一答完就弹 —— 而你正看着它。
+# 所以标记说「不是你」之后，再问一句窗口标题：前台窗口是不是这个会话。
+#
+# 窗口标题里带着会话名（终端标签上显示的就是它），这是唯一能拿到「你在看哪个会话」的
+# 地方 —— Claude Code 不把焦点告诉 hook。
+# 窗口标题里要拿会话名去比，所以这几条都得用「有名字的会话」来验：转录里放一条标题记录
+reset_calls; : > "$tr_file"; put '{"type":"ai-title","aiTitle":"演示会话"}'
+mark "session-other"
+STUB_FOCUSED=yes notify "$(ev_stop_tr session-a "$win_cwd" "$tr_file" "跑完了")"
+expect_silent "标记不是你，但你正看着它"
+
+# 前台窗口不是它（在看别的会话、或干脆不在终端里）→ 照弹，提醒才有意义
+reset_calls; mark "session-other"
+STUB_FOCUSED=no notify "$(ev_stop_tr session-a "$win_cwd" "$tr_file" "跑完了")"
+expect_toast "你看着别处时照弹" "[-Body] [答完了：跑完了]"
+
+# 读不到窗口标题（别的终端程序、拿不到前台窗口）→ 退回标记那一套，不能因为问不到就不提醒
+reset_calls; mark "session-other"
+STUB_FOCUSED= notify "$(ev_stop_tr session-a "$win_cwd" "$tr_file" "跑完了")"
+expect_toast "问不到窗口时退回标记" "[-Body] [答完了：跑完了]"
+
+# 会话还没有名字（刚开始、标题还没生成）→ 没有可比对的东西，同样退回标记
+reset_calls; mark "session-other"
+STUB_FOCUSED=yes notify "$(ev_stop session-a "$win_cwd" "跑完了")"
+expect_toast "会话没名字时退回标记" "[-Body] [答完了：跑完了]"
 
 # 当前会话答完 → 不弹。这是整个功能的中心：你正看着它，不需要提醒
 reset_calls; mark "session-a"
