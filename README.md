@@ -12,6 +12,7 @@
 skills/<skill 名>/SKILL.md      # 必需，一个子目录 = 一个独立 skill
 skills/<skill 名>/<辅助文件>     # 可选：参考文档、脚本、模板
 statusline/<脚本名>.py          # 状态栏脚本，会被同步到配置目录，见下方「状态栏」
+rules/<规则名>.md               # 常驻规则，会被同步到配置目录，见下方「常驻规则」
 ```
 
 `skills/` 放在仓库根，与 `obra/superpowers` 的内部布局一致——将来若改用其它分发方式（`npx skills`、插件市场），目录无需重排。
@@ -20,7 +21,7 @@ statusline/<脚本名>.py          # 状态栏脚本，会被同步到配置目�
 
 | skill | 用途 |
 |:---|:---|
-| `plain-language` | 回答或文档读不懂时用：黑话、无必要的中英文夹杂、英文没给中文翻译。无参数重说最近一条回答，给文档路径出问题清单。只读不改。 |
+| `plain-language` | 回答或文档读不懂时用：黑话、无必要的中英文夹杂、英文没给中文翻译。无参数重说最近一条回答，给文档路径直接改原文件（只动有问题的句子）。 |
 | `commit` | 提交本会话改动并推送：只 add 本会话改过的文件，生成中文提交信息，push 当前分支。 |
 | `md-export` | 把 Markdown 导出为 PDF 或 HTML：表格、数学公式、本地图片都支持，样式对齐 Markdown Preview Enhanced 的预览主题。支持单文件与目录批量。只需一个 Chromium 浏览器。 |
 | `whatis` | 快速了解一个对象（开源仓库、工具、概念、术语）：一段对话速览——是什么、能做什么、大概原理、什么场景用，末尾列出可直接回复字母继续追问的问题。 |
@@ -29,7 +30,8 @@ statusline/<脚本名>.py          # 状态栏脚本，会被同步到配置目�
 
 本仓库同时是一个 Claude Code 插件，`skills/` 会被自动注册，SessionStart hook 会把
 `plain-language` 的写作规则注入每个会话（`startup` / `clear` / `compact` 三种时机），
-同一个 hook 还会把 `statusline/` 下的脚本同步到配置目录（见下方「状态栏」）。
+同一个 hook 还会把 `statusline/` 下的脚本和 `rules/` 下的常驻规则同步到配置目录
+（见下方「状态栏」「常驻规则」）。
 插件另外挂了五个通知 hook，后台会话需要你时弹 Windows 通知（见下方「通知」）。
 
 ```
@@ -102,6 +104,40 @@ statusline/<脚本名>.py          # 状态栏脚本，会被同步到配置目�
 同步是「内容一致就不动文件」，所以每次会话都跑一遍没有代价（实测增量约 1.5 毫秒，
 整个 hook 的耗时量不出差别）。**仓库是唯一真相**：配置目录里的那两个脚本会被仓库版本
 覆盖，改脚本请改仓库里的 `statusline/`，别改副本。
+
+## 常驻规则
+
+插件带两条常驻规则，走的不是同一条路：
+
+| 规则 | 怎么进上下文 |
+|:---|:---|
+| 说人话（`skills/plain-language/rules.md`） | SessionStart hook 以 `additionalContext` 注入 |
+| 改文件走专用工具（`rules/file-edits.md`） | 同步到配置目录的 `rules/` 下，由 Claude Code 自动加载 |
+
+第二条管的是：改文件走 Read / Edit / Write，不走命令行。**任何权限模式下都适用，包括
+bypass permissions（跳过权限确认）**——那个模式默认会引导模型改用命令行改文件（见下方
+「为什么会有 `rules/` 而不是直接写 `CLAUDE.md`」一节里的说明），这条规则就是用来盖过它的。
+
+配置目录下的 `rules/` 是 Claude Code 的**用户级常驻规则位置**：里面的 `*.md` 会和
+`CLAUDE.md` 一起自动加载，不需要在 `settings.json` 里配任何东西。
+
+### 为什么会有 `rules/` 而不是直接写 `CLAUDE.md`
+
+配置目录下的 `CLAUDE.md` 是**用户自己的**记忆文件。插件往里写会覆盖掉用户自己定的规则，
+而且覆盖是静默的——用户收不到任何提示，只发现自己写的规则不见了。`rules/` 是插件可以
+自己占用的目录，两者互不干扰。
+
+### 幂等与覆盖
+
+和状态栏一个规矩：内容一致就不动文件，所以每次会话都跑一遍没有代价。**仓库是唯一真相**——
+配置目录里的规则会被仓库版本覆盖。想改规则请改本仓库的 `rules/`，改配置目录里的副本不作数，
+下一会话就被抹掉（`hooks/verify.sh` 里「被改坏要能修回」那条验的就是这件事）。
+
+### 怎么关掉
+
+删配置目录里的那条规则没用，下一会话会被同步回来。要关掉得从插件这边断：在自己的 fork 里
+删掉 `rules/file-edits.md`（或整个 `rules/`），或者把 `hooks/session-start` 里同步 `rules/`
+的那一段去掉。
 
 ## 通知
 
@@ -193,8 +229,9 @@ statusline/<脚本名>.py          # 状态栏脚本，会被同步到配置目�
 
 - **校验脚本**：`bash hooks/verify.sh` 跑全部，`bash hooks/verify.sh notify` 只跑文件名含该关键词的模块。
   脚本拆在 `hooks/verify.d/` 下，一个模块管一件事，入口只负责按序加载和汇总：
-  `10-session-start`（注入文本、polyglot 两个分支）、`20-statusline-sync`、`30-statusline-smoke`、
-  `40-notify`（判定）、`50-notify-render`、`60-wiring`（hooks.json 接线）。加校验就加模块，别往入口里塞
+  `10-session-start`（注入文本、polyglot 两个分支）、`20-statusline-sync`、`25-rules-sync`、
+  `30-statusline-smoke`、`40-notify`（判定）、`50-notify-render`、`60-wiring`（hooks.json 接线）。
+  加校验就加模块，别往入口里塞
 - **新增一个 skill**：在 `skills/` 下建目录，写 `SKILL.md`，并在上方表格补一行
 - **改 skill**：只改本仓库。各工程放的是指向这里的链接，不在工程内改副本
 - **收录判据**：跟具体工程无关、别的工程拿去也能直接用。绑死某个工程的不收
@@ -202,6 +239,9 @@ statusline/<脚本名>.py          # 状态栏脚本，会被同步到配置目�
 - **改状态栏脚本**：只改 `statusline/` 下的。配置目录里的副本每次会话都会被覆盖回去，改了不作数。
   改完跑 `bash hooks/verify.sh`：它会校验同步有没有断（内容一致时不重写、被改坏能修回、
   `CLAUDE_CONFIG_DIR` 优先于 `HOME`）。校验全程在临时目录里跑，不会动你真实的配置目录
+- **改常驻规则**：只改 `rules/` 下的，理由同上——配置目录里的副本同样每次会话都会被覆盖回去。
+  改完跑 `bash hooks/verify.sh rules`，验的是同一批性质（同步没断、内容一致时不重写、
+  被改坏能修回、`CLAUDE_CONFIG_DIR` 优先于 `HOME`）
 - **改通知判定**：改 `hooks/notify`。它是纯逻辑、不碰界面，`verify.sh` 里那批断言把「窗口说的
   是什么 × 标记写的是谁 × 事件来自谁」的组合都覆盖了
 - **改标题比对规则**：改 `hooks/notify.ps1` 里的 `Get-TitleVerdict`。`verify.sh` 用 `-Mode match`

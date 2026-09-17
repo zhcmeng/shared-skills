@@ -6,7 +6,7 @@
 #   bash hooks/verify.sh notify     只跑文件名里带 notify 的模块
 #
 # 模块是被 source 进同一个 shell 的，共享这里定义的 fail / scratch_dir /
-# scratch_file / test_home / statusline_src。别改成靠 $( ) 返回值传数组那种写法：
+# scratch_file / test_home / statusline_src / rules_src。别改成靠 $( ) 返回值传数组那种写法：
 # 子 shell 里改的东西传不出来（30 那块里记着同一类坑）。
 set -uo pipefail
 
@@ -47,10 +47,11 @@ for dep in node mktemp cmp; do
   fi
 done
 
-# 10 和 20 共用这个替身 HOME：session-start 会把 statusline/ 下的脚本同步到配置目录，
-# 不换 HOME 就会写进真实用户的 ~/.claude。校验脚本不该动真东西。
+# 10、20、25 共用这个替身 HOME：session-start 会把 statusline/ 下的脚本和 rules/ 下的
+# 规则同步到配置目录，不换 HOME 就会写进真实用户的 ~/.claude。校验脚本不该动真东西。
 test_home="$(scratch_dir)"
 statusline_src="$(cd "${SCRIPT_DIR}/../statusline" 2>/dev/null && pwd)"
+rules_src="$(cd "${SCRIPT_DIR}/../rules" 2>/dev/null && pwd)"
 
 mods=("$VERIFY_D"/*.sh)
 if [ ! -e "${mods[0]}" ]; then
