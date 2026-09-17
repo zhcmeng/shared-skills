@@ -1,4 +1,4 @@
-﻿# 通知渲染层：弹一条通知、撤掉某条通知，外加回一个事实（前台窗口标题里有没有某段字）。
+﻿# 通知渲染层：弹一条通知、撤掉某条通知，外加回答一个问题（你现在看的是不是这个会话）。
 # 判定逻辑一概不在这里，在 hooks/notify 里（那一半纯逻辑、verify.sh 能测；这一半只能肉眼验）。
 #
 # 为什么必须是 Windows PowerShell 5.1 而不是 7：这套系统通知接口属于 WinRT，PowerShell 7
@@ -9,11 +9,14 @@
 # 码点实测过，参数和 UTF-8 文件两条路都对）。之前看着像乱码，那是 PowerShell 往管道写
 # 输出的编码问题，不是入参问题。
 param(
-    [Parameter(Mandatory = $true)][ValidateSet('toast', 'clear', 'focused')][string]$Mode,
+    [Parameter(Mandatory = $true)][ValidateSet('toast', 'clear', 'focused', 'match')][string]$Mode,
     [string]$Tag = '',
     [string]$Title = '',
     [string]$Body = '',
     [string]$Name = '',
+    # 只给 match 那一档用：拿它当窗口标题来比，不真去读窗口。校验脚本靠这个口子单独验
+    # 比对规则（真窗口在测试里摆不出来）
+    [string]$WindowTitle = '',
     [switch]$DryRun
 )
 
@@ -95,12 +98,9 @@ function Remove-Toast {
 }
 
 
-# 前台窗口的标题里有没有这段字。用来回答「你现在看的是不是这个会话」—— 标题里带着会话名
-# （终端标签上显示的就是它）。判定不在这里：这里只把窗口上写着什么这个事实取回来，怎么用
-# 由 hooks/notify 决定。
-function Test-ForegroundTitle {
-    param([string]$Text)
-    if ($Text -eq '') { return $false }
+# 前台窗口上写着什么。读不到（拿不到前台窗口句柄）就回空 —— 「空」是「不知道」，不是
+# 「不是」，这两件事在 hooks/notify 里走的是不同的路。
+function Get-ForegroundTitle {
     Add-Type @"
 using System;
 using System.Text;
@@ -111,17 +111,50 @@ public class ClaudeNotifyFg {
 }
 "@
     $h = [ClaudeNotifyFg]::GetForegroundWindow()
-    if ($h -eq [IntPtr]::Zero) { return $false }
+    if ($h -eq [IntPtr]::Zero) { return '' }
     $sb = New-Object System.Text.StringBuilder 1024
     [void][ClaudeNotifyFg]::GetWindowText($h, $sb, 1024)
-    return $sb.ToString().Contains($Text)
+    return $sb.ToString()
+}
+
+# 标题跟会话名算不算对得上，回三种答案之一：
+#   'yes'  对上了 —— 你在看它
+#   'no'   标题读到了，但名字不在里面 —— 你没在看它
+#   ''     没得比（名字是空的，或者标题是空的）—— 不知道
+# 「不知道」必须跟「不是」分开：前者要退回另一套判据（标记文件），后者可以直接定案。
+#
+# 对上的条件是：标题就是这个名字（有个开关能让标题不带图标），或者标题的第 2 位起正好是
+# 这个名字。为什么卡在第 2 位：CLI 写进窗口标题的是 `${状态图标} ${会话名}`（2.1.274 的
+# 拼装代码如此）—— 第 0 位图标、第 1 位空格、第 2 位起才是名字。图标会变（干活时在 ◐ ◑
+# 之间转、空闲是 ✳），所以不能整条相等；名字后面什么都没有，所以也不能只要求开头对得上。
+#
+# 更不能放宽成「以空格 + 名字结尾」：会话名自己就带空格（本机在跑的就有「插件的 evals
+# 设置」），那样比的话，名字「设置」会拿人家名字内部那个空格当分隔符，把别人的提醒压掉。
+# 这里最初就是那么写的，被拿真窗口试的时候抓了出来（合成用例的名字都没空格，没盖住），
+# 所以改成卡死位置。图标都是单字符（◐ ◑ ✳），固定切 2 位；将来若换成要两个码元的图标，
+# 这里会判成「对不上」—— 方向是安全的那边（多弹一次，而不是把该弹的压掉）。
+#
+# 比的是码点（Ordinal），不走区域设置 —— 后者会忽略某些不可见字符，那正是撞名的温床。
+function Get-TitleVerdict {
+    param([string]$Title, [string]$Name)
+    if ($Title -eq '' -or $Name -eq '') { return '' }
+    if ($Title.Equals($Name, [StringComparison]::Ordinal)) { return 'yes' }
+    if ($Title.Length -ge 2 -and $Title[1] -eq ' ' -and $Title.Substring(2).Equals($Name, [StringComparison]::Ordinal)) { return 'yes' }
+    return 'no'
 }
 
 try {
+    if ($Mode -eq 'match') {
+        # 只比一对字符串，不碰窗口。给校验脚本留的口子：真窗口在测试里摆不出来，而上面
+        # 那条比对规则是这一层唯一有判断的地方，值得能单独验
+        Write-Output (Get-TitleVerdict -Title $WindowTitle -Name $Name)
+        exit 0
+    }
+
     if ($Mode -eq 'focused') {
-        # 只回 yes / no 两个 ASCII 词。中文经管道回给 bash 会乱码（入参方向不会，出参
-        # 方向会，本机实测过），所以别让标题本身过管道。取不到就当没看着
-        if (Test-ForegroundTitle -Text $Name) { Write-Output 'yes' } else { Write-Output 'no' }
+        # 只回 yes / no / 空三个答案，都是 ASCII。中文经管道回给 bash 会乱码（入参方向
+        # 不会，出参方向会，本机实测过），所以别让标题本身过管道
+        Write-Output (Get-TitleVerdict -Title (Get-ForegroundTitle) -Name $Name)
         exit 0
     }
 

@@ -1,6 +1,7 @@
 # ── 通知判定 ───────────────────────────────────────────────────────
-# 判定的全部内容就一条：事件来自的会话，是不是你最后打过字的那个。所以这里把
-# 「标记文件里写的是谁」和「事件来自谁」两个变量穷举一遍，看决定是弹还是不弹。
+# 判定的全部内容就一条：这条提醒对应的会话，是不是你眼睛正看着的那个。判据有两个，
+# 按可信度排：前台窗口标题（说了算），标记文件（窗口答不出来时才轮到它）。这里把两个
+# 判据各自写的是谁穷举一遍，看决定是弹还是不弹。
 #
 # 用一个假的 PowerShell，不真弹：真弹既打扰人，也没法断言弹了什么。假的把收到的参数
 # 记进日志，断言的就是「真实运行时会交给 PowerShell 什么」。CLAUDE_NOTIFY_PS 是为此
@@ -74,14 +75,14 @@ expect_silent() {
 }
 
 # 别的会话答完 → 弹。正文用 last_assistant_message，不用去翻记录。
-# 这条没给转录路径，标题就只有「应用名 · 项目名」两段，项目名取 cwd 末段；
+# 这条没给转录路径，标题就只剩项目名一段，项目名取 cwd 末段；
 # 反斜杠形式的 cwd 顺带在这里被压住。
 reset_calls; mark "session-other"
 notify "$(ev_stop session-a "$win_cwd" "把 hook 加好了")"
-expect_toast "别的会话答完" "[-Tag] [sessiona]" "[-Title] [Claude Code · demo]" "[-Body] [答完了：把 hook 加好了]"
+expect_toast "别的会话答完" "[-Tag] [sessiona]" "[-Title] [demo]" "[-Body] [答完了：把 hook 加好了]"
 
 # ── 会话名从哪来 ─────────────────────────────────────────────────────
-# 标题写成「Claude Code · 项目名 · 会话名」，缺哪段少哪段。会话名有三种来源，取用顺序
+# 标题写成「项目名 · 会话名」，缺哪段少哪段。会话名有三种来源，取用顺序
 # 不是我定的，是从 Claude Code 自己那里挖出来的（它显示会话名用的是
 # agentName 优先于 customTitle 优先于 aiTitle）。跟着它走，弹窗上的名字才和别处一致。
 #
@@ -97,7 +98,7 @@ ev_stop_tr(){ printf '{"hook_event_name":"Stop","session_id":"%s","cwd":"%s","tr
 reset_calls; : > "$tr_file"; put '{"type":"ai-title","aiTitle":"自动生成的标题"}'
 mark "session-other"
 notify "$(ev_stop_tr session-a "$win_cwd" "$tr_file" "跑完了")"
-expect_toast "会话名取自动生成的标题" "[-Title] [Claude Code · demo · 自动生成的标题]"
+expect_toast "会话名取自动生成的标题" "[-Title] [demo · 自动生成的标题]"
 
 # 同一种记录写了多条 → 取最后一条（会话过程中标题会反复重写）
 reset_calls; : > "$tr_file"
@@ -105,7 +106,7 @@ put '{"type":"ai-title","aiTitle":"旧标题"}'
 put '{"type":"ai-title","aiTitle":"新标题"}'
 mark "session-other"
 notify "$(ev_stop_tr session-a "$win_cwd" "$tr_file" "跑完了")"
-expect_toast "同名记录取最后一条" "[-Title] [Claude Code · demo · 新标题]"
+expect_toast "同名记录取最后一条" "[-Title] [demo · 新标题]"
 
 # 三种记录同时在 → 按优先级取，不是按谁写在最后。这里故意把优先级最高的写在最前面、
 # 把自动标题写在最后：按「取最后一条」实现会得到「自动生成的」，正好被这条挡住
@@ -115,7 +116,7 @@ put '{"type":"custom-title","customTitle":"改名记录"}'
 put '{"type":"ai-title","aiTitle":"自动生成的"}'
 mark "session-other"
 notify "$(ev_stop_tr session-a "$win_cwd" "$tr_file" "跑完了")"
-expect_toast "三种记录同时在时的优先级" "[-Title] [Claude Code · demo · 优先级最高的]"
+expect_toast "三种记录同时在时的优先级" "[-Title] [demo · 优先级最高的]"
 
 # 少了最高那档 → 落到 /rename 改的名上，仍然赢过自动标题
 reset_calls; : > "$tr_file"
@@ -123,24 +124,29 @@ put '{"type":"ai-title","aiTitle":"自动生成的"}'
 put '{"type":"custom-title","customTitle":"改名记录"}'
 mark "session-other"
 notify "$(ev_stop_tr session-a "$win_cwd" "$tr_file" "跑完了")"
-expect_toast "改名优先于自动标题" "[-Title] [Claude Code · demo · 改名记录]"
+expect_toast "改名优先于自动标题" "[-Title] [demo · 改名记录]"
 
 # 转录里一条标题记录都没有 → 回落到项目目录名，标题只剩两段
 reset_calls; : > "$tr_file"
 mark "session-other"
 notify "$(ev_stop_tr session-a "$win_cwd" "$tr_file" "跑完了")"
-expect_toast "转录里没有标题记录" "[-Title] [Claude Code · demo]"
+expect_toast "转录里没有标题记录" "[-Title] [demo]"
 
 # 转录文件根本不存在（会话刚开始、路径写错）→ 同样回落，不报错也不留空标题
 reset_calls
 notify "$(ev_stop_tr session-a "$win_cwd" "${tr_dir}/不存在.jsonl" "跑完了")"
-expect_toast "转录文件不存在" "[-Title] [Claude Code · demo]"
+expect_toast "转录文件不存在" "[-Title] [demo]"
 
 # 标题字段是空的 → 当作没取到，别在标题里留一截孤零零的分隔点
 reset_calls; : > "$tr_file"; put '{"type":"ai-title","aiTitle":""}'
 mark "session-other"
 notify "$(ev_stop_tr session-a "$win_cwd" "$tr_file" "跑完了")"
-expect_toast "标题字段为空" "[-Title] [Claude Code · demo]"
+expect_toast "标题字段为空" "[-Title] [demo]"
+
+# 项目名和会话名都取不到（工作目录是空的，转录也没有）→ 退回应用名，不让标题行空着
+reset_calls; mark "session-other"
+notify "$(ev_stop session-a "" "跑完了")"
+expect_toast "项目和会话名都没有时退回应用名" "[-Title] [Claude Code]"
 
 # 转录会很大，只回看末尾一段。标题记录在近处要能取到，而且不能被窗口开头那半行
 # 断掉的 JSON 带偏——窗口按字节切，首行几乎注定是断的
@@ -150,7 +156,7 @@ put "{\"type\":\"assistant\",\"message\":\"$(head -c 400000 /dev/zero | tr '\0' 
 put '{"type":"ai-title","aiTitle":"近处的新标题"}'
 mark "session-other"
 notify "$(ev_stop_tr session-a "$win_cwd" "$tr_file" "跑完了")"
-expect_toast "标题记录落在末尾窗口内" "[-Title] [Claude Code · demo · 近处的新标题]"
+expect_toast "标题记录落在末尾窗口内" "[-Title] [demo · 近处的新标题]"
 
 # Windows 上 Claude Code 给的是反斜杠路径，得能读。路径本身要先转义成合法 JSON，
 # 否则 notify 拿到坏 JSON 会静默退出，断言只会以「没弹」的形式挂掉，看不出真原因
@@ -161,13 +167,16 @@ if command -v cygpath >/dev/null 2>&1; then
   # 模式那侧的 $bs 必须加引号。不加的话 bash 会把模式里的反斜杠当成转义符，替换变成
   # 空操作，路径原样进 JSON —— 成了非法转义，notify 收到坏 JSON 静默退出（本仓库栽过）
   notify "$(ev_stop_tr session-a "$win_cwd" "${tr_win//"$bs"/"$bs$bs"}" "跑完了")"
-  expect_toast "反斜杠形式的转录路径" "[-Title] [Claude Code · demo · 反斜杠路径]"
+  expect_toast "反斜杠形式的转录路径" "[-Title] [demo · 反斜杠路径]"
 fi
 
 # ── 你眼睛看着哪个会话 ───────────────────────────────────────────────
-# 标记记的是「你最后在哪儿敲过字」，不是「你现在看着哪儿」。两个窗口轮流用的时候这两件
-# 事会分家：你在 A 敲完就切到 B，A 于是成了「后台」，它一答完就弹 —— 而你正看着它。
-# 所以标记说「不是你」之后，再问一句窗口标题：前台窗口是不是这个会话。
+# 标记记的是「你最后在哪儿敲过字」，不是「你现在看着哪儿」。这两件事分家时两个方向都会错：
+#   · 你在 A 敲完就切到 B，A 成了「后台」，标记还说它是当前会话 —— 它一答完就弹，可你正看着它；
+#   · 你停在 claude agents 总览列表上，谁都不算当前，标记却还压着最后打字的那个 —— 它不弹，
+#     可你根本没在看它。
+# 所以判据换成了前台窗口标题：窗口说「是」就压、说「不是」就弹，标记退到后面 —— 只有窗口
+# 答不出来（会话还没名字、前台窗口读不到、PowerShell 起不来）才轮到它。
 #
 # 窗口标题里带着会话名（终端标签上显示的就是它），这是唯一能拿到「你在看哪个会话」的
 # 地方 —— Claude Code 不把焦点告诉 hook。
@@ -191,6 +200,23 @@ expect_toast "问不到窗口时退回标记" "[-Body] [答完了：跑完了]"
 reset_calls; mark "session-other"
 STUB_FOCUSED=yes notify "$(ev_stop session-a "$win_cwd" "跑完了")"
 expect_toast "会话没名字时退回标记" "[-Body] [答完了：跑完了]"
+
+# 标记说是你、窗口说不是 → 照弹。这一条是「窗口说了算」的分界：标记只知道你最后在哪儿
+# 敲过字，你敲完切走了它并不知道。最常见的形状就是停在总览列表上 —— 那时谁都不算当前，
+# 可标记还压着最后打字的那个。旧写法（标记先判、命中就退出）在这儿会静默，正好是错的
+reset_calls; mark "session-a"
+STUB_FOCUSED=no notify "$(ev_stop_tr session-a "$win_cwd" "$tr_file" "跑完了")"
+expect_toast "标记说是你、窗口说不是 → 照弹" "[-Body] [答完了：跑完了]"
+
+# 标记说是你、窗口答不出来 → 压。窗口没得答时标记是唯一凭据，不能反过来当成「你没在看」
+reset_calls; mark "session-a"
+STUB_FOCUSED= notify "$(ev_stop_tr session-a "$win_cwd" "$tr_file" "跑完了")"
+expect_silent "窗口答不出来时退回标记：标记说是你就不弹"
+
+# 会话还没名字时同理：没有可比对的东西，标记说了算
+reset_calls; mark "session-a"
+STUB_FOCUSED=no notify "$(ev_stop session-a "$win_cwd" "跑完了")"
+expect_silent "会话没名字时退回标记：标记说是你就不弹"
 
 # 当前会话答完 → 不弹。这是整个功能的中心：你正看着它，不需要提醒
 reset_calls; mark "session-a"
