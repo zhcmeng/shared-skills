@@ -1,10 +1,10 @@
 {
   "name": "shared-skills",
-  "description": "跨工程共享的 Agent Skill 集合：两条常驻规则（说人话、改文件用 Read/Edit/Write，会话启动时注入）、英文文档翻译、提交、Markdown 导出、快速了解一个对象、状态栏脚本、后台会话通知",
-  "version": "1.6.0",
+  "description": "跨工程共享的 Agent Skill 集合：两条常驻规则（说人话、改文件用 Read/Edit/Write，会话启动时注入）、英文文档翻译、提交、Markdown 导出、token 计数、快速了解一个对象、状态栏脚本、后台会话通知",
+  "version": "1.7.0",
   "author": { "name": "zhcmeng" },
   "homepage": "https://github.com/zhcmeng/shared-skills",
   "repository": "https://github.com/zhcmeng/shared-skills",
   "license": "MIT",
-  "keywords": ["skills", "plain-language", "chinese", "markdown", "commit", "translation"]
+  "keywords": ["skills", "plain-language", "chinese", "markdown", "commit", "translation", "tokenizer"]
 }
