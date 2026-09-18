@@ -66,7 +66,7 @@ claude plugin eval --eval-dir evals/plain-language --case 09-edit-file --scaffol
 | 08-neg-factcheck | 反例：用户要的是核对数字。前两个数确认对，第三个数指出不对，不能顺手重写一遍 |
 | 09-edit-file | 文件模式：给一个路径，直接改。只动正文里的行话；YAML 表头和引文一个字不动，引文里的行话在引号外解释；改完一句话交代 |
 | 10-edit-file-missing | 文件模式的反例：提示词给了路径，文件却不存在（文字直接贴在提示词里）。要说清卡在哪、把改好的文字给出来，不能凭空造出文件 |
-| 11-meta-and-reference | 一段集中四种毛病的话：元标注黑话（"对冲句"）、指代不明（"它"）、同一个东西两种叫法（"灰度窗口"/"切换期"）、小标题看不出讲什么（"**补充**"） |
+| 11-meta-and-reference | 一段集中三种毛病的话：元标注黑话（"对冲句"）、指代不明（"它"）、同一个东西两种叫法（"灰度窗口"/"切换期"） |
 | 12-keep-what-should-stay | 一段里既有该换的也有不该换的：天花板/护城河/赛道要留，`.claude/memory/` 要留、"查 memory"要换，REST API / JSON / GDP 要留，`overhead` 要换 |
 | 13-metaphor-for-mechanism | 一段把结论的算法说成"形状"的话（八条路、六个口子、数一数这张表）：比方要换掉，机制改成一件事一件事按顺序直说；六种情况落到"没测成"、只有两种给 pass 或 fail 这件事不能丢 |
 | 14-calque-wrong-sense | 一段把 Pattern 直译成"图案"、Signature 直译成"判定形状"的话，外加一句让人去"方括号里"找文本（表里根本没有方括号，`阶段`、`消息` 还是占位）。两个直译词都得换成按字面就懂的说法，找文本那句得说清对着哪一段找、哪些字是占位 |
@@ -76,7 +76,7 @@ claude plugin eval --eval-dir evals/plain-language --case 09-edit-file --scaffol
 
 框架不支持判据共用片段，所以同一段话在多个文件里各存了一份。每个这样的文件末尾都挂了一行维护提示，指回这里。
 
-### 公共前言（46 份）
+### 公共前言（45 份）
 
 出现在 `type: llm` 判据的正文开头：
 
@@ -90,7 +90,7 @@ claude plugin eval --eval-dir evals/plain-language --case 09-edit-file --scaffol
 - 04：`explains-quotation-word`、`numbers-kept`、`own-words-kept`
 - 05：`benefit-kept`、`mechanism-clear`、`name-fixed-or-flagged`、`no-invented-content`
 - 06：`answers-instead-of-asking`、`body-has-no-jargon`、`keeps-all-elements`、`no-invented-content`
-- 11：`keeps-all-points`、`label-says-what-it-is`、`no-invented-content`、`no-meta-label`、`one-name-per-thing`、`references-resolved`
+- 11：`keeps-all-points`、`no-invented-content`、`no-meta-label`、`one-name-per-thing`、`references-resolved`
 - 12：`abbreviations-kept`、`jargon-changed`、`keeps-all-points`、`no-invented-content`、`path-kept-term-changed`、`plain-metaphors-kept`
 - 13：`keeps-all-points`、`metaphor-gone`、`no-invented-content`
 - 14：`calque-gone`、`keeps-all-points`、`no-invented-content`、`reference-findable`
