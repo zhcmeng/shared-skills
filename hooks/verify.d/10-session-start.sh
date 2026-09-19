@@ -2,6 +2,8 @@
 # 验的是：输出是合法 JSON；注入文本的结尾与 rules.md 原文逐字一致；限定语块首尾
 # 结构完整且正文非空；含关键词；polyglot 的两个分支（bash 与 Windows 上的 cmd
 # 批处理）输出都与直接调用 session-start 一致。
+# 关键词那几条盯的是 rules.md 的几个部分各还在不在——尤其那张表（正例／反例／原因）：
+# 它是整份规则里唯一在生成时起作用的组织方式，整段删掉的话，别的断言照样全过。
 # test_home 由入口提供，20 复用同一个。
 
 out="$(HOME="$test_home" bash "${SCRIPT_DIR}/session-start" 2>/dev/null)"
@@ -44,8 +46,9 @@ if [ "$parse_ok" -eq 1 ]; then
   if [ -z "$ctx" ]; then
     fail "注入文本为空"
   else
-    printf '%s' "$ctx" | grep -q '要改的' || fail "注入文本里没有「要改的」小节"
-    printf '%s' "$ctx" | grep -q '保留'   || fail "注入文本里没有「保留」小节"
+    printf '%s' "$ctx" | grep -q '站在读者的角度' || fail "注入文本里没有判据那句（站在读者的角度，能不能一次读懂）"
+    printf '%s' "$ctx" | grep -q '反例' || fail "注入文本里没有「反例」一列（表只剩正面一半）"
+    printf '%s' "$ctx" | grep -q '照原样写' || fail "注入文本里没有「这些照原样写」小节"
     printf '%s' "$ctx" | grep -q '护城河' || fail "注入文本里没有规则表的例句（疑似读到了空文件）"
   fi
 fi

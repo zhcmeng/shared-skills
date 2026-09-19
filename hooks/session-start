@@ -80,8 +80,12 @@ escape_for_json() {
     printf '%s' "$s"
 }
 
+# 限定语要连 rules.md 的开头一起读：那份规则是按「写的时候怎么做」组织的（表里每一行
+# 都是落笔时的动作与它的反面），不是一份事后检查清单，所以这里点明时序。措辞改动没有
+# 任何断言拦着——verify.d/10 只验这段的结构（开标签、非空正文、闭标签）与「后面接的就是
+# rules.md 原文」，故意不比对措辞，免得脚本里再存一份副本、两处维护必然漂移。
 rules_escaped="$(escape_for_json "$rules_content")"
-context="<EXTREMELY_IMPORTANT>\n你写给人看的文字，一律按下面这份规则来：回答、文档、说明、提交信息正文。\n</EXTREMELY_IMPORTANT>\n\n${rules_escaped}"
+context="<EXTREMELY_IMPORTANT>\n你写给人看的文字，一律按下面这份要求来，落笔时就按它写，不是写完再拿它检查：回答、文档、说明、提交信息正文。\n</EXTREMELY_IMPORTANT>\n\n${rules_escaped}"
 
 printf '{\n  "hookSpecificOutput": {\n    "hookEventName": "SessionStart",\n    "additionalContext": "%s"\n  }\n}\n' "$context"
 

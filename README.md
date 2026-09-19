@@ -117,6 +117,11 @@ rules/<规则名>.md               # 常驻规则，会被同步到配置目录�
 | 说人话（`skills/plain-language/rules.md`） | SessionStart hook 以 `additionalContext` 注入 |
 | 改文件走专用工具（`rules/file-edits.md`） | 同步到配置目录的 `rules/` 下，由 Claude Code 自动加载 |
 
+第一条是按**写作时**组织的：`rules.md` 开头是判据（站在读者的角度，能不能一次读懂），接着那张表
+每行三列——正例、反例、原因（读者为什么会卡住），末尾列照原样写、不用动的那些；
+`plain-language` skill 的两档用法（重说、改文件）走的是事后那条路——注入那条路不经过 skill，
+会话一开就生效。
+
 第二条管的是：改文件走 Read / Edit / Write，不走命令行。**任何权限模式下都适用，包括
 bypass permissions（跳过权限确认）**——那个模式默认会引导模型改用命令行改文件（见下方
 「为什么会有 `rules/` 而不是直接写 `CLAUDE.md`」一节里的说明），这条规则就是用来盖过它的。
