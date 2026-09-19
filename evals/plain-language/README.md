@@ -50,7 +50,7 @@ claude plugin eval --eval-dir evals/plain-language --case 09-edit-file --scaffol
 
 `tool_used: Skill` 这类判据默认不计分——不装插件那臂里它永远过不了。它只在报告里当"插件有没有被调用"的指示灯。要让它在两臂都计分，在判据里写 `arm: both`。
 
-正例（01～06、09～15）里的 `skill-fired.md` 就是这个指示灯，故意不计分；反例（07、08）里的 `skill-not-fired.md` 写了 `arm: both`，计分——"这个 skill 不该被调用"是这两条用例要断言的。
+正例（01～06、09～18）里的 `skill-fired.md` 就是这个指示灯，故意不计分；反例（07、08）里的 `skill-not-fired.md` 写了 `arm: both`，计分——"这个 skill 不该被调用"是这两条用例要断言的。
 
 ## 用例清单
 
@@ -71,12 +71,15 @@ claude plugin eval --eval-dir evals/plain-language --case 09-edit-file --scaffol
 | 13-metaphor-for-mechanism | 一段把结论的算法说成"形状"的话（八条路、六个口子、数一数这张表）：比方要换掉，机制改成一件事一件事按顺序直说；六种情况落到"没测成"、只有两种给 pass 或 fail 这件事不能丢 |
 | 14-calque-wrong-sense | 一段把 Pattern 直译成"图案"、Signature 直译成"判定形状"的话，外加一句让人去"方括号里"找文本（表里根本没有方括号，`阶段`、`消息` 还是占位）。两个直译词都得换成按字面就懂的说法，找文本那句得说清对着哪一段找、哪些字是占位 |
 | 15-terms-and-register | 一段要打印出来单独用的参考页摘录：别处定义过的"考官""六道闸门"这一页没解释，"考官 fail"和"考官判 fail"混着用，"被试的锅""大体干净"这类口语混在书面语里。术语要就地解释或换成直说，判定说法要统一，口语要换书面说法 |
+| 16-borrowed-term-as-primary-name | 一段把错误分析的第 2、3 步叫"开放式编码""轴向编码"的课程文字：名字借自定性研究，读者问"什么叫做轴向编码"。两步要换成描述动作的名字（自由描述／归类），借来的原词最多在对照处出现一次，四步和三条规矩一条不少 |
+| 17-abstraction-without-instance | 一段把课程目标说成"把名字改成一句能判真假的话"的话：抽象说法要换成"判通过还是不通过"，并且先摆出改之前长什么样、改之后长什么样（拿"生成前没问时间范围"这条当例子）；把范围锁死在代码上的"机器能执行的判断"也得去掉 |
+| 18-cross-document-two-names | 一段标题写"失败模式"、正文改口叫"名字"的课程文字（读者问"名字是？"）：同一个东西全文只留一种叫法，标题里那个词在正文里要接得上，正文用"失败模式"、"失败模式的名字"这种属性用法不算违规 |
 
 ## 有段话是逐字复制的，改一处要全改
 
 框架不支持判据共用片段，所以同一段话在多个文件里各存了一份。每个这样的文件末尾都挂了一行维护提示，指回这里。
 
-### 公共前言（45 份）
+### 公共前言（58 份）
 
 出现在 `type: llm` 判据的正文开头：
 
@@ -95,10 +98,13 @@ claude plugin eval --eval-dir evals/plain-language --case 09-edit-file --scaffol
 - 13：`keeps-all-points`、`metaphor-gone`、`no-invented-content`
 - 14：`calque-gone`、`keeps-all-points`、`no-invented-content`、`reference-findable`
 - 15：`keeps-all-points`、`no-invented-content`、`one-name-per-verdict`、`register-consistent`、`undefined-terms-explained`
+- 16：`borrowed-name-gone`、`keeps-all-points`、`names-describe-action`、`no-invented-content`
+- 17：`abstraction-gone`、`has-instance`、`keeps-all-points`、`no-invented-content`、`scope-not-locked-to-code`
+- 18：`keeps-all-points`、`no-invented-content`、`one-name-throughout`、`title-term-in-body`
 
-### body-only（11 份，整份文件逐字相同）
+### body-only（14 份，整份文件逐字相同）
 
-01、02、03、04、05、06、11、12、13、14、15 各有一份 `graders/body-only.md`，内容完全一样。
+01、02、03、04、05、06、11、12、13、14、15、16、17、18 各有一份 `graders/body-only.md`，内容完全一样。
 
 ## 别被 results/ 里的旧记录带偏
 
