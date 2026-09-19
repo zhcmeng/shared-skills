@@ -4,7 +4,7 @@
 
 这里放的不是某一个 skill，而是一批：它们之间没有主题关系，唯一的共同点是**跟具体工程无关、拿到哪里都能用**。跟某个工程绑死的东西不收（公司专属风格、指向本机固定路径的文档索引等），留在那个工程自己的 `.claude/skills/` 下。
 
-当前收录 **6** 个。
+当前收录 **7** 个。
 
 ## 目录约定
 
@@ -27,6 +27,7 @@ rules/<规则名>.md               # 常驻规则，会被同步到配置目录�
 | `md-export` | 把 Markdown 导出为 PDF 或 HTML：表格、数学公式、本地图片都支持，样式对齐 Markdown Preview Enhanced 的预览主题。支持单文件与目录批量。只需一个 Chromium 浏览器。 |
 | `token-counter` | 算一段文本或一个文件有多少 token：按 DeepSeek 官方词表精确计数，用于调 API 前的预算估算。词表和计数引擎都随 skill 携带，首次运行不用联网。只覆盖 DeepSeek，不含 Claude 等其他模型。 |
 | `whatis` | 快速了解一个对象（开源仓库、工具、概念、术语）：一段对话速览——是什么、能做什么、大概原理、什么场景用，末尾列出可直接回复字母继续追问的问题。 |
+| `agent-reach` | 从互联网取内容：网页搜索，以及 Twitter、小红书、B站、Reddit、YouTube、GitHub、雪球等 16 个平台，按平台挑后端。本机没装它的命令行工具时，先装本体再问你要不要补其余工具。 |
 
 ## 安装
 
@@ -235,6 +236,10 @@ bypass permissions（跳过权限确认）**——那个模式默认会引导模
   `30-statusline-smoke`、`40-notify`（判定）、`50-notify-render`、`60-wiring`（hooks.json 接线）。
   加校验就加模块，别往入口里塞
 - **新增一个 skill**：在 `skills/` 下建目录，写 `SKILL.md`，并在上方表格补一行
+- **同步 `agent-reach`**：它的 `SKILL.md` 和 `references/` 复制自上游仓库，不是自己写的。上游更新后照
+  `skills/agent-reach/THIRD-PARTY-NOTICES.md` 里的步骤重取一遍——`SKILL.md` 是整份覆盖，
+  本地加的「命令行工具没装时」那节、以及删掉的上游 conda 说明，都要重做
+  （`references/install.md` 是本地新增的，不受影响）
 - **改 skill**：只改本仓库。各工程放的是指向这里的链接，不在工程内改副本
 - **收录判据**：跟具体工程无关、别的工程拿去也能直接用。绑死某个工程的不收
 - **改规则**：`skills/plain-language/rules.md` 是规则的唯一真相，改它同时改变 skill 行为和常驻注入。改完跑 `bash hooks/verify.sh` 确认注入没断
