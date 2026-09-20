@@ -91,6 +91,12 @@ class TestStripWrapperTags(unittest.TestCase):
     def test_attribute_less_unknown_tag_is_dropped(self):
         self.assertEqual(strip_wrapper_tags("前<image>后"), "前后")
 
+    def test_text_that_merely_looks_like_a_tag_is_left_alone(self):
+        # 认不出来又没属性的，不能一律当残标签删——正文里这些形状很常见，
+        # 删了是静默丢内容，比留着一个看得见的标签坏得多
+        for text in ("<name>", "List<String>", "x<y>z", "<request> 的内容"):
+            self.assertEqual(strip_wrapper_tags(text), text, text)
+
     def test_table_and_inline_tags_are_kept(self):
         for html in ("<table><tr><td>x</td></tr></table>",
                      "<b>粗</b>", "<img src=\"a.jpg\" width=\"73%\">"):

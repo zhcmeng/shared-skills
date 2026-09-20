@@ -134,30 +134,30 @@ _KEEP = {"table", "thead", "tbody", "tfoot", "tr", "td", "th",
          "img", "b", "i", "strong", "em", "code", "pre", "sub", "sup",
          "br", "a", "u", "s", "blockquote", "hr", "ul", "ol", "li"}
 
+# 实测到的转换残留：裸的 <image>，没属性、没内容，跟文档内容无关。
+# 只删名字在这张名单里的——不能写成「不认识又没属性就删」：正文里
+# `List<String>`、`x<y>z`、`<name>` 这种形状很常见，<String> 会被当成标签，
+# 结果就是静默丢正文，比留着一个看得见的原始标签坏得多。
+# 以后真见到别的残标签，加在这里。
+_STRAY_TAGS = {"image"}
+
 _TAG_RE = re.compile(r"<(/?)([a-zA-Z][a-zA-Z0-9]*)((?:\s[^<>]*)?)(/?)>")
 
 
 def strip_wrapper_tags(text):
-    """拆掉包裹标签；没属性的残标签整个去掉。
+    """拆掉包裹标签；已知的裸残标签整个去掉。
 
     三条规则：包裹名单里的拆掉标签留内容；保留名单里的原样不动；
-    其余的——没属性就拆掉标签留内容（`<image>` 这种空的就等于整个消失），
-    有属性就不认识也别乱动。
+    其余的——只有名字在残标签名单里、又没属性的才去掉，
+    剩下的一律原样留着。
     """
-    # 不认识的标签带属性出现时整个不动；它成对的收尾标签也得跟着留下，
-    # 否则正文里会多出一个没有开头的 </custom>。
-    attributed = {m.group(2).lower() for m in _TAG_RE.finditer(text)
-                  if not m.group(1) and m.group(3).strip()}
-
     def repl(m):
         name = m.group(2).lower()
         if name in _WRAPPERS:
             return ""
         if name in _KEEP:
             return m.group(0)
-        if not m.group(3).strip():
-            if m.group(1) and name in attributed:
-                return m.group(0)
+        if name in _STRAY_TAGS and not m.group(3).strip():
             return ""
         return m.group(0)
 
