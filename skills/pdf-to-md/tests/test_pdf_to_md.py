@@ -6,9 +6,10 @@ import unittest
 # 把 scripts/ 插进 sys.path，照 download-md-images 那份测试的写法
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 
-from markdown import (JsonlLineError, PlaceholderLeftover, convert_tables,
-                      normalize_blank_lines, parse_jsonl, rewrite_image_refs,
-                      strip_page_markers, strip_wrapper_tags)
+from markdown import (JsonlLineError, Page, PlaceholderLeftover, allocate_names,
+                      convert_tables, image_downloads, normalize_blank_lines,
+                      parse_jsonl, rewrite_image_refs, strip_page_markers,
+                      strip_wrapper_tags)
 
 
 class TestConvertTables(unittest.TestCase):
@@ -345,6 +346,67 @@ class TestParseJsonl(unittest.TestCase):
         with self.assertRaises(JsonlLineError) as ctx:
             parse_jsonl(raw)
         self.assertIn("第 2 行", str(ctx.exception))
+
+
+class TestAllocateNames(unittest.TestCase):
+    def make(self, pages):
+        return [Page(index=i, text="", images=imgs) for i, imgs in enumerate(pages)]
+
+    def test_normal_case_keeps_the_api_name(self):
+        pages = self.make([{"imgs/img_in_image_box_1_2_3_4.jpg": "https://x/a"}])
+        names = allocate_names(pages)
+        self.assertEqual(names[(0, "imgs/img_in_image_box_1_2_3_4.jpg")],
+                         "img_in_image_box_1_2_3_4.jpg")
+
+    def test_same_position_on_two_pages_gets_two_files(self):
+        # 实测撞过：第 0 页复制一份插到最前，两页的键一字不差
+        pages = self.make([
+            {"imgs/img_in_image_box_152_136_1048_296.jpg": "https://x/markdown_0/a.jpg"},
+            {"imgs/img_in_image_box_152_136_1048_296.jpg": "https://x/markdown_1/a.jpg"},
+        ])
+        names = allocate_names(pages)
+        first = names[(0, "imgs/img_in_image_box_152_136_1048_296.jpg")]
+        second = names[(1, "imgs/img_in_image_box_152_136_1048_296.jpg")]
+        self.assertEqual(first, "img_in_image_box_152_136_1048_296.jpg")
+        self.assertEqual(second, "img_in_image_box_152_136_1048_296-2.jpg")
+
+    def test_third_collision_gets_dash_three(self):
+        pages = self.make([
+            {"imgs/a.jpg": "https://x/1/a.jpg"},
+            {"imgs/a.jpg": "https://x/2/a.jpg"},
+            {"imgs/a.jpg": "https://x/3/a.jpg"},
+        ])
+        names = allocate_names(pages)
+        self.assertEqual(names[(2, "imgs/a.jpg")], "a-3.jpg")
+
+    def test_same_url_twice_is_one_file(self):
+        pages = self.make([
+            {"imgs/a.jpg": "https://x/same"},
+            {"imgs/b.jpg": "https://x/same"},
+        ])
+        names = allocate_names(pages)
+        self.assertEqual(names[(0, "imgs/a.jpg")], names[(1, "imgs/b.jpg")])
+
+    def test_two_documents_do_not_share_the_name_table(self):
+        one = allocate_names(self.make([{"imgs/a.jpg": "https://x/1"}]))
+        two = allocate_names(self.make([{"imgs/a.jpg": "https://x/2"}]))
+        self.assertEqual(one[(0, "imgs/a.jpg")], "a.jpg")
+        self.assertEqual(two[(0, "imgs/a.jpg")], "a.jpg")
+
+    def test_name_without_extension_still_gets_a_suffix(self):
+        pages = self.make([{"imgs/a": "https://x/1"}, {"imgs/a": "https://x/2"}])
+        names = allocate_names(pages)
+        self.assertEqual(names[(1, "imgs/a")], "a-2")
+
+
+class TestImageDownloads(unittest.TestCase):
+    def test_dedupes_by_url_keeping_order(self):
+        pages = [Page(index=0, text="", images={"imgs/a.jpg": "https://x/1",
+                                                "imgs/b.jpg": "https://x/2"}),
+                 Page(index=1, text="", images={"imgs/c.jpg": "https://x/1"})]
+        names = allocate_names(pages)
+        self.assertEqual(image_downloads(pages, names),
+                         [("a.jpg", "https://x/1"), ("b.jpg", "https://x/2")])
 
 
 if __name__ == "__main__":

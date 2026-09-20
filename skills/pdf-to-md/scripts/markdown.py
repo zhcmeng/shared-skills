@@ -323,3 +323,50 @@ def parse_jsonl(raw: str) -> list[Page]:
                 images=dict(images),
             ))
     return pages
+
+
+def _with_suffix(local, n):
+    if "." in local:
+        stem, _, ext = local.rpartition(".")
+        return f"{stem}-{n}.{ext}"
+    return f"{local}-{n}"
+
+
+def allocate_names(pages):
+    """给一份文档里的每张图定一个本地文件名。
+
+    名字用接口给的那个（形如 img_in_image_box_1_2_3_4.jpg），不自己另起；
+    只在两个不同网址落到同一个文件名时才加 -2、-3。作用域是**一份文档**，
+    不跨文档共用名字表。
+    """
+    by_url = {}    # 网址 → 本地文件名
+    taken = {}     # 本地文件名 → 网址
+    names = {}
+    for page in pages:
+        for src, url in page.images.items():
+            if url in by_url:
+                names[(page.index, src)] = by_url[url]
+                continue
+            local = src.rsplit("/", 1)[-1]
+            if local in taken:
+                n = 2
+                while _with_suffix(local, n) in taken:
+                    n += 1
+                local = _with_suffix(local, n)
+            taken[local] = url
+            by_url[url] = local
+            names[(page.index, src)] = local
+    return names
+
+
+def image_downloads(pages, names):
+    """要下的图：[(本地文件名, 网址)]，按网址去重、保持出现顺序。"""
+    seen = set()
+    out = []
+    for page in pages:
+        for src, url in page.images.items():
+            if url in seen:
+                continue
+            seen.add(url)
+            out.append((names[(page.index, src)], url))
+    return out
