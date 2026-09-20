@@ -3,11 +3,13 @@ import argparse
 import importlib.util
 import os
 import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlparse
 
 import aistudio
+import markdown as md_utils
 
 REQUIRED = ("requests", "lxml", "tabulate")
 _INSTALL_HINT = "uv run --with requests --with lxml --with tabulate"
@@ -132,3 +134,64 @@ def collect_inputs(raw_inputs):
         taken.add(name)
         tasks.append(Task(target=t, name=name, origin=t))
     return tasks
+
+
+class EmptyDocument(Exception):
+    """一份 PDF 一页都没解析出来。"""
+
+
+@dataclass
+class Result:
+    name: str
+    pages: int
+    seconds: float
+    missing_images: list
+    note: str = ""
+
+
+def already_done(out_root, name):
+    """输出目录里有那份 md 就算转过了。
+
+    只看 md 在不在，**不看源文件的修改时间**——省掉记账。代价是源 PDF
+    更新过之后要自己加 --force，这条记在方案的「已知局限」里。
+    """
+    return os.path.isfile(os.path.join(out_root, name, f"{name}.md"))
+
+
+def convert_one(task, out_root, model, token, on_pages=None):
+    """一份 PDF 走完全程：提交 → 轮询 → 取结果 → 取图 → 落盘。"""
+    t0 = time.time()
+    job_id = aistudio.submit(task.target, model, token)
+    jsonl_url = aistudio.poll(job_id, token, on_progress=on_pages)
+    raw = aistudio.fetch_jsonl(jsonl_url)
+
+    pages = md_utils.parse_jsonl(raw)
+    if not pages:
+        raise EmptyDocument(
+            f"{task.origin} 一页都没解析出来。服务收下了这份文件，"
+            f"但结果里没有任何页面——多半是空文档或整份都读不出内容。")
+
+    names = md_utils.allocate_names(pages)
+    document = md_utils.assemble(pages, names)
+
+    out_dir = os.path.join(out_root, task.name)
+    img_dir = os.path.join(out_dir, "images")
+    os.makedirs(img_dir, exist_ok=True)
+
+    # 取图要紧跟解析：网址带签名有有效期，不能先存着回头再取
+    missing = []
+    for local, url in md_utils.image_downloads(pages, names):
+        try:
+            blob = aistudio.fetch_image(url)
+        except (aistudio.NetworkError, aistudio.JobFailed):
+            missing.append(local)
+            continue
+        with open(os.path.join(img_dir, local), "wb") as f:
+            f.write(blob)
+
+    with open(os.path.join(out_dir, f"{task.name}.md"), "w",
+              encoding="utf-8", newline="\n") as f:
+        f.write(document + "\n")
+
+    return Result(name=task.name, pages=len(pages),
+                  seconds=time.time() - t0, missing_images=missing)

@@ -1144,5 +1144,123 @@ class TestParseArgs(unittest.TestCase):
         self.assertIn("目录", err.getvalue())
 
 
+class TestAlreadyDone(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = self.tmp.name
+
+    def touch_md(self, name):
+        d = os.path.join(self.root, name)
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, f"{name}.md"), "w", encoding="utf-8") as f:
+            f.write("x")
+
+    def test_missing_md_means_not_done(self):
+        self.assertFalse(convert.already_done(self.root, "a"))
+
+    def test_a_leftover_directory_without_the_md_is_not_done(self):
+        # 上一趟跑到建目录那一步就断了、md 还没落盘，是常见的中间状态——
+        # 目录在、md 不在。判据要是「目录在不在」，这一份就会被当成转过了
+        # 跳过，而且屏幕上不会留下任何痕迹：使用者只会发现这份不见了。
+        os.makedirs(os.path.join(self.root, "a", "images"), exist_ok=True)
+        self.assertFalse(convert.already_done(self.root, "a"))
+
+    def test_existing_md_means_done_regardless_of_source_mtime(self):
+        self.touch_md("a")
+        self.assertTrue(convert.already_done(self.root, "a"))
+
+
+class TestConvertOne(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = self.tmp.name
+
+    def fake_pipeline(self, pages, fail_images=()):
+        """把网络那一段整个换掉，只跑编排和落盘。"""
+        # jsonl_line 造的是**一行**（一行里可以有好几页），别把它整个拿去 join
+        # ——对字符串做 join 会把它的每个字符拆开，parse_jsonl 第一行就报不是 JSON
+        raw = "\n".join(jsonl_line([p]) for p in pages)
+
+        def fake_submit(target, model, token):
+            return "j1"
+
+        def fake_poll(job_id, token, on_progress=None):
+            if on_progress:
+                on_progress(len(pages), len(pages))
+            return "https://x/r.jsonl"
+
+        def fake_fetch_image(url):
+            if url in fail_images:
+                raise aistudio.NetworkError("图床返回 HTTP 403")
+            return b"\xff\xd8\xff\xe0jpeg"
+
+        return mock.patch.multiple(
+            aistudio,
+            submit=fake_submit, poll=fake_poll,
+            fetch_jsonl=lambda url: raw, fetch_image=fake_fetch_image)
+
+    def test_writes_md_and_images(self):
+        task = convert.Task(target="/tmp/a.pdf", name="a", origin="/tmp/a.pdf")
+        pages = [("正文一", {}),
+                 ('正文二\n\n<img src="imgs/x.jpg">',
+                  {"imgs/x.jpg": "https://x/1/x.jpg"})]
+        with self.fake_pipeline(pages):
+            result = convert.convert_one(task, self.root, "m", "t")
+        md = os.path.join(self.root, "a", "a.md")
+        self.assertTrue(os.path.isfile(md))
+        with open(md, encoding="utf-8") as f:
+            # 落盘时正文末尾补一个换行
+            self.assertEqual(f.read(), "正文一\n\n正文二\n\n![](images/x.jpg)\n")
+        self.assertTrue(os.path.isfile(os.path.join(self.root, "a", "images", "x.jpg")))
+        # 只验「文件在」不够：`open(..., "wb")` 本身就会把文件建出来，写不写
+        # 字节它都在。实测把这行的下一句去掉之后，往图片里写空字节、写错字节、
+        # 只写一半，整套**一条不红**——而 md 里那句 ![](images/x.jpg) 照样
+        # 指着它，使用者看到的是一张裂图，屏幕上一点提示都没有。
+        with open(os.path.join(self.root, "a", "images", "x.jpg"), "rb") as f:
+            self.assertEqual(f.read(), b"\xff\xd8\xff\xe0jpeg")
+        self.assertEqual(result.pages, 2)
+        self.assertEqual(result.missing_images, [])
+
+    def test_no_pages_at_all_is_an_error(self):
+        task = convert.Task(target="/tmp/a.pdf", name="a", origin="/tmp/a.pdf")
+        with self.fake_pipeline([]):
+            with self.assertRaises(convert.EmptyDocument) as ctx:
+                convert.convert_one(task, self.root, "m", "t")
+        self.assertIn("一页都没解析出来", str(ctx.exception))
+        self.assertFalse(os.path.exists(os.path.join(self.root, "a", "a.md")))
+
+    def test_missing_image_does_not_fail_the_document(self):
+        task = convert.Task(target="/tmp/a.pdf", name="a", origin="/tmp/a.pdf")
+        pages = [('正文\n\n<img src="imgs/x.jpg">',
+                  {"imgs/x.jpg": "https://x/1/x.jpg"})]
+        with self.fake_pipeline(pages, fail_images={"https://x/1/x.jpg"}):
+            result = convert.convert_one(task, self.root, "m", "t")
+        with open(os.path.join(self.root, "a", "a.md"), encoding="utf-8") as f:
+            body = f.read()
+        # 引用保持原样指向本地名，不加注释、不留远程地址
+        self.assertEqual(body, "正文\n\n![](images/x.jpg)\n")
+        self.assertEqual(result.missing_images, ["x.jpg"])
+        self.assertFalse(os.path.exists(os.path.join(self.root, "a", "images", "x.jpg")))
+
+    def test_md_is_written_with_lf_not_crlf(self):
+        """Windows 上默认会写成 CRLF，落盘的 md 必须只有 LF。"""
+        task = convert.Task(target="/tmp/a.pdf", name="a", origin="/tmp/a.pdf")
+        with self.fake_pipeline([("正文", {})]):
+            convert.convert_one(task, self.root, "m", "t")
+        with open(os.path.join(self.root, "a", "a.md"), "rb") as f:
+            blob = f.read()
+        self.assertNotIn(bytes([13]), blob)
+
+    def test_progress_callback_gets_page_counts(self):
+        task = convert.Task(target="/tmp/a.pdf", name="a", origin="/tmp/a.pdf")
+        seen = []
+        with self.fake_pipeline([("一", {}), ("二", {})]):
+            convert.convert_one(task, self.root, "m", "t",
+                                on_pages=lambda d, t: seen.append((d, t)))
+        self.assertEqual(seen, [(2, 2)])
+
+
 if __name__ == "__main__":
     unittest.main()
