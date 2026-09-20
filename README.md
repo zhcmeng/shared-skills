@@ -29,7 +29,7 @@ rules/<规则名>.md               # 常驻规则，会被同步到配置目录�
 | `token-counter` | 算一段文本或一个文件有多少 token：按 DeepSeek 官方词表精确计数，用于调 API 前的预算估算。词表和计数引擎都随 skill 携带，首次运行不用联网。只覆盖 DeepSeek，不含 Claude 等其他模型。 |
 | `whatis` | 快速了解一个对象（开源仓库、工具、概念、术语）：一段对话速览——是什么、能做什么、大概原理、什么场景用，末尾列出可直接回复字母继续追问的问题。 |
 | `agent-reach` | 从互联网取内容：网页搜索，以及 Twitter、小红书、B站、Reddit、YouTube、GitHub、雪球等 16 个平台，按平台挑后端。本机没装它的命令行工具时，先装本体再问你要不要补其余工具。 |
-| `pdf-to-md` | 把 PDF 转成 Markdown 落到磁盘：正文引用的图片一并下载到本地并改成相对路径，支持单个文件、目录批量、以及 PDF 的公网网址。解析走 PaddleOCR 的云端接口，整份 PDF 会上传过去，需要一个 token（配一次即可）。图片名跨页重名时会错开，转过的默认跳过。 |
+| `pdf-to-md` | 把 PDF 转成 Markdown 落到磁盘：正文引用的图片一并下载到本地并改成相对路径，支持单个文件、目录批量、以及 PDF 的公网网址。解析走 PaddleOCR 的云端接口，整份 PDF 会上传过去，需要一个 token（配一次即可）。图片名跨页重名时会错开，转过的默认跳过。另带一条体检命令（`doctor.py`）：查 uv、token、输出目录，再真转一份自带样例，回答「这台机器现在能不能转」。 |
 
 ## 安装
 
@@ -257,11 +257,15 @@ bypass permissions（跳过权限确认）**——那个模式默认会引导模
 - **改 `download-md-images` 脚本**：改 `skills/download-md-images/scripts/` 下的两个脚本，改完跑
   `python skills/download-md-images/tests/test_download_md_images.py`——验的是两种图片引用的识别、
   扩展名推断（带查询串的网址、无扩展名默认 `.png`）和 frontmatter 里 `source_url` 取作 Referer
-- **改 `pdf-to-md` 脚本**：改 `skills/pdf-to-md/scripts/` 下的三个脚本（`markdown.py` 纯文本、
-  `aistudio.py` 网络、`convert.py` 编排），改完跑
+- **改 `pdf-to-md` 脚本**：改 `skills/pdf-to-md/scripts/` 下的四个脚本（`markdown.py` 纯文本、
+  `aistudio.py` 网络、`convert.py` 编排、`doctor.py` 体检），改完跑
   `uv run --with requests --with lxml --with tabulate python skills/pdf-to-md/tests/test_pdf_to_md.py`
   ——全部测试都不发真实请求，网络那一段用假响应喂进去。接口和返回结构的实测结论记在
-  `docs/superpowers/specs/2026-09-20-pdf-to-md-design.md` 的「验过什么、还没验什么」一节
+  `docs/superpowers/specs/2026-09-20-pdf-to-md-design.md` 的「验过什么、还没验什么」一节。
+  `doctor.py` **只用标准库，别让它 import 另外三个**：那三个缺依赖时它得能跑起来，测试里有一条
+  在 `python -S` 下真跑它。体检用的样例在 `assets/` 下：改 `doctor-sample.html` 之后要拿 Chromium
+  重新打印成 `doctor-sample.pdf`（命令写在 HTML 开头的注释里），HTML 里那句「校验标记」和
+  `doctor.py` 的 `SAMPLE_MARKER` 必须一致——对不上时体检会把好环境报成坏的
 - **改 skill**：只改本仓库。各工程放的是指向这里的链接，不在工程内改副本
 - **收录判据**：跟具体工程无关、别的工程拿去也能直接用。绑死某个工程的不收
 - **改规则**：`skills/plain-language/rules.md` 是规则的唯一真相，改它同时改变 skill 行为和常驻注入。改完跑 `bash hooks/verify.sh` 确认注入没断

@@ -18,6 +18,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 
 import aistudio
 import convert
+import doctor
 from aistudio import JobFailed, NetworkError, SubmitRejected
 
 import markdown
@@ -1890,6 +1891,257 @@ class TestUtf8WhenRedirected(unittest.TestCase):
             capture_output=True, env=dict(os.environ, PYTHONIOENCODING="gbk"))
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("跳过", proc.stderr.decode("utf-8"))
+
+
+class TestDoctorChecks(unittest.TestCase):
+    """体检的逐项检查：每一项都得能单独判不通过，并说清怎么修。"""
+
+    def test_missing_uv_is_reported_with_how_to_get_it(self):
+        with mock.patch.object(doctor, "_find_uv", return_value=None):
+            check = doctor.check_uv()
+        self.assertFalse(check.ok)
+        self.assertIn("uv", check.detail)
+        self.assertIn("uv", check.fix)
+
+    def test_uv_found_on_path_passes(self):
+        with mock.patch.object(doctor, "_find_uv", return_value=r"C:\bin\uv.exe"):
+            self.assertTrue(doctor.check_uv().ok)
+
+    def test_missing_token_points_at_settings_json(self):
+        with mock.patch.dict(os.environ, {}, clear=True):
+            check = doctor.check_token()
+        self.assertFalse(check.ok)
+        self.assertIn(doctor.TOKEN_ENV, check.detail)
+        self.assertIn("settings.json", check.fix)
+
+    def test_token_present_passes(self):
+        with mock.patch.dict(os.environ, {doctor.TOKEN_ENV: "x" * 40}):
+            self.assertTrue(doctor.check_token().ok)
+
+    def test_an_empty_token_counts_as_missing(self):
+        # 设成空串和没设是一回事，转换那边也一样读不出来
+        with mock.patch.dict(os.environ, {doctor.TOKEN_ENV: ""}):
+            self.assertFalse(doctor.check_token().ok)
+
+    def test_whitespace_around_the_token_is_pointed_out(self):
+        """复制粘贴时首尾带空白是常事，它会一路带到 Authorization 头上。
+
+        这里只提醒、不算不通过：服务那边收不收得下不好说，让真转那一步
+        自己说了算。体检不该替服务下结论。
+        """
+        with mock.patch.dict(os.environ, {doctor.TOKEN_ENV: " abcdef \n"}):
+            check = doctor.check_token()
+        self.assertTrue(check.ok)
+        self.assertIn("空白", check.detail)
+
+    def test_the_token_name_is_the_one_aistudio_reads(self):
+        """doctor 只用标准库，所以这个名字是照抄的一份，抄错了就永远报「没配」。"""
+        self.assertEqual(doctor.TOKEN_ENV, aistudio.TOKEN_ENV)
+
+    def test_a_writable_output_dir_passes(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.assertTrue(doctor.check_output_dir(tmp.name).ok)
+
+    def test_an_output_dir_that_is_a_file_fails(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        path = os.path.join(tmp.name, "已经是个文件")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("x")
+        check = doctor.check_output_dir(path)
+        self.assertFalse(check.ok)
+        self.assertIn("文件", check.detail)
+
+    def test_an_output_dir_that_does_not_exist_yet_is_probed_at_its_parent(self):
+        """还没建的输出目录是常态——转换时会自己建。
+
+        所以探的是最近那个已经存在的上级，并且**不能顺手把它建出来**：
+        路径写错了的时候，体检不该在盘上留下一个空目录。
+        """
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        path = os.path.join(tmp.name, "还没建", "再一层")
+        check = doctor.check_output_dir(path)
+        self.assertTrue(check.ok, check.detail)
+        self.assertIn(tmp.name, check.detail)
+        self.assertFalse(os.path.exists(path))
+
+    def test_an_unwritable_output_dir_reports_the_path_and_the_reason(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        with mock.patch.object(doctor, "_probe_writable",
+                               side_effect=OSError("拒绝访问")):
+            check = doctor.check_output_dir(tmp.name)
+        self.assertFalse(check.ok)
+        self.assertIn(tmp.name, check.detail)
+        self.assertIn("拒绝访问", check.detail)
+
+
+class TestDoctorSmokeCheck(unittest.TestCase):
+    """最后那一项：真转一份内置样例，看盘上落下什么。"""
+
+    def _runner(self, returncode=0, text="校验标记：DOCTOR-SAMPLE-8642\n",
+                stdout="", stderr="", exc=None, write=True):
+        """顶掉真子进程：按命令行里的 --output 落一份产物出来。"""
+        def run(cmd, timeout):
+            out_dir = cmd[cmd.index("--output") + 1]
+            if write:
+                target = os.path.join(out_dir, "doctor-sample")
+                os.makedirs(target, exist_ok=True)
+                with open(os.path.join(target, "doctor-sample.md"), "w",
+                          encoding="utf-8") as f:
+                    f.write(text)
+            if exc is not None:
+                raise exc
+            return subprocess.CompletedProcess(cmd, returncode, stdout, stderr)
+        return run
+
+    def test_the_command_is_the_one_the_skill_documents(self):
+        """跑的是使用者平时跑的那条命令行，不是把转换的逻辑再写一遍。
+
+        再写一遍等于验了另一套代码——真命令行哪天坏了，体检照样全绿。
+        """
+        cmd = doctor.smoke_command("OUT")
+        self.assertEqual(cmd[:1], ["uv"])
+        for package in ("requests", "lxml", "tabulate"):
+            self.assertIn(package, cmd)
+        self.assertEqual(cmd[cmd.index("--output") + 1], "OUT")
+        self.assertTrue(cmd[cmd.index("python") + 1].endswith("convert.py"))
+
+    def test_a_good_run_reports_how_long_it_took(self):
+        check = doctor.check_smoke(runner=self._runner())
+        self.assertTrue(check.ok, check.detail)
+        self.assertIn("秒", check.detail)
+
+    def test_the_artifact_decides_not_the_exit_code(self):
+        """退出码是 0、盘上却什么都没有，照样算不过。
+
+        体检要回答的是「能不能转出东西来」，不是「命令有没有报错」。
+        """
+        check = doctor.check_smoke(runner=self._runner(write=False))
+        self.assertFalse(check.ok)
+
+    def test_text_without_the_marker_is_a_failure(self):
+        check = doctor.check_smoke(runner=self._runner(text="# 别的东西\n"))
+        self.assertFalse(check.ok)
+        self.assertIn(doctor.SAMPLE_MARKER, check.detail)
+
+    def test_a_nonzero_exit_carries_the_service_words_through(self):
+        """服务说什么就转述什么，别自己编解释。"""
+        check = doctor.check_smoke(runner=self._runner(
+            returncode=1, write=False,
+            stdout="1 份失败：\n  x.pdf：服务拒了这次提交：HTTP 401  未授权\n"))
+        self.assertFalse(check.ok)
+        self.assertIn("服务拒了这次提交：HTTP 401", check.detail)
+
+    def test_a_timeout_is_a_failure_not_a_hang(self):
+        check = doctor.check_smoke(runner=self._runner(
+            exc=subprocess.TimeoutExpired("uv", doctor.SMOKE_TIMEOUT)))
+        self.assertFalse(check.ok)
+        self.assertIn("超时", check.detail)
+
+    def test_a_missing_sample_file_says_the_install_is_incomplete(self):
+        # 只拷了 scripts/ 没拷 assets/：这不是环境问题，是装得不全
+        with mock.patch.object(doctor, "SAMPLE_PDF",
+                               os.path.join("没有", "这个文件.pdf")):
+            check = doctor.check_smoke(runner=self._runner())
+        self.assertFalse(check.ok)
+        self.assertIn("样例", check.detail)
+
+
+class TestDoctorMain(unittest.TestCase):
+    """整份报告与退出码。"""
+
+    def setUp(self):
+        out = io.StringIO()
+        patcher = mock.patch("sys.stdout", out)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.out = out
+
+    def _patch(self, uv=True, token=True, smoke=True):
+        """把三项都顶掉，返回三个 mock——已经 start，退出时自动停。"""
+        mocks = []
+        for patcher in (
+            mock.patch.object(doctor, "check_uv",
+                              return_value=doctor.Check("uv 在 PATH 上", uv,
+                                                        "" if uv else "找不到 uv。",
+                                                        "装一个 uv。")),
+            mock.patch.object(doctor, "check_token",
+                              return_value=doctor.Check("token 环境变量在", token,
+                                                        "" if token else "环境里没有它。",
+                                                        "去 settings.json 里配。")),
+            mock.patch.object(doctor, "check_smoke",
+                              return_value=doctor.Check("真转一份内置 1 页 PDF", smoke,
+                                                        "13.4 秒" if smoke else "服务说不行。",
+                                                        "")),
+        ):
+            mocks.append(patcher.start())
+            self.addCleanup(patcher.stop)
+        return mocks
+
+    def _run_main(self, argv, **flags):
+        self._patch(**flags)
+        return doctor.main(argv)
+
+    def test_all_green_says_this_machine_can_convert(self):
+        self.assertEqual(self._run_main([]), 0)
+        text = self.out.getvalue()
+        self.assertIn("能转", text)
+        # 样例转出来的东西落在哪，是跑体检的人会问的第一件事
+        self.assertIn("临时目录", text)
+
+    def test_anything_red_says_it_cannot_and_exits_2(self):
+        self.assertEqual(self._run_main([], smoke=False), 2)
+        self.assertIn("服务说不行。", self.out.getvalue())
+
+    def test_a_local_failure_stops_before_the_smoke_step(self):
+        """本地就没配好时不去花配额——这条钉的正是白花配额那件事。"""
+        mocks = self._patch(token=False)
+        self.assertEqual(doctor.main([]), 2)
+        self.assertEqual(mocks[2].call_count, 0)
+        self.assertIn("没跑", self.out.getvalue())
+
+    def test_every_local_check_runs_so_all_the_problems_show_at_once(self):
+        """本机那几项一次全跑完：让人修一个跑一次太折腾。"""
+        mocks = self._patch(uv=False, token=False)
+        self.assertEqual(doctor.main([]), 2)
+        self.assertEqual(mocks[0].call_count, 1)
+        self.assertEqual(mocks[1].call_count, 1)
+        text = self.out.getvalue()
+        self.assertIn("找不到 uv。", text)
+        self.assertIn("环境里没有它。", text)
+
+    def test_the_output_dir_is_probed_only_when_one_is_given(self):
+        path = tempfile.TemporaryDirectory()
+        self.addCleanup(path.cleanup)
+        probe = mock.patch.object(doctor, "check_output_dir",
+                                  return_value=doctor.Check("输出目录能写", True, ""))
+        started = probe.start()
+        self.addCleanup(probe.stop)
+        self._run_main([])
+        self.assertEqual(started.call_count, 0)
+        self._run_main(["--output", path.name])
+        self.assertEqual(started.call_count, 1)
+
+    def test_an_empty_machine_gets_a_report_not_a_traceback(self):
+        """在一台什么都没装的机器上跑：没有 uv、没有 token，连 requests 都没有。
+
+        这条同时钉两件事：doctor 只用标准库（`-S` 下 import requests 会直接
+        炸出栈来），以及它把问题说成人话。PATH 指到一个不存在的目录，等于
+        这台机器上没有 uv。
+        """
+        env = {k: v for k, v in os.environ.items() if k != doctor.TOKEN_ENV}
+        env["PATH"] = os.path.join(tempfile.gettempdir(), "体检-这里没有-uv")
+        env["PYTHONIOENCODING"] = "gbk"      # 本机管道上的默认编码
+        proc = subprocess.run([sys.executable, "-S", os.path.abspath(doctor.__file__)],
+                              capture_output=True, env=env, timeout=120)
+        text = proc.stdout.decode("utf-8")
+        self.assertEqual(proc.returncode, 2,
+                         text + proc.stderr.decode("utf-8", "replace"))
+        self.assertIn("uv", text)
+        self.assertIn(doctor.TOKEN_ENV, text)
 
 
 class TestMain(unittest.TestCase):

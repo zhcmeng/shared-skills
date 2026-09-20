@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<!--
+  这是体检样例 PDF 的源文件，不是给浏览器看的页面。
+
+  它由本机的 Chromium 内核浏览器打印成同目录的 doctor-sample.pdf（2026-09-20 用
+  Google Chrome 就是这么生成的）：
+    chrome --headless=new --disable-gpu --no-pdf-header-footer \
+      --print-to-pdf=doctor-sample.pdf doctor-sample.html
+  改完这份 HTML 要重新打印一次，PDF 不会自己跟着变。
+
+  正文里那句「校验标记」是 doctor 验产物用的，改它就得同步改 doctor.py 里的
+  断言。这一页必须**有字**：转换的最后有一道守门，清理完什么都不剩会判失败，
+  一页空白会让体检误报。
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>pdf-to-md 体检样例</title>
+<style>
+  @page { size: A4; margin: 20mm; }
+  body { font-family: "Microsoft YaHei", "SimSun", sans-serif;
+         font-size: 12pt; line-height: 1.8; color: #000; }
+  h1 { font-size: 18pt; margin: 0 0 1em; }
+  .marker { margin-top: 2em; font-family: Consolas, monospace; }
+</style>
+</head>
+<body>
+  <h1>pdf-to-md 体检样例</h1>
+  <p>这一页由 pdf-to-md 自带的体检命令使用，用来确认转换链路是通的。</p>
+  <p>在正式文档里看到这一页，说明体检用的临时目录被当成了输出目录。</p>
+  <p class="marker">校验标记：DOCTOR-SAMPLE-8642</p>
+</body>
+</html>
