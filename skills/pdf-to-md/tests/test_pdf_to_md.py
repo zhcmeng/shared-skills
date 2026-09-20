@@ -7,9 +7,9 @@ import unittest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 
 from markdown import (JsonlLineError, Page, PlaceholderLeftover, allocate_names,
-                      convert_tables, image_downloads, normalize_blank_lines,
-                      parse_jsonl, rewrite_image_refs, strip_page_markers,
-                      strip_wrapper_tags)
+                      assemble, clean_markdown, convert_tables, image_downloads,
+                      normalize_blank_lines, parse_jsonl, rewrite_image_refs,
+                      strip_page_markers, strip_wrapper_tags)
 
 
 class TestConvertTables(unittest.TestCase):
@@ -431,6 +431,53 @@ class TestImageDownloads(unittest.TestCase):
         names = allocate_names(pages)
         self.assertEqual([url for _, url in image_downloads(pages, names)],
                          ["https://x/z", "https://x/a"])
+
+
+class TestCleanMarkdown(unittest.TestCase):
+    def test_full_pipeline_on_a_sample_page(self):
+        raw = ('<div style="text-align: center;">'
+               '<img src="imgs/img_in_image_box_1_2_3_4.jpg" alt="Image" width="73%" />'
+               '</div>\n\n\n\n正文   \n')
+        names = {"imgs/img_in_image_box_1_2_3_4.jpg": "img_in_image_box_1_2_3_4.jpg"}
+        out = clean_markdown(raw, names.get)
+        self.assertEqual(out, "![](images/img_in_image_box_1_2_3_4.jpg)\n\n正文")
+
+    def test_table_becomes_markdown_then_whitespace_is_normalized(self):
+        raw = "<table><tr><th>A</th></tr><tr><td>1</td></tr></table>\n\n\n\n尾"
+        out = clean_markdown(raw, None)
+        self.assertNotIn("<table", out)
+        self.assertIn("| A", out)
+        self.assertNotIn("\n\n\n", out)
+
+    def test_page_number_div_is_unwrapped_then_dropped(self):
+        # 先拆掉包裹标签，那一行就剩一个光页码，再按页码行删掉
+        raw = '<div class="page-number">第 3 页</div>\n正文'
+        self.assertEqual(clean_markdown(raw, None), "正文")
+
+    def test_leftover_placeholder_raises(self):
+        with self.assertRaises(PlaceholderLeftover):
+            clean_markdown("正文 \x00T7\x00 尾巴", None)
+
+
+class TestAssemble(unittest.TestCase):
+    def test_pages_are_joined_in_order(self):
+        pages = [Page(index=0, text="一", images={}),
+                 Page(index=1, text="二", images={})]
+        self.assertEqual(assemble(pages, {}), "一\n\n二")
+
+    def test_images_are_rewritten_per_page_not_globally(self):
+        pages = [
+            Page(index=0, text='<img src="imgs/a.jpg">',
+                 images={"imgs/a.jpg": "https://x/1"}),
+            Page(index=1, text='<img src="imgs/a.jpg">',
+                 images={"imgs/a.jpg": "https://x/2"}),
+        ]
+        names = allocate_names(pages)
+        out = assemble(pages, names)
+        self.assertEqual(out, "![](images/a.jpg)\n\n![](images/a-2.jpg)")
+
+    def test_empty_page_list_gives_empty_string(self):
+        self.assertEqual(assemble([], {}), "")
 
 
 if __name__ == "__main__":

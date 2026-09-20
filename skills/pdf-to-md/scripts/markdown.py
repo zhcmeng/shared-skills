@@ -370,3 +370,35 @@ def image_downloads(pages, names):
             seen.add(url)
             out.append((names[(page.index, src)], url))
     return out
+
+
+def clean_markdown(text, resolve):
+    """一页正文的通用清理，按这个顺序跑：
+
+    1. HTML 表格转 Markdown 表格
+    2. 拆掉包裹标签
+    3. 删掉整行只有页码的那些行
+    4. 空行归一、行尾空白去掉
+    5. 图片引用改写成 images/<本地名>
+    """
+    text = convert_tables(text)
+    text = strip_wrapper_tags(text)
+    text = strip_page_markers(text)
+    text = normalize_blank_lines(text)
+    text = rewrite_image_refs(text, resolve)
+    _assert_no_placeholder(text)
+    return text
+
+
+def assemble(pages, names):
+    """按页序清理、拼成一份文档。"""
+    parts = []
+    for page in pages:
+        lookup = {}
+        for (index, src), local in names.items():
+            if index != page.index:
+                continue
+            lookup[src] = local
+            lookup[src.rsplit("/", 1)[-1]] = local
+        parts.append(clean_markdown(page.text, lookup.get))
+    return "\n\n".join(parts)
