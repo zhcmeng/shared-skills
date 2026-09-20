@@ -86,9 +86,17 @@ def _body_of(resp):
     """取响应体。网关返回 HTML 错误页时 resp.json() 会抛，一律退回空字典。"""
     try:
         body = resp.json()
-    except ValueError:
+    except (ValueError, requests.RequestException):
         body = None
     return body if isinstance(body, dict) else {}
+
+
+def _text_of(resp):
+    """取响应正文。压缩体坏掉时 resp.text 也会抛（ContentDecodingError）。"""
+    try:
+        return resp.text
+    except requests.RequestException:
+        return ""
 
 
 def _data_of(body):
@@ -103,7 +111,7 @@ def _rejected_from(resp, what="请求"):
     return SubmitRejected(
         status=resp.status_code,
         code=body.get("code"),
-        msg=body.get("msg") or resp.text[:300],
+        msg=body.get("msg") or _text_of(resp)[:300],
         trace_id=body.get("traceId"),
         what=what,
     )

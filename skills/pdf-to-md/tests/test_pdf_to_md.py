@@ -1,6 +1,7 @@
 import json
 import os
 import sys
+import tempfile
 import unittest
 from unittest import mock
 
@@ -513,6 +514,23 @@ class FakeResponse:
         return self._body
 
 
+class BrokenBodyResponse:
+    """压缩体坏掉的样子：读 JSON 与读正文都抛 ContentDecodingError。
+
+    它不是 ValueError 的子类，所以 _body_of 与 _rejected_from 那两层
+    except 少写一条，它就会原样穿出 submit——Task 12 的捕获表接不住。
+    """
+
+    status_code = 200
+
+    def json(self):
+        raise requests.exceptions.ContentDecodingError("解不开压缩体")
+
+    @property
+    def text(self):
+        raise requests.exceptions.ContentDecodingError("解不开压缩体")
+
+
 class TestGetToken(unittest.TestCase):
     def test_reads_the_env_var(self):
         with mock.patch.dict(os.environ, {aistudio.TOKEN_ENV: "abc"}, clear=False):
@@ -537,6 +555,7 @@ class TestSubmit(unittest.TestCase):
         with mock.patch.object(requests, "post", fake_post):
             job_id = aistudio.submit("https://example.com/a.pdf", "PaddleOCR-VL-1.6", "t")
         self.assertEqual(job_id, "j1")
+        self.assertEqual(captured["url"], aistudio.JOB_URL)
         self.assertEqual(captured["json"]["fileUrl"], "https://example.com/a.pdf")
         self.assertEqual(captured["json"]["model"], "PaddleOCR-VL-1.6")
         self.assertEqual(captured["json"]["optionalPayload"],
@@ -551,14 +570,13 @@ class TestSubmit(unittest.TestCase):
             captured.update(kw, url=url)
             return FakeResponse(body={"code": 0, "data": {"jobId": "j2"}})
 
-        path = os.path.join(os.path.dirname(__file__), "fixture.pdf")
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        path = os.path.join(tmp.name, "fixture.pdf")
         with open(path, "wb") as f:
             f.write(b"%PDF-1.4\n")
-        try:
-            with mock.patch.object(requests, "post", fake_post):
-                aistudio.submit(path, "PP-StructureV3", "t")
-        finally:
-            os.remove(path)
+        with mock.patch.object(requests, "post", fake_post):
+            aistudio.submit(path, "PP-StructureV3", "t")
         self.assertNotIn("json", captured)
         self.assertEqual(captured["data"]["model"], "PP-StructureV3")
         self.assertIn("file", captured["files"])
@@ -566,8 +584,18 @@ class TestSubmit(unittest.TestCase):
     def test_missing_local_file_raises_oserror_not_submit_rejected(self):
         # 文件不存在是本机的问题，不是「服务拒了这次提交」，也不该白白重试。
         # 这个形状 Task 12 的捕获表依赖着：它接了 OSError，漏出去就是整批崩。
-        with self.assertRaises(OSError):
-            aistudio.submit("/no/such/file.pdf", "m", "t")
+        def refuse(*a, **k):
+            self.fail("这条用例不该发请求")
+
+        with mock.patch.object(requests, "post", refuse):
+            with self.assertRaises(OSError):
+                aistudio.submit("/no/such/file.pdf", "m", "t")
+
+    def test_endpoint_and_model_are_the_ones_the_service_documents(self):
+        # 规格逐字规定了这两处，别顺手统一模型名写法、也别改域名
+        self.assertEqual(aistudio.JOB_URL,
+                         "https://paddleocr.aistudio-app.com/api/v2/ocr/jobs")
+        self.assertEqual(aistudio.DEFAULT_MODEL, "PaddleOCR-VL-1.6")
 
     def test_http_400_becomes_submit_rejected_with_the_service_wording(self):
         resp = FakeResponse(status_code=400,
@@ -585,11 +613,21 @@ class TestSubmit(unittest.TestCase):
         with mock.patch.object(requests, "post", lambda *a, **k: resp):
             with self.assertRaises(SubmitRejected) as ctx:
                 aistudio.submit("https://example.com/a.pdf", "m", "t")
-        self.assertIn("502", str(ctx.exception))
         self.assertIn("Bad Gateway", str(ctx.exception))
 
+    def test_a_broken_response_body_is_a_rejection_not_a_crash(self):
+        with mock.patch.object(requests, "post",
+                               lambda *a, **k: BrokenBodyResponse()):
+            with self.assertRaises(SubmitRejected) as ctx:
+                aistudio.submit("https://example.com/a.pdf", "m", "t")
+        self.assertIn("HTTP 200", str(ctx.exception))
+
     def test_code_nonzero_in_a_200_body_is_also_a_rejection(self):
-        resp = FakeResponse(status_code=200, body={"code": 10002, "msg": "文件 URL 无法识别"})
+        # 带上 data/jobId：不带的话「没任务号」那一支先把它拒了，
+        # 这条用例就再也抓不到「非 0 的 code 也算拒」这个判断
+        resp = FakeResponse(status_code=200,
+                            body={"code": 10002, "msg": "文件 URL 无法识别",
+                                  "data": {"jobId": "j0"}})
         with mock.patch.object(requests, "post", lambda *a, **k: resp):
             with self.assertRaises(SubmitRejected) as ctx:
                 aistudio.submit("https://example.com/a.pdf", "m", "t")
@@ -613,16 +651,21 @@ class TestSubmit(unittest.TestCase):
 
     def test_network_error_is_retried_then_reported_as_such(self):
         calls = []
+        naps = []
 
         def boom(*a, **k):
             calls.append(1)
             raise requests.ConnectionError("getaddrinfo failed")
 
+        # 盯 sleep，不把 RETRY_DELAY patch 成 0：后者只在 _retry 写成函数体
+        # 回落时才起作用，失效时唯一的症状是整套慢几秒，没有断言能发现。
         with mock.patch.object(requests, "post", boom), \
-             mock.patch.object(aistudio, "RETRY_DELAY", 0):
+             mock.patch.object(aistudio.time, "sleep", naps.append):
             with self.assertRaises(NetworkError) as ctx:
                 aistudio.submit("https://example.com/a.pdf", "m", "t")
         self.assertEqual(len(calls), aistudio.RETRY_ATTEMPTS)
+        # 每次失败后睡一觉；最后一次失败直接抛，不再睡
+        self.assertEqual(len(naps), aistudio.RETRY_ATTEMPTS - 1)
         self.assertIn("连不上", str(ctx.exception))
 
 
