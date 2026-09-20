@@ -1114,8 +1114,11 @@ class TestParseArgs(unittest.TestCase):
         """给一个不存在的输出路径。
 
         写死相对路径 "out" 是跟工作目录较劲：parse_args 有一句「--output
-        已经是个文件就报错」，当前目录下真有叫 out 的文件时，这两条用例会在
-        断言之前就抛 SystemExit(2) 出来。
+        已经是个文件就报错」，当前目录下真有叫 out 的文件时，用它的用例会在
+        断言之前就抛 SystemExit(2) 出来。实测中招的是 test_defaults；
+        test_jobs_must_be_at_least_one 带着 --jobs 0 进去，那个检查排在
+        isfile 前面，所以当前不会中——它用同一个路径只为两边写法一致，
+        免得将来把两个检查的先后调过来就中招。
         """
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
