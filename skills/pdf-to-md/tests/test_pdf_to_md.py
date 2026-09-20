@@ -1183,23 +1183,34 @@ class TestConvertOne(unittest.TestCase):
         # ——对字符串做 join 会把它的每个字符拆开，parse_jsonl 第一行就报不是 JSON
         raw = "\n".join(jsonl_line([p]) for p in pages)
 
+        # 四个替身各自把收到的实参记下来：光按名字换掉替身的话实参一律不看，
+        # 「位置写反」「传错变量」这类错整套一条不红（实测过）。
+        self.calls = []
+
         def fake_submit(target, model, token):
+            self.calls.append(("submit", (target, model, token)))
             return "j1"
 
         def fake_poll(job_id, token, on_progress=None):
+            self.calls.append(("poll", (job_id, token)))
             if on_progress:
                 on_progress(len(pages), len(pages))
             return "https://x/r.jsonl"
 
         def fake_fetch_image(url):
+            self.calls.append(("fetch_image", (url,)))
             if url in fail_images:
                 raise aistudio.NetworkError("图床返回 HTTP 403")
             return b"\xff\xd8\xff\xe0jpeg"
 
+        def fake_fetch_jsonl(url):
+            self.calls.append(("fetch_jsonl", (url,)))
+            return raw
+
         return mock.patch.multiple(
             aistudio,
             submit=fake_submit, poll=fake_poll,
-            fetch_jsonl=lambda url: raw, fetch_image=fake_fetch_image)
+            fetch_jsonl=fake_fetch_jsonl, fetch_image=fake_fetch_image)
 
     def test_writes_md_and_images(self):
         task = convert.Task(target="/tmp/a.pdf", name="a", origin="/tmp/a.pdf")
@@ -1222,6 +1233,24 @@ class TestConvertOne(unittest.TestCase):
             self.assertEqual(f.read(), b"\xff\xd8\xff\xe0jpeg")
         self.assertEqual(result.pages, 2)
         self.assertEqual(result.missing_images, [])
+
+    def test_the_four_network_calls_get_the_right_arguments(self):
+        # 替身是照名字挂上去的，实参一个不看。实测过三处全绿：把 task.target
+        # 写成 task.name（提交一份不存在的文件）、把 model 和 token 对调（拿
+        # token 当模型名发出去）、把 poll 的 job_id 和 token 对调（拿别人的
+        # 任务号去问状态）。三种都不是当场炸，是安静地做错事。这条把四个调用
+        # 的实参逐个钉住。
+        task = convert.Task(target="/tmp/a.pdf", name="a", origin="/tmp/a.pdf")
+        pages = [('正文\n\n<img src="imgs/x.jpg">',
+                  {"imgs/x.jpg": "https://x/1/x.jpg"})]
+        with self.fake_pipeline(pages):
+            convert.convert_one(task, self.root, "m", "t")
+        self.assertEqual(self.calls, [
+            ("submit", ("/tmp/a.pdf", "m", "t")),
+            ("poll", ("j1", "t")),
+            ("fetch_jsonl", ("https://x/r.jsonl",)),
+            ("fetch_image", ("https://x/1/x.jpg",)),
+        ])
 
     def test_no_pages_at_all_is_an_error(self):
         task = convert.Task(target="/tmp/a.pdf", name="a", origin="/tmp/a.pdf")
