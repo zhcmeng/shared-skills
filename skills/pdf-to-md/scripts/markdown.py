@@ -259,7 +259,7 @@ def rewrite_image_refs(text, resolve):
 
 
 class JsonlLineError(Exception):
-    """结果里某一行自带错误码。"""
+    """结果里的某一行没法用：自带错误码，或者压根不是 JSON。"""
 
 
 @dataclass
@@ -275,13 +275,20 @@ def parse_jsonl(raw: str) -> list[Page]:
     一份 PDF 通常是一行装 3 页，但这个数别写死：按行序、项序摊平，
     第 n 个就是第 n 页。结果里的页码标记（inputImage、图片网址里的
     markdown_N、dataInfo.numPages）全是行内的，靠不住，只能靠顺序。
+
+    解析不了的输入一律抛 JsonlLineError，不把 JSONDecodeError 漏出去：
+    调用方（并发那层）只接得住这一个异常类，漏出去就不是「这一份失败」，
+    而是整批跟着崩。
     """
     pages = []
     for lineno, line in enumerate(raw.splitlines(), start=1):
         line = line.strip()
         if not line:
             continue
-        obj = json.loads(line)
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise JsonlLineError(f"结果第 {lineno} 行不是合法 JSON：{exc}") from exc
         if obj.get("errorCode"):
             raise JsonlLineError(
                 f"结果第 {lineno} 行报错：{obj.get('errorMsg') or obj['errorCode']}")

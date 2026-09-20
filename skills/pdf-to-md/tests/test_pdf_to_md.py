@@ -286,6 +286,15 @@ class TestParseJsonl(unittest.TestCase):
             parse_jsonl(raw)
         self.assertIn("文件格式不支持", str(ctx.exception))
 
+    def test_unparsable_line_raises_with_line_number(self):
+        # 代理塞回来的 HTML、被截断的半行、任何非 JSON：解析不了也得抛自己的
+        # 异常类。上层并发那层只接得住 JsonlLineError，漏出去会让整批跑崩，
+        # 而不是只让这一份失败。
+        raw = jsonl_line([("一", {})]) + '\n{"errorCode": 0, "result": {"layout'
+        with self.assertRaises(JsonlLineError) as ctx:
+            parse_jsonl(raw)
+        self.assertIn("第 2 行", str(ctx.exception))
+
 
 if __name__ == "__main__":
     unittest.main()
