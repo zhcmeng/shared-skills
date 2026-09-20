@@ -46,7 +46,7 @@ if [ "$parse_ok" -eq 1 ]; then
   if [ -z "$ctx" ]; then
     fail "注入文本为空"
   else
-    printf '%s' "$ctx" | grep -q '站在读者的角度' || fail "注入文本里没有判据那句（站在读者的角度，能不能一次读懂）"
+    printf '%s' "$ctx" | grep -q '要怎么表述才能让读者明白' || fail "注入文本里没有判据那句（要怎么表述才能让读者明白）"
     printf '%s' "$ctx" | grep -q '反例' || fail "注入文本里没有「反例」一列（表只剩正面一半）"
     printf '%s' "$ctx" | grep -q '照原样写' || fail "注入文本里没有「这些照原样写」小节"
     printf '%s' "$ctx" | grep -q '护城河' || fail "注入文本里没有规则表的例句（疑似读到了空文件）"
