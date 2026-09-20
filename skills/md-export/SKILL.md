@@ -1,6 +1,6 @@
 ---
 name: md-export
-description: "把 Markdown 导出成 PDF（或 HTML）时使用——按 Markdown Preview Enhanced 的预览主题渲染，支持表格、数学公式、代码块与本地图片，产出样式与编辑器里手动导出的一致。触发词：导出 PDF、转 PDF、生成 PDF、打印这份文档、导出成 HTML、md 转 pdf。不用于：PDF 转 Markdown（走工程自己的文档转换流程）、抓取网页正文（用 defuddle）、生成图表（用 chart-generator）。"
+description: "把 Markdown 导出成 PDF（或 HTML）时使用——按 Markdown Preview Enhanced 的预览主题渲染，支持表格、数学公式、代码块与本地图片，产出样式与编辑器里手动导出的一致。触发词：导出 PDF、转 PDF、生成 PDF、打印这份文档、导出成 HTML、md 转 pdf。不用于：PDF 转 Markdown（用 pdf-to-md）、抓取网页正文（用 defuddle）、生成图表（用 chart-generator）。"
 argument-hint: "<Markdown 文件或目录路径> [-Theme 主题] [-Paper letter|a4] [-Out 输出路径] [-Html]"
 ---
 
