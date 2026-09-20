@@ -138,8 +138,10 @@ _KEEP = {"table", "thead", "tbody", "tfoot", "tr", "td", "th",
 # 只删光秃秃的开标签——不能写成「不认识又没属性就删」：正文里
 # `List<String>`、`x<y>z`、`<name>` 这种形状很常见，<String> 会被当成标签，
 # 结果就是静默丢正文，比留着一个看得见的原始标签坏得多。
-# 收尾标签也不删：带属性的 `<image …>` 留着的时候，把它配对的那半删掉
-# 会留下个配不平的标签，那是另一种删错。要么整对留着，要么整对处理。
+#
+# 残标签按「整对」处理：名字在名单里又没属性的，整对删或者整个留，不删一半。
+# 收尾标签跟着它的开标签走——开标签是光秃秃的就一起删，开标签带属性被留下了
+# 就一起留；不然正文里会剩半个配不平的标签。
 # 以后真见到别的残标签，加在这里。
 _STRAY_TAGS = {"image"}
 
@@ -147,19 +149,29 @@ _TAG_RE = re.compile(r"<(/?)([a-zA-Z][a-zA-Z0-9]*)((?:\s[^<>]*)?)(/?)>")
 
 
 def strip_wrapper_tags(text):
-    """拆掉包裹标签；已知的裸残标签整个去掉。
+    """拆掉包裹标签；已知的裸残标签整对去掉。
 
     三条规则：包裹名单里的拆掉标签留内容；保留名单里的原样不动；
-    其余的——只有名字在残标签名单里、没属性、又不是收尾标签的才去掉，
-    剩下的一律原样留着。
+    其余的——名字在残标签名单里、又没属性的，光秃秃的开标签整个去掉，
+    它的收尾标签跟着一起走；剩下的一律原样留着。
     """
+    # 先收出正文里「光秃秃的开标签」的名字（没属性、不是收尾、名字在名单里）。
+    # 有它，才谈得上把配对的收尾标签一起删。
+    bare_open = {m.group(2).lower() for m in _TAG_RE.finditer(text)
+                 if m.group(2).lower() in _STRAY_TAGS
+                 and not m.group(1) and not m.group(3).strip()}
+
     def repl(m):
         name = m.group(2).lower()
         if name in _WRAPPERS:
             return ""
         if name in _KEEP:
             return m.group(0)
-        if name in _STRAY_TAGS and not m.group(1) and not m.group(3).strip():
+        if name in _STRAY_TAGS and not m.group(3).strip():
+            if m.group(1) and name not in bare_open:
+                # 收尾标签，但正文里没有配对的裸开标签——说明它那个开标签
+                # 带了属性、按规则被留下了，这半也得留，不然就剩半个。
+                return m.group(0)
             return ""
         return m.group(0)
 

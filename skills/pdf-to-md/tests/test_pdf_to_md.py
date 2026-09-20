@@ -97,6 +97,15 @@ class TestStripWrapperTags(unittest.TestCase):
         html = '<image src="a.png">图</image>'
         self.assertEqual(strip_wrapper_tags(html), html)
 
+    def test_bare_stray_pair_is_dropped_whole(self):
+        # 开标签和收尾标签都是光秃秃的，是一对，整对删干净
+        self.assertEqual(strip_wrapper_tags("<image>图</image>"), "图")
+
+    def test_lone_stray_closing_tag_is_kept(self):
+        # 没有配对的裸开标签，说明它那个开标签带了属性、被上面那条留下了，
+        # 这个收尾标签也得留着，不然又剩半个
+        self.assertEqual(strip_wrapper_tags("图</image>"), "图</image>")
+
     def test_text_that_merely_looks_like_a_tag_is_left_alone(self):
         # 认不出来又没属性的，不能一律当残标签删——正文里这些形状很常见，
         # 删了是静默丢内容，比留着一个看得见的标签坏得多
