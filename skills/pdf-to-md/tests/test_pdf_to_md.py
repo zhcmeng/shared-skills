@@ -1,3 +1,4 @@
+import json
 import os
 import sys
 import unittest
@@ -5,8 +6,9 @@ import unittest
 # 把 scripts/ 插进 sys.path，照 download-md-images 那份测试的写法
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 
-from markdown import (PlaceholderLeftover, convert_tables, normalize_blank_lines,
-                      rewrite_image_refs, strip_page_markers, strip_wrapper_tags)
+from markdown import (JsonlLineError, PlaceholderLeftover, convert_tables,
+                      normalize_blank_lines, parse_jsonl, rewrite_image_refs,
+                      strip_page_markers, strip_wrapper_tags)
 
 
 class TestConvertTables(unittest.TestCase):
@@ -225,6 +227,64 @@ class TestRewriteImageRefs(unittest.TestCase):
 
     def test_no_resolve_callable_still_works(self):
         self.assertEqual(rewrite_image_refs("正文", None), "正文")
+
+
+def jsonl_line(pages, error_code=0, error_msg="Success"):
+    """造一行 JSONL。pages 是 [(正文, {图片名: 网址}), …]。"""
+    return json.dumps({
+        "errorCode": error_code,
+        "errorMsg": error_msg,
+        "logId": "x",
+        "result": {
+            "dataInfo": {"numPages": len(pages)},
+            "layoutParsingResults": [
+                {"markdown": {"text": text, "images": images}}
+                for text, images in pages
+            ],
+        },
+    }, ensure_ascii=False)
+
+
+class TestParseJsonl(unittest.TestCase):
+    def test_flat_order_is_line_then_page(self):
+        raw = "\n".join([
+            jsonl_line([("一", {}), ("二", {})]),
+            jsonl_line([("三", {})]),
+        ])
+        pages = parse_jsonl(raw)
+        self.assertEqual([p.text for p in pages], ["一", "二", "三"])
+        self.assertEqual([p.index for p in pages], [0, 1, 2])
+
+    def test_page_count_is_not_hardcoded_to_three(self):
+        raw = "\n".join([jsonl_line([("一", {})]), jsonl_line([("二", {}), ("三", {})])])
+        self.assertEqual(len(parse_jsonl(raw)), 3)
+
+    def test_blank_lines_are_skipped(self):
+        raw = jsonl_line([("一", {})]) + "\n\n   \n"
+        self.assertEqual(len(parse_jsonl(raw)), 1)
+
+    def test_images_are_collected_per_page(self):
+        raw = jsonl_line([("一", {"imgs/a.jpg": "https://x/a.jpg"}),
+                          ("二", {"imgs/a.jpg": "https://x/b.jpg"})])
+        pages = parse_jsonl(raw)
+        self.assertEqual(pages[0].images, {"imgs/a.jpg": "https://x/a.jpg"})
+        self.assertEqual(pages[1].images, {"imgs/a.jpg": "https://x/b.jpg"})
+
+    def test_missing_markdown_field_becomes_empty_text(self):
+        raw = json.dumps({"errorCode": 0, "result": {"layoutParsingResults": [{}]}})
+        pages = parse_jsonl(raw)
+        self.assertEqual(pages[0].text, "")
+        self.assertEqual(pages[0].images, {})
+
+    def test_empty_result_gives_no_pages(self):
+        raw = json.dumps({"errorCode": 0, "result": {}})
+        self.assertEqual(parse_jsonl(raw), [])
+
+    def test_line_level_error_raises(self):
+        raw = jsonl_line([("一", {})], error_code=10004, error_msg="文件格式不支持")
+        with self.assertRaises(JsonlLineError) as ctx:
+            parse_jsonl(raw)
+        self.assertIn("文件格式不支持", str(ctx.exception))
 
 
 if __name__ == "__main__":

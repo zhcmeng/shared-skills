@@ -2,7 +2,9 @@
 
 所有能单测的逻辑都集中在这里。
 """
+import json
 import re
+from dataclasses import dataclass
 
 from lxml import html as lxml_html
 from tabulate import tabulate
@@ -254,3 +256,41 @@ def rewrite_image_refs(text, resolve):
 
     text = _IMG_TAG_RE.sub(tag_repl, text)
     return _MD_IMG_RE.sub(md_repl, text)
+
+
+class JsonlLineError(Exception):
+    """结果里某一行自带错误码。"""
+
+
+@dataclass
+class Page:
+    index: int                 # 按行序、项序摊平后的页码，从 0 起
+    text: str                  # 这一页的原始正文
+    images: dict[str, str]     # 图片名（形如 imgs/xxx.jpg）→ 完整网址
+
+
+def parse_jsonl(raw: str) -> list[Page]:
+    """把结果 JSONL 摊成一份文档的页表。
+
+    一份 PDF 通常是一行装 3 页，但这个数别写死：按行序、项序摊平，
+    第 n 个就是第 n 页。结果里的页码标记（inputImage、图片网址里的
+    markdown_N、dataInfo.numPages）全是行内的，靠不住，只能靠顺序。
+    """
+    pages = []
+    for lineno, line in enumerate(raw.splitlines(), start=1):
+        line = line.strip()
+        if not line:
+            continue
+        obj = json.loads(line)
+        if obj.get("errorCode"):
+            raise JsonlLineError(
+                f"结果第 {lineno} 行报错：{obj.get('errorMsg') or obj['errorCode']}")
+        result = obj.get("result") or {}
+        for item in result.get("layoutParsingResults") or []:
+            md = item.get("markdown") or {}
+            pages.append(Page(
+                index=len(pages),
+                text=md.get("text") or "",
+                images=dict(md.get("images") or {}),
+            ))
+    return pages
