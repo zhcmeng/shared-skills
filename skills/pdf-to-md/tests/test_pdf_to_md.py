@@ -920,10 +920,11 @@ class TestFetch(unittest.TestCase):
         self.assertIn("取图", str(ctx.exception))
 
     def test_jsonl_download_rides_out_a_transient_network_failure(self):
-        # 前面几条给的响应都是一次就成，_retry 这一层整个没被走到：把它删掉、
-        # 把标签换成「取图」、把重试次数钉成 1，一条都不红。少这一层的后果是
-        # 取结果时碰上一次瞬断就抛出 requests 自己的异常，而它不在收尾的捕获
-        # 表里——一份文件的失败会带走整批。
+        # 加这条用例之前，前面几条给的响应都是一次就成，_retry 这一层整个
+        # 没被走到：把它删掉、把标签换成「取图」、把重试次数钉成 1，一条都
+        # 不红（现在这三条都红，红的就是这条用例）。少这一层的后果是取结果
+        # 时碰上一次瞬断就抛出 requests 自己的异常，而它不在收尾的捕获表里
+        # ——一份文件的失败会带走整批。
         tries = []
         naps = []
 
