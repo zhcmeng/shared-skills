@@ -2,10 +2,12 @@ import json
 import os
 import sys
 import unittest
+from unittest import mock
 
 # 把 scripts/ 插进 sys.path，照 download-md-images 那份测试的写法
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 
+import markdown
 from markdown import (JsonlLineError, Page, PlaceholderLeftover, allocate_names,
                       assemble, clean_markdown, convert_tables, image_downloads,
                       normalize_blank_lines, parse_jsonl, rewrite_image_refs,
@@ -455,8 +457,13 @@ class TestCleanMarkdown(unittest.TestCase):
         self.assertEqual(clean_markdown(raw, None), "正文")
 
     def test_leftover_placeholder_raises(self):
-        with self.assertRaises(PlaceholderLeftover):
-            clean_markdown("正文 \x00T7\x00 尾巴", None)
+        # 记号从流水线中途注入，这样末检才是唯一能抓住它的地方。
+        # 直接喂一个带记号的输入不行——convert_tables 的入口守卫会先拦下，
+        # 那样测的是它、不是末检（删掉末检全套仍然全绿）。
+        with mock.patch("markdown.strip_page_markers",
+                        side_effect=lambda t: t + markdown._PLACEHOLDER.format(7)):
+            with self.assertRaises(PlaceholderLeftover):
+                clean_markdown("正文", None)
 
 
 class TestAssemble(unittest.TestCase):
@@ -475,6 +482,15 @@ class TestAssemble(unittest.TestCase):
         names = allocate_names(pages)
         out = assemble(pages, names)
         self.assertEqual(out, "![](images/a.jpg)\n\n![](images/a-2.jpg)")
+
+    def test_bare_filename_ref_resolves_through_the_name_table(self):
+        # 正文里用的是裸文件名（不带 imgs/ 前缀），名字表里的 src 带目录。
+        # 折 lookup 时若只登记带目录的那一种键，这条就改不动。
+        pages = [Page(index=0, text='<img src="img_in_image_box_1_2_3_4.jpg">',
+                      images={"imgs/img_in_image_box_1_2_3_4.jpg": "https://x/1"})]
+        names = allocate_names(pages)
+        self.assertEqual(assemble(pages, names),
+                         "![](images/img_in_image_box_1_2_3_4.jpg)")
 
     def test_empty_page_list_gives_empty_string(self):
         self.assertEqual(assemble([], {}), "")
