@@ -18,6 +18,10 @@ RETRY_ATTEMPTS = 3
 RETRY_DELAY = 2.0
 POLL_INTERVAL = 3.0
 
+# 图片地址带签名会过期，重试别拖太久
+IMAGE_RETRY_ATTEMPTS = 2
+IMAGE_RETRY_DELAY = 1.0
+
 # 三个开关照官方示例给 False，也不给使用者开口子——本机没试过打开的效果
 OPTIONAL_PAYLOAD = {
     "useDocOrientationClassify": False,
@@ -196,3 +200,29 @@ def poll(job_id, token, on_progress=None):
             if prog:
                 on_progress(prog.get("extractedPages"), prog.get("totalPages"))
         time.sleep(POLL_INTERVAL)
+
+
+def fetch_jsonl(url):
+    """下载结果 JSONL。
+
+    自己按 UTF-8 解，不用 resp.text——那是让 requests 去猜编码：它碰上没有
+    charset 的 text/* 一律按 ISO-8859-1 解，而对象存储常把 JSONL 当 text/plain
+    发，中文就会静默变成乱码。JSON 按规范就是 UTF-8；utf-8-sig 顺带吃掉 BOM。
+    """
+    resp = _retry(lambda: requests.get(url, timeout=UPLOAD_TIMEOUT), "取结果")
+    if resp.status_code != 200:
+        raise JobFailed(f"取结果失败：HTTP {resp.status_code}")
+    return resp.content.decode("utf-8-sig")
+
+
+def fetch_image(url):
+    """按网址把一张图取回来。
+
+    返回的 Content-Type 一律是 application/octet-stream，别拿它判断类型；
+    文件头和扩展名都按网址路径里的文件名来。
+    """
+    resp = _retry(lambda: requests.get(url, timeout=SMALL_TIMEOUT), "取图",
+                  attempts=IMAGE_RETRY_ATTEMPTS, delay=IMAGE_RETRY_DELAY)
+    if resp.status_code != 200:
+        raise NetworkError(f"图床返回 HTTP {resp.status_code}")
+    return resp.content

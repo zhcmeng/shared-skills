@@ -831,5 +831,77 @@ class TestPoll(unittest.TestCase):
         self.assertEqual(len(calls), 3)
 
 
+class TestFetch(unittest.TestCase):
+    def test_jsonl_is_returned_as_text(self):
+        resp = FakeResponse(text='{"errorCode":0}\n')
+        resp.content = '{"errorCode":0}\n'.encode("utf-8")
+        with mock.patch.object(requests, "get", lambda *a, **k: resp):
+            self.assertEqual(aistudio.fetch_jsonl("https://x/r.jsonl"),
+                             '{"errorCode":0}\n')
+
+    def test_jsonl_is_decoded_as_utf8_not_by_guessing(self):
+        # 对象存储常把 JSONL 当 text/plain 发，requests 对没有 charset 的
+        # text/* 一律按 ISO-8859-1 解——中文会静默变成乱码。
+        # 这里把 text 摆成乱码那份、content 摆成正确的字节，
+        # 用 resp.text 的实现会红。
+        raw = '{"errorCode":0,"msg":"文件格式不支持"}\n'.encode("utf-8")
+        resp = FakeResponse(text=raw.decode("iso-8859-1"))
+        resp.content = raw
+        with mock.patch.object(requests, "get", lambda *a, **k: resp):
+            self.assertEqual(aistudio.fetch_jsonl("https://x/r.jsonl"),
+                             '{"errorCode":0,"msg":"文件格式不支持"}\n')
+
+    def test_jsonl_non_200_is_a_job_failure(self):
+        resp = FakeResponse(status_code=404, text="gone")
+        with mock.patch.object(requests, "get", lambda *a, **k: resp), \
+             mock.patch.object(aistudio, "RETRY_DELAY", 0):
+            with self.assertRaises(JobFailed) as ctx:
+                aistudio.fetch_jsonl("https://x/r.jsonl")
+        self.assertIn("404", str(ctx.exception))
+
+    def test_image_bytes_are_returned(self):
+        resp = FakeResponse(body=None, text="")
+        resp.content = b"\xff\xd8\xff\xe0jpeg"
+        with mock.patch.object(requests, "get", lambda *a, **k: resp):
+            self.assertEqual(aistudio.fetch_image("https://x/a.jpg"),
+                             b"\xff\xd8\xff\xe0jpeg")
+
+    def test_expired_signature_raises_network_error(self):
+        # 签名过期时图床返回 403；上层按「这张取不回来」处理，不中断整批
+        resp = FakeResponse(status_code=403, text="expired")
+        with mock.patch.object(requests, "get", lambda *a, **k: resp), \
+             mock.patch.object(aistudio, "IMAGE_RETRY_DELAY", 0):
+            with self.assertRaises(NetworkError) as ctx:
+                aistudio.fetch_image("https://x/a.jpg")
+        self.assertIn("403", str(ctx.exception))
+
+    def test_image_download_uses_a_shorter_retry_budget(self):
+        self.assertLess(aistudio.IMAGE_RETRY_ATTEMPTS, aistudio.RETRY_ATTEMPTS)
+
+    def test_image_download_hands_its_own_network_settings_down(self):
+        # 上面那条只盯常量的数值。常量摆在那儿不等于取图这条路用上了它：把
+        # attempts=/delay=/timeout= 删掉或换掉，上面那条照样绿，而实际行为会
+        # 退回默认的 3 次 × 2 秒、900 秒超时——一张图挂住，一个 worker 就白
+        # 占十几分钟。这条盯的是 fetch_image 真把它们传下去了。
+        tries = []
+        naps = []
+        seen = {}
+
+        def boom(url, **kw):
+            tries.append(1)
+            seen.update(kw)
+            raise requests.ConnectionError("断了")
+
+        with mock.patch.object(requests, "get", boom), \
+             mock.patch.object(aistudio.time, "sleep", naps.append):
+            with self.assertRaises(NetworkError) as ctx:
+                aistudio.fetch_image("https://x/a.jpg")
+        self.assertEqual(len(tries), aistudio.IMAGE_RETRY_ATTEMPTS)
+        self.assertEqual(naps, [aistudio.IMAGE_RETRY_DELAY])
+        self.assertEqual(seen["timeout"], aistudio.SMALL_TIMEOUT)
+        # 重试耗尽的报错要指明是取图这一段，别让使用者以为是取结果
+        self.assertIn("取图", str(ctx.exception))
+
+
 if __name__ == "__main__":
     unittest.main()
