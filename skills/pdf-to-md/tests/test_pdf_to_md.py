@@ -1,9 +1,11 @@
+import argparse
 import io
 import json
 import os
 import sys
 import tempfile
 import unittest
+from concurrent.futures import Future
 from unittest import mock
 
 import requests
@@ -1289,6 +1291,241 @@ class TestConvertOne(unittest.TestCase):
             convert.convert_one(task, self.root, "m", "t",
                                 on_pages=lambda d, t: seen.append((d, t)))
         self.assertEqual(seen, [(2, 2)])
+
+
+class TestFormatDuration(unittest.TestCase):
+    def test_seconds(self):
+        self.assertEqual(convert.format_duration(9), "0:09")
+
+    def test_minutes(self):
+        self.assertEqual(convert.format_duration(125), "2:05")
+
+    def test_hours(self):
+        self.assertEqual(convert.format_duration(3725), "1:02:05")
+
+
+class TestDisplayWidth(unittest.TestCase):
+    def test_wide_characters_take_two_columns(self):
+        # 进度行靠它算要补多少空格才能把上一行整个盖掉。中日韩字符按一格
+        # 算的话，中文文件名那一行会比实际短，上一行的尾巴就留在屏幕上。
+        self.assertEqual(convert._display_width("abc"), 3)
+        self.assertEqual(convert._display_width("中文"), 4)
+        self.assertEqual(convert._display_width("a中"), 3)
+        # 全角形式的西文字母（Ｆ 这一类）也算两格，别只认中日韩那几个区
+        self.assertEqual(convert._display_width("Ａ"), 2)
+
+
+class TestProgress(unittest.TestCase):
+    def make(self, total=2):
+        import io
+        buf = io.StringIO()
+        return buf, convert.Progress(total, stream=buf)
+
+    def test_done_line_names_the_file_pages_and_time(self):
+        buf, p = self.make()
+        p.add("a")
+        p.done_line(convert.Result(name="a", pages=105, seconds=84.9,
+                                   missing_images=[]))
+        text = buf.getvalue()
+        self.assertIn("a", text)
+        self.assertIn("105 页", text)
+        self.assertIn("1:24", text)
+
+    def test_done_line_mentions_missing_images(self):
+        buf, p = self.make()
+        p.done_line(convert.Result(name="a", pages=1, seconds=1.0,
+                                   missing_images=["x.jpg", "y.jpg"]))
+        self.assertIn("缺 2 张图", buf.getvalue())
+
+    def test_skipped_lines_are_reported(self):
+        buf, p = self.make()
+        p.note("跳过 a（已经转过）")
+        self.assertIn("跳过 a", buf.getvalue())
+
+
+class TestRun(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = self.tmp.name
+        # run() 的进度行走在 stderr 上、末尾那两段汇总走在 stdout 上。不接住的话
+        # 它们会混进测试运行输出里，而且没法断言。unittest 自己的报告不受影响：
+        # runner 在构造时就把真正的 stderr 存下来了，这里换的是模块属性。
+        self.out = io.StringIO()
+        for name in ("stdout", "stderr"):
+            patcher = mock.patch("sys." + name, self.out)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        # run() 一开头会去拿 token；测试里不发请求，直接换掉
+        patcher = mock.patch.object(aistudio, "get_token", lambda: "t")
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def args(self, **kw):
+        base = dict(output=self.root, model="m", force=False, jobs=2)
+        base.update(kw)
+        return argparse.Namespace(**base)
+
+    def test_successful_run_exits_zero(self):
+        tasks = [convert.Task(target="/tmp/a.pdf", name="a", origin="a")]
+        with mock.patch.object(convert, "convert_one",
+                              lambda *a, **k: convert.Result("a", 1, 0.1, [])):
+            self.assertEqual(convert.run(tasks, self.args()), 0)
+        # 那一行动态进度是这东西唯一的存在理由，完成数不累加它就永远显示 0
+        self.assertIn("1/1 完成", self.out.getvalue())
+
+    def test_a_failing_file_does_not_stop_the_others(self):
+        tasks = [convert.Task(target="/tmp/a.pdf", name="a", origin="a"),
+                 convert.Task(target="/tmp/b.pdf", name="b", origin="b")]
+
+        def flaky(task, *a, **k):
+            if task.name == "a":
+                raise aistudio.JobFailed("解析失败：文件损坏")
+            return convert.Result("b", 1, 0.1, [])
+
+        with mock.patch.object(convert, "convert_one", flaky):
+            self.assertEqual(convert.run(tasks, self.args()), 1)
+        # 末尾那段汇总得点名是哪一份、为什么——只返回 1 不够，用户要的是线索。
+        # 缩进两个空格才钉得住汇总里那行：进度行的 note 也会打同一句话，
+        # 不缩进、前面还带「失败」两个字。
+        text = self.out.getvalue()
+        self.assertIn("1 份失败", text)
+        self.assertIn("\n  a：解析失败：文件损坏", text)
+        self.assertIn("失败 1", text)      # 动态进度行里也记了这一笔
+
+    def test_a_local_error_only_fails_that_one_file(self):
+        # 本机的问题（源文件读不出来、盘写满了）不是服务那边的事，但也只该
+        # 让这一份失败。捕获表里少写 OSError，一份读不出来的文件就把整批带走。
+        tasks = [convert.Task(target="/tmp/a.pdf", name="a", origin="a"),
+                 convert.Task(target="/tmp/b.pdf", name="b", origin="b")]
+        got = []
+
+        def flaky(task, *a, **k):
+            if task.name == "a":
+                raise OSError("读不出来")
+            got.append(task.name)
+            return convert.Result("b", 1, 0.1, [])
+
+        with mock.patch.object(convert, "convert_one", flaky):
+            self.assertEqual(convert.run(tasks, self.args()), 1)
+        self.assertEqual(got, ["b"])      # 另一份照跑完了
+        self.assertIn("\n  a：读不出来", self.out.getvalue())
+
+    def test_every_listed_failure_keeps_the_batch_alive(self):
+        # run() 那张捕获表列了六种「只该让这一份失败」的异常。少写哪一种，
+        # 哪一种就会穿出去把整批带走——一条一条地试，别只挑一个有代表性的。
+        cases = [aistudio.SubmitRejected(500, msg="x"),
+                 aistudio.JobFailed("x"),
+                 aistudio.NetworkError("x"),
+                 convert.EmptyDocument("x"),
+                 JsonlLineError("x"),
+                 OSError("x")]
+        for exc in cases:
+            with self.subTest(exc=type(exc).__name__):
+                tasks = [convert.Task(target="/tmp/a.pdf", name="a", origin="a"),
+                         convert.Task(target="/tmp/b.pdf", name="b", origin="b")]
+
+                def flaky(task, *a, _exc=exc, **k):
+                    if task.name == "a":
+                        raise _exc
+                    return convert.Result("b", 1, 0.1, [])
+
+                with mock.patch.object(convert, "convert_one", flaky):
+                    self.assertEqual(convert.run(tasks, self.args()), 1)
+
+    def test_missing_images_are_named_at_the_end(self):
+        tasks = [convert.Task(target="/tmp/a.pdf", name="a", origin="a")]
+        with mock.patch.object(convert, "convert_one",
+                               lambda *a, **k: convert.Result(
+                                   "a", 1, 0.1, ["x.jpg", "y.jpg"])):
+            self.assertEqual(convert.run(tasks, self.args()), 0)
+        text = self.out.getvalue()
+        self.assertIn("有图没取回来", text)
+        self.assertIn("\n  a：x.jpg、y.jpg", text)
+
+    def test_jobs_is_passed_to_the_pool(self):
+        """--jobs 得真传下去；不传的话这个开关就是个摆设。"""
+        seen = {}
+
+        class RecordingPool:
+            def __init__(self, max_workers=None):
+                seen["max_workers"] = max_workers
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def submit(self, fn, *a, **k):
+                # 真 Future、当场算完：这样 as_completed 不用跟着一起 mock
+                future = Future()
+                try:
+                    future.set_result(fn(*a, **k))
+                except BaseException as exc:
+                    future.set_exception(exc)
+                return future
+
+        tasks = [convert.Task(target="/tmp/a.pdf", name="a", origin="a")]
+        with mock.patch.object(convert, "ThreadPoolExecutor", RecordingPool), \
+             mock.patch.object(convert, "convert_one",
+                               lambda *a, **k: convert.Result("a", 1, 0.1, [])):
+            convert.run(tasks, self.args(jobs=3))
+        self.assertEqual(seen["max_workers"], 3)
+
+    def test_already_converted_files_are_skipped_unless_forced(self):
+        os.makedirs(os.path.join(self.root, "a"))
+        with open(os.path.join(self.root, "a", "a.md"), "w", encoding="utf-8") as f:
+            f.write("x")
+        tasks = [convert.Task(target="/tmp/a.pdf", name="a", origin="a")]
+        calls = []
+        with mock.patch.object(convert, "convert_one",
+                              lambda *a, **k: calls.append(1)):
+            convert.run(tasks, self.args())
+            self.assertEqual(calls, [])
+            # 跳过得说出来。用户看到「什么都没发生」会以为工具坏了
+            self.assertIn("跳过 a", self.out.getvalue())
+            self.assertIn("跳过 1", self.out.getvalue())
+
+        def counted(*a, **k):
+            calls.append(1)
+            return convert.Result("a", 1, 0.1, [])
+
+        with mock.patch.object(convert, "convert_one", counted):
+            convert.run(tasks, self.args(force=True))
+        # 加了 --force 就得真去转
+        self.assertEqual(len(calls), 1)
+
+    def test_an_all_skipped_run_never_asks_for_a_token(self):
+        # 全都已经转过时那一趟根本不用 token。真去拿的话，手里没有 token 的人
+        # 会被一句「环境里没有 …」挡回来——他要的只是确认「都转过了」。
+        os.makedirs(os.path.join(self.root, "a"), exist_ok=True)
+        with open(os.path.join(self.root, "a", "a.md"), "w",
+                  encoding="utf-8") as f:
+            f.write("x")
+        tasks = [convert.Task(target="/tmp/a.pdf", name="a", origin="a")]
+
+        def boom():
+            raise AssertionError("全跳过的一趟不该去拿 token")
+
+        with mock.patch.object(aistudio, "get_token", boom):
+            self.assertEqual(convert.run(tasks, self.args()), 0)
+        self.assertIn("跳过 a", self.out.getvalue())
+
+
+class TestMain(unittest.TestCase):
+    def test_an_environment_problem_becomes_exit_2(self):
+        """缺依赖、目录里没有 PDF、缺 token 都走这条路。
+
+        它们抛的都是带字符串的 SystemExit；main 负责把它印出来并回一个
+        退出码 2，好让调用方分得清「用法/环境不对」和「有文件没转成」。
+        """
+        err = io.StringIO()
+        with mock.patch.object(convert, "check_dependencies",
+                               side_effect=SystemExit("缺依赖：lxml")), \
+             mock.patch("sys.stderr", err):
+            self.assertEqual(convert.main(["--output", "out", "a.pdf"]), 2)
+        self.assertIn("缺依赖：lxml", err.getvalue())
 
 
 if __name__ == "__main__":

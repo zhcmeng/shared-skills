@@ -3,7 +3,10 @@ import argparse
 import importlib.util
 import os
 import sys
+import threading
 import time
+import unicodedata
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlparse
@@ -195,3 +198,182 @@ def convert_one(task, out_root, model, token, on_pages=None):
 
     return Result(name=task.name, pages=len(pages),
                   seconds=time.time() - t0, missing_images=missing)
+
+
+def format_duration(seconds):
+    total = int(seconds)
+    h, rem = divmod(total, 3600)
+    m, s = divmod(rem, 60)
+    if h:
+        return f"{h}:{m:02d}:{s:02d}"
+    return f"{m}:{s:02d}"
+
+
+def _display_width(text):
+    """终端里的显示宽度：中日韩字符占两格。"""
+    return sum(2 if unicodedata.east_asian_width(ch) in "WF" else 1
+               for ch in text)
+
+
+class Progress:
+    """一行动态进度 + 每个文件一行永久记录。
+
+    好几个任务会同时想改那一行动态行，所以每次重画都加锁——不加会串字符。
+    """
+
+    def __init__(self, total, stream=None):
+        self.total = total
+        self.done = 0
+        self.failed = 0
+        self.skipped = 0
+        self.inflight = {}          # 名字 → (已解析页数, 总页数)，总页数可能还不知道
+        self.lock = threading.Lock()
+        self.t0 = time.time()
+        self.stream = stream if stream is not None else sys.stderr
+        self._width = 0
+
+    def _render_locked(self):
+        elapsed = time.time() - self.t0
+        bits = [f"{self.done}/{self.total} 完成"]
+        if self.skipped:
+            bits.append(f"跳过 {self.skipped}")
+        if self.failed:
+            bits.append(f"失败 {self.failed}")
+        if self.inflight:
+            running = "、".join(
+                f"{name} {d}/{t} 页" if t else f"{name} …"
+                for name, (d, t) in self.inflight.items())
+            bits.append(f"进行中 {running}")
+        bits.append(f"已用 {format_duration(elapsed)}")
+        left = self.total - self.done - self.failed - self.skipped
+        if self.done and left > 0:
+            eta = elapsed / self.done * left
+            bits.append(f"预计剩余 {format_duration(eta)}")
+        line = "  ".join(bits)
+        pad = " " * max(0, self._width - _display_width(line))
+        self._width = _display_width(line)
+        self.stream.write("\r" + line + pad)
+        self.stream.flush()
+
+    def _clear_locked(self):
+        if self._width:
+            self.stream.write("\r" + " " * self._width + "\r")
+            self._width = 0
+
+    def add(self, name):
+        with self.lock:
+            self.inflight[name] = (None, None)
+            self._clear_locked()
+            self._render_locked()
+
+    def pages(self, name, done, total):
+        with self.lock:
+            if name in self.inflight:
+                self.inflight[name] = (done, total)
+                self._clear_locked()
+                self._render_locked()
+
+    def note(self, text):
+        """在动态行上方留一行永久的记录。"""
+        with self.lock:
+            self._clear_locked()
+            self.stream.write(text + "\n")
+            self._render_locked()
+
+    def done_line(self, result):
+        bits = [f"{result.name}  {result.pages} 页  "
+                f"{format_duration(result.seconds)}"]
+        if result.missing_images:
+            bits.append(f"缺 {len(result.missing_images)} 张图："
+                        + "、".join(result.missing_images))
+        if result.note:
+            bits.append(result.note)
+        self.note("  ".join(bits))
+
+    def close(self):
+        with self.lock:
+            self._clear_locked()
+            self.stream.flush()
+
+
+def run(tasks, args):
+    """并发跑一批，返回退出码。一份失败不影响别的。"""
+    progress = Progress(len(tasks))
+    todo = []
+    for task in tasks:
+        if not args.force and already_done(args.output, task.name):
+            progress.skipped += 1
+            progress.note(f"跳过 {task.origin}（已经转过，要重转加 --force）")
+            continue
+        todo.append(task)
+
+    failures = []
+    missing = []
+
+    # token 在这里拿，不在工作线程里拿：拿不到时抛的 SystemExit 得冒到 main，
+    # 才能变成退出码和一句提示，而不是烂在某个线程里。
+    # 全部文件都已转过时不必拿——那一趟根本不用 token。
+    # 写成 aistudio.get_token() 而不是 from aistudio import get_token：本模块
+    # 通篇用的是 aistudio.xxx，而且测试是把 aistudio.get_token 换掉的，
+    # 提前绑进来的名字换不掉。
+    token = aistudio.get_token() if todo else None
+
+    def work(task):
+        progress.add(task.name)
+        return convert_one(
+            task, args.output, args.model, token,
+            on_pages=lambda d, t, n=task.name: progress.pages(n, d, t))
+
+    with ThreadPoolExecutor(max_workers=args.jobs) as pool:
+        futures = {pool.submit(work, t): t for t in todo}
+        for future in as_completed(futures):
+            task = futures[future]
+            try:
+                result = future.result()
+            except (aistudio.SubmitRejected, aistudio.JobFailed,
+                    aistudio.NetworkError, EmptyDocument,
+                    md_utils.JsonlLineError, OSError) as exc:
+                # OSError 是本机的问题（文件读不出来、目录建不了、盘写满了），
+                # 不是服务那边的事。它照样只该让这一份失败——`submit` 读本地
+                # 文件时 open() 抛的就是它，漏出去就是整批跟着崩。
+                failures.append((task.origin, exc))
+                with progress.lock:
+                    progress.inflight.pop(task.name, None)
+                    progress.failed += 1
+                progress.note(f"失败 {task.origin}：{exc}")
+                continue
+            with progress.lock:
+                progress.inflight.pop(task.name, None)
+                progress.done += 1
+            progress.done_line(result)
+            if result.missing_images:
+                missing.append(result)
+
+    progress.close()
+
+    if missing:
+        print("\n有图没取回来（正文照常，只是那几张是坏图）：")
+        for result in missing:
+            print(f"  {result.name}：{'、'.join(result.missing_images)}")
+    if failures:
+        print(f"\n{len(failures)} 份失败：")
+        for origin, exc in failures:
+            print(f"  {origin}：{exc}")
+        return 1
+    return 0
+
+
+def main(argv=None):
+    args = parse_args(argv)
+    try:
+        check_dependencies()
+        tasks = collect_inputs(args.inputs)
+        return run(tasks, args)
+    except SystemExit as exc:      # 缺依赖、目录里没有 PDF、缺 token
+        if exc.code and not isinstance(exc.code, int):
+            print(exc.code, file=sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())
