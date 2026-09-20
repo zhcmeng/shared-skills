@@ -5,7 +5,8 @@ import unittest
 # 把 scripts/ 插进 sys.path，照 download-md-images 那份测试的写法
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 
-from markdown import PlaceholderLeftover, convert_tables
+from markdown import (PlaceholderLeftover, convert_tables, normalize_blank_lines,
+                      strip_page_markers, strip_wrapper_tags)
 
 
 class TestConvertTables(unittest.TestCase):
@@ -75,6 +76,74 @@ class TestConvertTables(unittest.TestCase):
     def test_leftover_placeholder_raises(self):
         with self.assertRaises(PlaceholderLeftover):
             convert_tables("正文里混进了 \x00T0\x00 这种记号")
+
+
+class TestStripWrapperTags(unittest.TestCase):
+    def test_wrapper_tags_are_removed_but_text_stays(self):
+        html = '<div style="text-align: center;">中间的话</div>'
+        self.assertEqual(strip_wrapper_tags(html), "中间的话")
+
+    def test_all_wrapper_names(self):
+        for name in ("div", "span", "center", "html", "body", "p"):
+            out = strip_wrapper_tags(f"<{name}>x</{name}>")
+            self.assertEqual(out, "x", name)
+
+    def test_attribute_less_unknown_tag_is_dropped(self):
+        self.assertEqual(strip_wrapper_tags("前<image>后"), "前后")
+
+    def test_table_and_inline_tags_are_kept(self):
+        for html in ("<table><tr><td>x</td></tr></table>",
+                     "<b>粗</b>", "<img src=\"a.jpg\" width=\"73%\">"):
+            self.assertEqual(strip_wrapper_tags(html), html)
+
+    def test_unknown_tag_with_attribute_is_left_alone(self):
+        html = '<custom data-x="1">x</custom>'
+        self.assertEqual(strip_wrapper_tags(html), html)
+
+
+class TestStripPageMarkers(unittest.TestCase):
+    def test_bare_page_number_line_is_dropped(self):
+        self.assertEqual(strip_page_markers("第 3 页"), "")
+
+    def test_page_number_with_total_is_dropped(self):
+        for line in ("第 3 页 / 共 10 页", "第 3 页（共 10 页）", "第3页，共10页"):
+            self.assertEqual(strip_page_markers(line), "", line)
+
+    def test_dashed_page_number_is_dropped(self):
+        self.assertEqual(strip_page_markers("- 12 -"), "")
+
+    def test_english_page_marker_is_dropped(self):
+        for line in ("Page 3", "Page 3 of 10", "page 12"):
+            self.assertEqual(strip_page_markers(line), "", line)
+
+    def test_marker_left_in_the_middle_of_a_line_is_kept(self):
+        # 分不出来那是页码还是正文，宁可不删
+        self.assertEqual(strip_page_markers("详见第 3 页"), "详见第 3 页")
+
+    def test_only_the_marker_line_goes(self):
+        self.assertEqual(strip_page_markers("正文\n第 3 页\n后文"), "正文\n\n后文")
+
+    def test_a_line_that_merely_starts_with_the_word_page_is_kept(self):
+        self.assertEqual(strip_page_markers("Page 3 讲了协议语义"),
+                         "Page 3 讲了协议语义")
+
+    def test_normal_text_is_untouched(self):
+        text = "# 标题\n\n正文\n\n- 列表项"
+        self.assertEqual(strip_page_markers(text), text)
+
+
+class TestNormalizeBlankLines(unittest.TestCase):
+    def test_trailing_spaces_gone(self):
+        self.assertEqual(normalize_blank_lines("a   \nb\t\n"), "a\nb")
+
+    def test_three_or_more_newlines_become_two(self):
+        self.assertEqual(normalize_blank_lines("a\n\n\n\n\nb"), "a\n\nb")
+
+    def test_two_newlines_are_kept(self):
+        self.assertEqual(normalize_blank_lines("a\n\nb"), "a\n\nb")
+
+    def test_leading_and_trailing_blank_lines_stripped(self):
+        self.assertEqual(normalize_blank_lines("\n\n  a  \n\n"), "a")
 
 
 if __name__ == "__main__":

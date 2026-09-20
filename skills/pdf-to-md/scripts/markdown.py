@@ -122,3 +122,79 @@ def convert_tables(text):
     for i, block in enumerate(blocks):
         out = out.replace(_PLACEHOLDER.format(i), block)
     return out
+
+
+# 只是包裹，本身不携带内容语义：拆掉标签、留下里面的东西
+_WRAPPERS = {"div", "span", "center", "html", "body", "p", "font",
+             "section", "article", "header", "footer", "main",
+             "figure", "figcaption"}
+
+# 本身有意义的标签：原样留着
+_KEEP = {"table", "thead", "tbody", "tfoot", "tr", "td", "th",
+         "img", "b", "i", "strong", "em", "code", "pre", "sub", "sup",
+         "br", "a", "u", "s", "blockquote", "hr", "ul", "ol", "li"}
+
+_TAG_RE = re.compile(r"<(/?)([a-zA-Z][a-zA-Z0-9]*)((?:\s[^<>]*)?)(/?)>")
+
+
+def strip_wrapper_tags(text):
+    """拆掉包裹标签；没属性的残标签整个去掉。
+
+    三条规则：包裹名单里的拆掉标签留内容；保留名单里的原样不动；
+    其余的——没属性就拆掉标签留内容（`<image>` 这种空的就等于整个消失），
+    有属性就不认识也别乱动。
+    """
+    # 不认识的标签带属性出现时整个不动；它成对的收尾标签也得跟着留下，
+    # 否则正文里会多出一个没有开头的 </custom>。
+    attributed = {m.group(2).lower() for m in _TAG_RE.finditer(text)
+                  if not m.group(1) and m.group(3).strip()}
+
+    def repl(m):
+        name = m.group(2).lower()
+        if name in _WRAPPERS:
+            return ""
+        if name in _KEEP:
+            return m.group(0)
+        if not m.group(3).strip():
+            if m.group(1) and name in attributed:
+                return m.group(0)
+            return ""
+        return m.group(0)
+
+    return _TAG_RE.sub(repl, text)
+
+
+# 整行就是一个页码的几种写法。只用 ^…$ 卡死整行——页码在页脚是独立的一行，
+# 夹在正文里的（「详见第 3 页」）分不出来是页码还是内容，一律不动。
+_PAGE_MARKER_RES = (
+    re.compile(r"^第\s*\d+\s*页\s*(?:[/，,（(]?\s*共\s*\d+\s*页\s*[)）]?)?$"),
+    re.compile(r"^-\s*\d+\s*-$"),
+    re.compile(r"^page\s+\d+(?:\s+of\s+\d+)?$", re.I),
+)
+
+
+def strip_page_markers(text):
+    """整行就是一个页码标记的，去掉那一行。
+
+    样例那份结果里没见着页码，但规则按「出现了就去掉」写，不按「不会出现」
+    假设。收紧到整行匹配是有意的：放宽成「行里出现就删」会把「详见第 3 页」
+    这种正文一起吃掉。
+
+    去掉的那行留下一个空行，让前后的段落还是分开的；空行归一是后面
+    normalize_blank_lines 的事。
+    """
+    kept = []
+    for line in text.split("\n"):
+        stripped = line.strip()
+        if stripped and any(r.match(stripped) for r in _PAGE_MARKER_RES):
+            kept.append("")
+            continue
+        kept.append(line)
+    return "\n".join(kept)
+
+
+def normalize_blank_lines(text):
+    """行尾空白去掉，连续空行归成一个，首尾空行去掉。"""
+    text = "\n".join(line.rstrip() for line in text.split("\n"))
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
