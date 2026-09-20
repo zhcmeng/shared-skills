@@ -167,5 +167,32 @@ class TestNormalizeBlankLines(unittest.TestCase):
         self.assertEqual(normalize_blank_lines("\n\n  a  \n\n"), "a")
 
 
+class TestStripWrapperTagsStrayPairing(unittest.TestCase):
+    """残标签按位置配对，不按名字。
+
+    一份正文里可能既有光秃秃的 <image>，又有带属性的 <image …></image>；
+    按名字收一个「出现过裸开标签」的集合，就会把后者那个 </image> 也删掉，
+    剩半个配不平的开标签。
+    """
+
+    def test_bare_pair_before_attributed_pair(self):
+        text = '<image>a</image> 中 <image src="b.png">c</image>'
+        self.assertEqual(strip_wrapper_tags(text),
+                         'a 中 <image src="b.png">c</image>')
+
+    def test_attributed_pair_before_bare_pair(self):
+        text = '<image src="b.png">c</image> 中 <image>a</image>'
+        self.assertEqual(strip_wrapper_tags(text),
+                         '<image src="b.png">c</image> 中 a')
+
+    def test_bare_open_without_a_close_is_dropped(self):
+        # 实测到的残留形状：光秃秃的开标签，后面压根没有收尾标签
+        self.assertEqual(strip_wrapper_tags("<image>没闭合"), "没闭合")
+
+    def test_each_bare_pair_is_dropped_on_its_own(self):
+        self.assertEqual(strip_wrapper_tags("<image>a</image><image>b</image>"),
+                         "ab")
+
+
 if __name__ == "__main__":
     unittest.main()

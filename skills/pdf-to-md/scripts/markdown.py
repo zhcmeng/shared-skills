@@ -135,13 +135,14 @@ _KEEP = {"table", "thead", "tbody", "tfoot", "tr", "td", "th",
          "br", "a", "u", "s", "blockquote", "hr", "ul", "ol", "li"}
 
 # 实测到的转换残留：裸的 <image>，没属性、没内容，跟文档内容无关。
-# 只删光秃秃的开标签——不能写成「不认识又没属性就删」：正文里
+# 只删光秃秃的标签——不能写成「不认识又没属性就删」：正文里
 # `List<String>`、`x<y>z`、`<name>` 这种形状很常见，<String> 会被当成标签，
 # 结果就是静默丢正文，比留着一个看得见的原始标签坏得多。
 #
-# 残标签按「整对」处理：名字在名单里又没属性的，整对删或者整个留，不删一半。
-# 收尾标签跟着它的开标签走——开标签是光秃秃的就一起删，开标签带属性被留下了
-# 就一起留；不然正文里会剩半个配不平的标签。
+# 残标签按「整对」处理，配对按位置、不按名字：一份正文里可能既有裸 <image>，
+# 又有带属性的 <image …></image>，按名字一锅端就会把后者也删掉一半。收尾标签
+# 只认它前面那个还没闭合的开标签——开标签是光秃秃的（被删了）就跟着一起删，
+# 开标签带属性（被留下了）就一起留；不然正文里会剩半个配不平的标签。
 # 以后真见到别的残标签，加在这里。
 _STRAY_TAGS = {"image"}
 
@@ -152,30 +153,44 @@ def strip_wrapper_tags(text):
     """拆掉包裹标签；已知的裸残标签整对去掉。
 
     三条规则：包裹名单里的拆掉标签留内容；保留名单里的原样不动；
-    其余的——名字在残标签名单里、又没属性的，光秃秃的开标签整个去掉，
-    它的收尾标签跟着一起走；剩下的一律原样留着。
+    其余的——名字在残标签名单里的按位置配对，光秃秃的开标签整个去掉，
+    跟它配上的那个收尾标签一起走；带属性的开标签不动，配上的收尾标签也留。
+    剩下的一律原样留着。
     """
-    # 先收出正文里「光秃秃的开标签」的名字（没属性、不是收尾、名字在名单里）。
-    # 有它，才谈得上把配对的收尾标签一起删。
-    bare_open = {m.group(2).lower() for m in _TAG_RE.finditer(text)
-                 if m.group(2).lower() in _STRAY_TAGS
-                 and not m.group(1) and not m.group(3).strip()}
-
-    def repl(m):
+    # 每个残标签名字一个栈，记着还没闭合的开标签是不是光秃秃的。收尾标签只认
+    # 栈顶那一个：栈顶是裸开标签（已经删了）就跟着删；栈顶带属性（留着了），
+    # 或者压根没有开标签，都留着它——那种收尾标签的另一半带了属性，删了就剩半个。
+    stacks = {}
+    drop = []  # 要删掉的标签区间，按出现顺序
+    for m in _TAG_RE.finditer(text):
         name = m.group(2).lower()
+        bare = not m.group(3).strip()
         if name in _WRAPPERS:
-            return ""
-        if name in _KEEP:
-            return m.group(0)
-        if name in _STRAY_TAGS and not m.group(3).strip():
-            if m.group(1) and name not in bare_open:
-                # 收尾标签，但正文里没有配对的裸开标签——说明它那个开标签
-                # 带了属性、按规则被留下了，这半也得留，不然就剩半个。
-                return m.group(0)
-            return ""
-        return m.group(0)
+            drop.append((m.start(), m.end()))
+        elif name in _KEEP:
+            continue
+        elif name in _STRAY_TAGS:
+            stack = stacks.setdefault(name, [])
+            if not m.group(1):
+                # 开标签：光秃秃的整个去掉；带属性的留着，但照样入栈——
+                # 它后面那个收尾标签得知道它的另一半还在。
+                stack.append(bare)
+                if bare:
+                    drop.append((m.start(), m.end()))
+            elif stack and stack.pop():
+                # 收尾标签，配上的那个开标签是光秃秃的、已经删了：一起走
+                drop.append((m.start(), m.end()))
+        # 其余的一律原样留着
 
-    return _TAG_RE.sub(repl, text)
+    if not drop:
+        return text
+    pieces = []
+    prev = 0
+    for start, end in drop:
+        pieces.append(text[prev:start])
+        prev = end
+    pieces.append(text[prev:])
+    return "".join(pieces)
 
 
 # 整行就是一个页码的几种写法。只用 ^…$ 卡死整行——页码在页脚是独立的一行，
