@@ -286,7 +286,7 @@ def _expect(value, want, what, lineno, empty=_NO_DEFAULT):
 
     除了 `None`，其余一律照 `isinstance` 判——`[]`、`{}`、`0`、`""` 这些假值
     也算「给了个不是那个形状的」，不能悄悄降级成空。降级了会把「服务改了结构」
-    说成「你的文档是空的」，用户拿着一句「一页都没解析出来」去查自己的 PDF。
+    说成「你的文档是空的」，用户拿着一句「清理完什么都不剩」去查自己的 PDF。
     """
     if value is None and empty is not _NO_DEFAULT:
         value = empty
