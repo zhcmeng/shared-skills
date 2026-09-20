@@ -3,6 +3,7 @@ import dataclasses
 import io
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import threading
@@ -1803,6 +1804,92 @@ class TestRun(unittest.TestCase):
         with mock.patch.object(aistudio, "get_token", boom):
             self.assertEqual(convert.run(tasks, self.args()), 0)
         self.assertIn("跳过 a", self.out.getvalue())
+
+
+class TestUtf8WhenRedirected(unittest.TestCase):
+    """被重定向时中文按 UTF-8 出去，挂在真控制台上则一个字节都不动。
+
+    本机的标准流接的是管道时，Python 取的是区域编码 cp936：中文落成 GBK
+    字节，而接住它的一方（Claude Code 的任务窗口、编辑器里的输出面板）一律
+    按 UTF-8 解，屏幕上就是「���」。真控制台不切：那里的编码是 Python 按
+    终端挑好的（Windows 上走 WriteConsoleW，本来就是 UTF-8），换掉只会花屏。
+    """
+
+    class FakeStream:
+        """够用的假流：isatty 说什么、reconfigure 被怎么调，都记下来。"""
+
+        def __init__(self, encoding="cp936", tty=False):
+            self.encoding = encoding
+            self.tty = tty
+            self.calls = []
+
+        def isatty(self):
+            return self.tty
+
+        def reconfigure(self, **kwargs):
+            self.calls.append(kwargs)
+
+    def test_a_redirected_stream_is_switched_to_utf8(self):
+        stream = self.FakeStream(encoding="cp936")
+        convert.prefer_utf8(stream)
+        self.assertEqual(stream.calls, [{"encoding": "utf-8"}])
+
+    def test_a_real_console_is_left_alone(self):
+        stream = self.FakeStream(encoding="cp936", tty=True)
+        convert.prefer_utf8(stream)
+        self.assertEqual(stream.calls, [])
+
+    def test_a_stream_already_reading_utf8_is_left_alone(self):
+        for encoding in ("utf-8", "UTF-8", "utf8"):
+            with self.subTest(encoding=encoding):
+                stream = self.FakeStream(encoding=encoding)
+                convert.prefer_utf8(stream)
+                self.assertEqual(stream.calls, [])
+
+    def test_a_stream_that_cannot_be_reconfigured_is_left_alone(self):
+        # StringIO 这类没有 reconfigure 的流：不认得就放过，不是报错
+        convert.prefer_utf8(io.StringIO())
+
+    def test_main_sends_both_streams_through_it(self):
+        """接上 main 才算数——函数写得再对，没人调它照样乱码。"""
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        out = os.path.join(tmp.name, "out")
+        err = io.StringIO()
+        with mock.patch.object(convert, "prefer_utf8") as prefer, \
+             mock.patch.object(convert, "check_dependencies",
+                               side_effect=SystemExit("缺依赖：lxml")), \
+             mock.patch("sys.stderr", err):
+            convert.main(["--output", out, "a.pdf"])
+        self.assertEqual([call.args[0] for call in prefer.call_args_list],
+                         [sys.stdout, err])
+
+    def test_a_real_run_puts_utf8_bytes_on_a_pipe(self):
+        """真的开一个子进程跑一遍，它吐出来的字节按 UTF-8 解得开、认得中文。
+
+        上面几条验的是那个函数怎么反应，这条验的是**到手上的字节**：函数
+        写对了但漏在某个出口上（比如没接进 main），只有这条会红。
+
+        PYTHONIOENCODING 特意设成 gbk——本机管道上默认就是它，别的机器上
+        不设的话管道编码本来就是 UTF-8，这条测试在那台机器上什么都验不到。
+        """
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        pdf = os.path.join(tmp.name, "报告.pdf")
+        with open(pdf, "wb") as f:
+            f.write(b"%PDF-1.4\n")
+        out = os.path.join(tmp.name, "out")
+        os.makedirs(os.path.join(out, "报告"))
+        # 输出目录里已经有那份 md：整趟进来就是「跳过」，不用 token、不碰网络
+        with open(os.path.join(out, "报告", "报告.md"), "w",
+                  encoding="utf-8") as f:
+            f.write("# 已经转过\n")
+        proc = subprocess.run(
+            [sys.executable, os.path.abspath(convert.__file__),
+             pdf, "--output", out],
+            capture_output=True, env=dict(os.environ, PYTHONIOENCODING="gbk"))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("跳过", proc.stderr.decode("utf-8"))
 
 
 class TestMain(unittest.TestCase):

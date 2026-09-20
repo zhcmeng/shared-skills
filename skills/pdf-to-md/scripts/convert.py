@@ -368,7 +368,34 @@ def run(tasks, args):
     return 0
 
 
+def prefer_utf8(stream):
+    """这一路输出被重定向走时，改成按 UTF-8 吐字节；真控制台不动。
+
+    本机（Windows 中文版）上标准流接的是管道时，Python 取的是区域编码
+    cp936：中文进度落成 GBK 字节，而接住它的一方（Claude Code 的任务窗口、
+    编辑器里的输出面板）一律按 UTF-8 解，屏幕上就是「���」。
+    UTF-8 是重定向场合的通行默认（Python 自己的 UTF-8 模式也是这个取向），
+    所以判断只看「是不是被重定向」，不看对方是谁。
+
+    真控制台不切：那里的编码是 Python 按终端挑好的——Windows 上走
+    WriteConsoleW，本来就是 UTF-8；别的平台是 locale 编码，都对得上终端，
+    换掉反而会花屏。
+
+    流不认得 reconfigure（比如测试里的 StringIO）就放过，不是报错。
+    """
+    if stream.isatty():
+        return
+    if (getattr(stream, "encoding", "") or "").lower().replace("-", "") == "utf8":
+        return
+    reconfigure = getattr(stream, "reconfigure", None)
+    if reconfigure is not None:
+        reconfigure(encoding="utf-8")
+
+
 def main(argv=None):
+    # 在 parse_args 之前：参数写错时 argparse 那句提示也是中文
+    prefer_utf8(sys.stdout)
+    prefer_utf8(sys.stderr)
     args = parse_args(argv)
     try:
         check_dependencies()
