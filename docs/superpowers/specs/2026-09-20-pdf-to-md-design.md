@@ -7,7 +7,7 @@
 
 给本仓库加一个 skill：把 PDF 转成 Markdown，落到磁盘上。
 
-解析交给 PaddleOCR 的 AI Studio 接口。`paddleocr-mcp` 这个包有两副面孔——既能当 MCP 服务跑，也能当普通 Python 库直接 import。**本 skill 走库调用那条路。**
+解析交给 PaddleOCR 的 AI Studio 接口。`paddleocr-mcp` 这个包有两副面孔——既能当 MCP 服务跑，也能当普通 Python 库直接 import。**本 skill 走库调用那条路，用不着配任何 MCP 服务。**
 
 这个选择定下了后面大半设计，理由是：
 
@@ -35,6 +35,7 @@
 | 决策 | 选了什么 | 为什么 |
 |:---|:---|:---|
 | 调库还是走 MCP | 直接 import `paddleocr_mcp` | 结果直接到手，正文与图片不经对话，没有返回值上限这回事 |
+| token 从哪来 | 环境变量 `PADDLEOCR_MCP_AISTUDIO_ACCESS_TOKEN`，建议在 `~/.claude/settings.json` 的 `env` 段里设一次 | 库自己认的就是这个名字，不另立配置文件约定；不放插件的 `userConfig`，那条路到不了 Bash 工具 |
 | 图片从哪来 | 用解析结果附带的地址逐个下载 | 正文与「图片名 → 地址」对照表由同一次解析一起产出，图片不必另外去别处找 |
 | 输出布局 | `<输出根>/<名字>/<名字>.md` + `<输出根>/<名字>/images/` | md 与图片同在一个目录，整个目录能单独搬走 |
 | 超 100 页 | 按页边界切段，转完拼起来 | 单次调用有 100 页上限，切段对使用者透明 |
@@ -146,9 +147,23 @@ HTML 标签里的 `width`、`style` 这类属性一并丢掉——Markdown 没�
 
 ### token 从哪来
 
-先看环境变量 `PADDLEOCR_MCP_AISTUDIO_ACCESS_TOKEN`；没有就去 `~/.claude.json` 的 `mcpServers` 里找带这个键的那一项。
+只认环境变量 `PADDLEOCR_MCP_AISTUDIO_ACCESS_TOKEN`——`paddleocr-mcp` 自己认的就是这个名字，本 skill 不另立文件约定。
 
-要这个回退是因为：MCP 的 env 配在 `.claude.json` 里，那是给 MCP 服务进程用的，不会进 shell 环境。只认环境变量的话，在这台机器上每次都得先手动 export。
+推荐在 `~/.claude/settings.json` 的 `env` 段里设一次：
+
+```json
+{
+  "env": {
+    "PADDLEOCR_MCP_AISTUDIO_ACCESS_TOKEN": "……"
+  }
+}
+```
+
+官方文档对 `env` 的说法是「给每个会话及其子进程设环境变量」，Bash 工具跑的命令正在其中；本机也核对过一遍，用户 `settings.json` 里 `env` 段的键在 Bash 子进程里都在。它还有两个顺手的性质：设置文件里的值优先于 shell 里 export 的同名变量；保存文件时运行中的会话就会应用新值，不必重开。
+
+**不放进插件的 `userConfig`。** 那条路的值只导出给 hook 进程（`CLAUDE_PLUGIN_OPTION_<KEY>`），到不了 Bash 工具，而本 skill 的脚本正是通过 Bash 工具跑的。何况那会在启用插件时给每个使用者弹一个要 token 的框——通用 skill 不该有这种前提。
+
+缺 token 时报错要写清楚去哪儿加。
 
 ### 配额与错误
 
