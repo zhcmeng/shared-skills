@@ -1,3 +1,4 @@
+import io
 import json
 import os
 import sys
@@ -11,6 +12,7 @@ import requests
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 
 import aistudio
+import convert
 from aistudio import JobFailed, NetworkError, SubmitRejected
 
 import markdown
@@ -970,6 +972,127 @@ class TestFetch(unittest.TestCase):
         with mock.patch.object(requests, "get", lambda *a, **k: resp):
             self.assertEqual(aistudio.fetch_jsonl("https://x/r.jsonl"),
                              '{"errorCode":0}\n')
+
+
+class TestCheckDependencies(unittest.TestCase):
+    def test_nothing_missing_when_all_three_are_installed(self):
+        self.assertEqual(convert.missing_dependencies(), [])
+
+    def test_names_what_is_missing(self):
+        self.assertEqual(
+            convert.missing_dependencies(("requests", "这个包肯定没有")),
+            ["这个包肯定没有"])
+
+    def test_missing_dependency_exits_with_the_uv_command_line(self):
+        with self.assertRaises(SystemExit) as ctx:
+            convert.check_dependencies(("这个包肯定没有",))
+        message = str(ctx.exception)
+        self.assertIn("这个包肯定没有", message)
+        self.assertIn("uv run --with requests --with lxml --with tabulate", message)
+
+
+class TestOutputDirName(unittest.TestCase):
+    def test_local_path_uses_the_file_stem(self):
+        self.assertEqual(convert.output_dir_name("/a/b/报告 v2.pdf"), "报告 v2")
+
+    def test_url_drops_query_and_extension(self):
+        self.assertEqual(
+            convert.output_dir_name("https://x/y/dummy.pdf?authorization=abc"),
+            "dummy")
+
+    def test_url_without_pdf_extension(self):
+        self.assertEqual(convert.output_dir_name("https://x/y/report"), "report")
+
+    def test_url_with_percent_escapes(self):
+        self.assertEqual(convert.output_dir_name("https://x/y/%E6%8A%A5%E5%91%8A.pdf"),
+                         "%E6%8A%A5%E5%91%8A")
+
+    def test_trailing_slash_url_falls_back(self):
+        self.assertEqual(convert.output_dir_name("https://x/y/"), "y")
+
+
+class TestCollectInputs(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = self.tmp.name
+
+    def write(self, rel, content="%PDF-1.4\n"):
+        path = os.path.join(self.root, rel)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(content)
+        return path
+
+    def test_directory_is_scanned_recursively_for_pdfs_only(self):
+        self.write("a.pdf")
+        self.write("sub/b.pdf")
+        self.write("sub/note.txt")
+        tasks = convert.collect_inputs([self.root])
+        self.assertEqual(sorted(t.name for t in tasks), ["a", "b"])
+
+    def test_one_file_given_twice_becomes_one_task(self):
+        path = self.write("a.pdf")
+        self.assertEqual(len(convert.collect_inputs([path, path])), 1)
+
+    def test_same_name_from_two_directories_gets_two_output_dirs(self):
+        one = self.write("x/report.pdf")
+        two = self.write("y/report.pdf")
+        # 改名这一步会往 stderr 说一声，不接住就喷进测试输出里，把
+        # 「几条通过几条失败」那一行冲散——照 TestParseArgs 那套接住
+        err = io.StringIO()
+        with mock.patch.object(sys, "stderr", err):
+            tasks = convert.collect_inputs([one, two])
+        self.assertEqual(sorted(t.name for t in tasks), ["report", "report-2"])
+        self.assertIn("report-2", err.getvalue())
+
+    def test_empty_directory_is_an_error(self):
+        with self.assertRaises(SystemExit) as ctx:
+            convert.collect_inputs([self.root])
+        self.assertIn("没找到", str(ctx.exception))
+
+    def test_missing_path_is_an_error(self):
+        with self.assertRaises(SystemExit) as ctx:
+            convert.collect_inputs([os.path.join(self.root, "nope.pdf")])
+        self.assertIn("找不到", str(ctx.exception))
+
+
+class TestParseArgs(unittest.TestCase):
+    def test_output_is_required(self):
+        # 同下面两条：argparse 的 usage 与报错是写 stderr 的，这里要接住，
+        # 否则它直接喷进测试输出里，把整套输出弄脏
+        err = io.StringIO()
+        with mock.patch.object(sys, "stderr", err), \
+             self.assertRaises(SystemExit) as ctx:
+            convert.parse_args(["a.pdf"])
+        self.assertEqual(ctx.exception.code, 2)
+        self.assertIn("--output", err.getvalue())
+
+    def test_defaults(self):
+        args = convert.parse_args(["a.pdf", "--output", "out"])
+        self.assertEqual(args.model, aistudio.DEFAULT_MODEL)
+        self.assertEqual(args.jobs, 4)
+        self.assertFalse(args.force)
+
+    def test_jobs_must_be_at_least_one(self):
+        # argparse 的 parser.error 是先把消息写进 stderr、再 sys.exit(2)，
+        # 异常本身只带退出码，所以消息要去 stderr 里取，不在异常上
+        err = io.StringIO()
+        with mock.patch.object(sys, "stderr", err), \
+             self.assertRaises(SystemExit) as ctx:
+            convert.parse_args(["a.pdf", "--output", "out", "--jobs", "0"])
+        self.assertEqual(ctx.exception.code, 2)
+        self.assertIn("jobs", err.getvalue())
+
+    def test_output_must_not_be_an_existing_file(self):
+        with tempfile.NamedTemporaryFile(delete=False) as f:
+            self.addCleanup(os.remove, f.name)
+            err = io.StringIO()
+            with mock.patch.object(sys, "stderr", err), \
+                 self.assertRaises(SystemExit) as ctx:
+                convert.parse_args(["a.pdf", "--output", f.name])
+        self.assertEqual(ctx.exception.code, 2)
+        self.assertIn("目录", err.getvalue())
 
 
 if __name__ == "__main__":
