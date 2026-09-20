@@ -56,6 +56,18 @@ class TestConvertTables(unittest.TestCase):
         self.assertIn("内", out)
         self.assertNotIn("<table", out)
 
+    def test_unclosed_table_does_not_swallow_later_tables(self):
+        # 正文里冒出一个孤立的 <table（PDF 讲 HTML 时很常见）时，
+        # 它自己原样留着，但后面那张格式正常的表格照样要转
+        html = ("<p>讲个 <table 标签</p>"
+                "<table><tr><th>A</th><th>B</th></tr>"
+                "<tr><td>1</td><td>2</td></tr></table>")
+        out = convert_tables(html)
+        self.assertIn("| A", out)
+        self.assertIn("| 1", out)
+        self.assertNotIn("<tr>", out)
+        self.assertNotIn("<td>", out)
+
     def test_text_without_table_is_unchanged(self):
         text = "# 标题\n\n正文，里面有个 < 号。\n"
         self.assertEqual(convert_tables(text), text)

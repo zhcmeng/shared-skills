@@ -57,7 +57,10 @@ def _find_table_spans(text):
                     end = i
                     break
         if end == -1:
-            return spans
+            # 这张认不出收尾，就当它不是表格、原样留着；但不能因此把后面
+            # 格式正常的表也一起放弃——从它的开标签之后接着往下扫。
+            pos = start + len(_TABLE_OPEN)
+            continue
         spans.append((start, end))
         pos = end
 
