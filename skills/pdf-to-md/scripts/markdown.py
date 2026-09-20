@@ -227,3 +227,30 @@ def normalize_blank_lines(text):
     text = "\n".join(line.rstrip() for line in text.split("\n"))
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()
+
+
+_IMG_TAG_RE = re.compile(r"<img\b[^>]*?\bsrc=[\"']([^\"']+)[\"'][^>]*>", re.I)
+_MD_IMG_RE = re.compile(r"!\[([^\]]*)\]\(([^)\s]+)(\s+\"[^\"]*\")?\)")
+
+
+def rewrite_image_refs(text, resolve):
+    """把认得的图片引用改写成 `![](images/<本地名>)`。
+
+    两种写法都认：HTML 的 `<img src="…">` 和 Markdown 的 `![](…)`。
+    认不出的（远程网址、已经改好的相对路径）原样留着。
+    """
+    if resolve is None:
+        return text
+
+    def as_markdown(src):
+        local = resolve(src)
+        return f"![](images/{local})" if local else None
+
+    def tag_repl(m):
+        return as_markdown(m.group(1)) or m.group(0)
+
+    def md_repl(m):
+        return as_markdown(m.group(2)) or m.group(0)
+
+    text = _IMG_TAG_RE.sub(tag_repl, text)
+    return _MD_IMG_RE.sub(md_repl, text)

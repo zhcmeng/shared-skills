@@ -6,7 +6,7 @@ import unittest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 
 from markdown import (PlaceholderLeftover, convert_tables, normalize_blank_lines,
-                      strip_page_markers, strip_wrapper_tags)
+                      rewrite_image_refs, strip_page_markers, strip_wrapper_tags)
 
 
 class TestConvertTables(unittest.TestCase):
@@ -192,6 +192,39 @@ class TestStripWrapperTagsStrayPairing(unittest.TestCase):
     def test_each_bare_pair_is_dropped_on_its_own(self):
         self.assertEqual(strip_wrapper_tags("<image>a</image><image>b</image>"),
                          "ab")
+
+
+class TestRewriteImageRefs(unittest.TestCase):
+    def setUp(self):
+        self.names = {"imgs/img_in_image_box_1_2_3_4.jpg": "img_in_image_box_1_2_3_4.jpg"}
+
+    def resolve(self, src):
+        return self.names.get(src)
+
+    def test_img_tag_becomes_markdown(self):
+        html = '<img src="imgs/img_in_image_box_1_2_3_4.jpg" alt="Image" width="73%" />'
+        out = rewrite_image_refs(html, self.resolve)
+        self.assertEqual(out, "![](images/img_in_image_box_1_2_3_4.jpg)")
+
+    def test_markdown_image_is_rewritten_too(self):
+        out = rewrite_image_refs("![alt](imgs/img_in_image_box_1_2_3_4.jpg)", self.resolve)
+        self.assertEqual(out, "![](images/img_in_image_box_1_2_3_4.jpg)")
+
+    def test_markdown_image_with_title_is_rewritten(self):
+        out = rewrite_image_refs('![a](imgs/img_in_image_box_1_2_3_4.jpg "标题")',
+                                 self.resolve)
+        self.assertEqual(out, "![](images/img_in_image_box_1_2_3_4.jpg)")
+
+    def test_unknown_src_is_left_alone(self):
+        html = '<img src="https://example.com/x.png">'
+        self.assertEqual(rewrite_image_refs(html, self.resolve), html)
+
+    def test_already_localized_ref_is_left_alone(self):
+        md = "![](images/img_in_image_box_1_2_3_4.jpg)"
+        self.assertEqual(rewrite_image_refs(md, self.resolve), md)
+
+    def test_no_resolve_callable_still_works(self):
+        self.assertEqual(rewrite_image_refs("正文", None), "正文")
 
 
 if __name__ == "__main__":
