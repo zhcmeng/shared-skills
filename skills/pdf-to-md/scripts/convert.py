@@ -140,7 +140,7 @@ def collect_inputs(raw_inputs):
 
 
 class EmptyDocument(Exception):
-    """一份 PDF 一页都没解析出来。"""
+    """这份 PDF 清理完一页能用的正文都没有。"""
 
 
 @dataclass
@@ -168,18 +168,19 @@ def convert_one(task, out_root, model, token, on_pages=None):
     raw = aistudio.fetch_jsonl(jsonl_url)
 
     pages = md_utils.parse_jsonl(raw)
-    # 守的是「一页正文都没有」，不是「一页都没有」：整项空、markdown 空的时候
-    # 照样解析得出页，光数页数会放行，落一个只有换行的 md、报 1 页、退出码 0。
-    # 代价是整份都是空白页的 PDF 也判失败——那种文档转出来本来就是空的，
-    # 报失败比静默交一个空文件好。
-    if not any(page.text.strip() for page in pages):
-        raise EmptyDocument(
-            f"{task.origin} 一页正文都没解析出来。服务收下了这份文件，"
-            f"但结果里没有任何带内容的页面——文档本身可能是空的，"
-            f"也可能整份都读不出内容。")
 
     names = md_utils.allocate_names(pages)
     document = md_utils.assemble(pages, names)
+
+    # 守门看的是**清理之后**要落盘的那份东西，不是解析出来的原文：清理前每页都空
+    # 的，清理后必然也空，所以这一道覆盖了旧的「一页都没有」和「一页正文都没有」
+    # ——整项空、markdown 空、每页只剩页码标记，落下来都是一个只有换行的 md。
+    # 报失败比静默交一个空文件好；整份都是空白页的 PDF 也就跟着判失败了。
+    if not document.strip():
+        raise EmptyDocument(
+            f"{task.origin} 清理完什么都不剩。服务收下了这份文件，"
+            f"但结果里没有一页能用的正文——可能是空文档、整份都读不出内容，"
+            f"也可能是取回来的每页只剩页码这类清理时要删掉的东西。")
 
     out_dir = os.path.join(out_root, task.name)
     img_dir = os.path.join(out_dir, "images")

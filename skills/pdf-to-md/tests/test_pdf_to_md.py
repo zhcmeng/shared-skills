@@ -1360,7 +1360,7 @@ class TestConvertOne(unittest.TestCase):
         with self.fake_pipeline([]):
             with self.assertRaises(convert.EmptyDocument) as ctx:
                 convert.convert_one(task, self.root, "m", "t")
-        self.assertIn("一页正文都没解析出来", str(ctx.exception))
+        self.assertIn("清理完什么都不剩", str(ctx.exception))
         self.assertFalse(os.path.exists(os.path.join(self.root, "a", "a.md")))
 
     def test_a_result_with_no_usable_text_is_an_error(self):
@@ -1393,8 +1393,18 @@ class TestConvertOne(unittest.TestCase):
                 convert.convert_one(task, self.root, "m", "t")
         self.assertFalse(os.path.exists(os.path.join(self.root, "a", "a.md")))
 
+    def test_a_document_that_only_had_page_numbers_is_an_error(self):
+        # 每页正文只剩一个页码标记——那是清理时要删掉的整行（strip_page_markers）。
+        # 守门看清理前还是清理后，差别全在这条：看清理前会放行，落一个只有换行的
+        # md、报成功；看落盘的那份东西才拦得住。
+        task = convert.Task(target="/tmp/a.pdf", name="a", origin="/tmp/a.pdf")
+        with self.fake_pipeline([("第 3 页", {}), ("第 4 页", {})]):
+            with self.assertRaises(convert.EmptyDocument):
+                convert.convert_one(task, self.root, "m", "t")
+        self.assertFalse(os.path.exists(os.path.join(self.root, "a", "a.md")))
+
     def test_a_document_with_some_empty_pages_still_succeeds(self):
-        # 反向的一条：守门是「一页正文都没有」才算失败，不是「有一页空就失败」。
+        # 反向的一条：守门是「清理完什么都不剩」才算失败，不是「有一页空就失败」。
         # 放宽成后者的话，夹着空白页的文档会被整份判死。
         task = convert.Task(target="/tmp/a.pdf", name="a", origin="/tmp/a.pdf")
         with self.fake_pipeline([("", {}), ("正文", {}), ("", {})]):
@@ -1583,8 +1593,13 @@ class TestRun(unittest.TestCase):
         progress.pages(n, d, t)`）少接、接错名字、把 d/t 写反，屏幕上就永远只有
         「进行中 a …」，看不到「21/194 页」——用户拿不到「跑到哪儿了」这个唯一
         的进度信息，而且不报错。
+
+        夹具里的 `name` 与 `origin` 特意不同（`collect_inputs` 造出来的也是这样：
+        `origin` 是绝对路径、`name` 是目录名）。两个取同一个值时，「挂错名字」那个
+        形状（`n=task.origin`）恰好吃不到——它挂上去的键跟对的键一模一样。
         """
-        tasks = [convert.Task(target="/tmp/a.pdf", name="a", origin="a")]
+        tasks = [convert.Task(target="/tmp/a.pdf", name="a",
+                              origin="/tmp/a.pdf")]
 
         def fake(task, out_root, model, token, on_pages=None):
             on_pages(21, 194)
