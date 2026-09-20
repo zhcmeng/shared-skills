@@ -229,14 +229,18 @@ class TestRewriteImageRefs(unittest.TestCase):
         self.assertEqual(rewrite_image_refs("正文", None), "正文")
 
 
-def jsonl_line(pages, error_code=0, error_msg="Success"):
-    """造一行 JSONL。pages 是 [(正文, {图片名: 网址}), …]。"""
+def jsonl_line(pages, error_code=0, error_msg="Success", num_pages=None):
+    """造一行 JSONL。pages 是 [(正文, {图片名: 网址}), …]。
+
+    num_pages 默认跟着项数走（跟实测结果一样）；显式给一个别的数，
+    是为了造出「numPages 跟项数对不上」的行——那正是实现容易信错的坑。
+    """
     return json.dumps({
         "errorCode": error_code,
         "errorMsg": error_msg,
         "logId": "x",
         "result": {
-            "dataInfo": {"numPages": len(pages)},
+            "dataInfo": {"numPages": len(pages) if num_pages is None else num_pages},
             "layoutParsingResults": [
                 {"markdown": {"text": text, "images": images}}
                 for text, images in pages
@@ -285,12 +289,54 @@ class TestParseJsonl(unittest.TestCase):
         with self.assertRaises(JsonlLineError) as ctx:
             parse_jsonl(raw)
         self.assertIn("文件格式不支持", str(ctx.exception))
+        self.assertIn("第 1 行", str(ctx.exception))
+
+    def test_page_count_follows_the_items_not_num_pages(self):
+        # numPages 是行内标记，靠不住；页数只跟 layoutParsingResults 的项数走
+        raw = jsonl_line([("一", {}), ("二", {})], num_pages=9)
+        self.assertEqual(len(parse_jsonl(raw)), 2)
 
     def test_unparsable_line_raises_with_line_number(self):
         # 代理塞回来的 HTML、被截断的半行、任何非 JSON：解析不了也得抛自己的
         # 异常类。上层并发那层只接得住 JsonlLineError，漏出去会让整批跑崩，
         # 而不是只让这一份失败。
         raw = jsonl_line([("一", {})]) + '\n{"errorCode": 0, "result": {"layout'
+        with self.assertRaises(JsonlLineError) as ctx:
+            parse_jsonl(raw)
+        self.assertIn("第 2 行", str(ctx.exception))
+
+    def test_non_object_top_level_raises(self):
+        # 合法 JSON、形状不对：网关回 null／[]／裸数字／裸字符串。
+        # 这些一样会让 obj.get(...) 抛 AttributeError 漏出去、掀翻整批。
+        for raw in ("null", "[]", "123", '"成功"'):
+            with self.assertRaises(JsonlLineError) as ctx:
+                parse_jsonl(raw)
+            self.assertIn("第 1 行", str(ctx.exception), raw)
+
+    def test_result_that_is_not_an_object_raises(self):
+        raw = json.dumps({"errorCode": 0, "result": "x"})
+        with self.assertRaises(JsonlLineError) as ctx:
+            parse_jsonl(raw)
+        self.assertIn("result", str(ctx.exception))
+        self.assertIn("第 1 行", str(ctx.exception))
+
+    def test_malformed_nested_fields_raise(self):
+        cases = [
+            {"result": {"layoutParsingResults": "x"}},
+            {"result": {"layoutParsingResults": [42]}},
+            {"result": {"layoutParsingResults": [{"markdown": "x"}]}},
+            {"result": {"layoutParsingResults": [{"markdown": {"images": "x"}}]}},
+            {"result": {"layoutParsingResults": [{"markdown": {"text": 42}}]}},
+        ]
+        for case in cases:
+            raw = json.dumps({"errorCode": 0, **case})
+            with self.assertRaises(JsonlLineError) as ctx:
+                parse_jsonl(raw)
+            self.assertIn("第 1 行", str(ctx.exception), case)
+
+    def test_malformed_shape_on_a_later_line_reports_that_line(self):
+        raw = jsonl_line([("一", {})]) + "\n" + json.dumps(
+            {"errorCode": 0, "result": 5})
         with self.assertRaises(JsonlLineError) as ctx:
             parse_jsonl(raw)
         self.assertIn("第 2 行", str(ctx.exception))

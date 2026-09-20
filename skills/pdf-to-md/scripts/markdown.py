@@ -259,7 +259,7 @@ def rewrite_image_refs(text, resolve):
 
 
 class JsonlLineError(Exception):
-    """结果里的某一行没法用：自带错误码，或者压根不是 JSON。"""
+    """结果里的某一行没法用：自带错误码，或者形状不对。"""
 
 
 @dataclass
@@ -269,6 +269,19 @@ class Page:
     images: dict[str, str]     # 图片名（形如 imgs/xxx.jpg）→ 完整网址
 
 
+def _expect(value, want, what, lineno):
+    """取来的字段形状不对就抛自己的异常类——调用方只接得住 JsonlLineError。
+
+    缺字段/空值由调用处的 `or {}`、`or []` 兜成空，走不到这里；能走到这里的
+    都是「有值、但值不是那个形状」，也就是网关回了个 null、[]、裸数字这种。
+    """
+    if not isinstance(value, want):
+        raise JsonlLineError(
+            f"结果第 {lineno} 行的 {what} 不是 {want.__name__}，"
+            f"是 {type(value).__name__}")
+    return value
+
+
 def parse_jsonl(raw: str) -> list[Page]:
     """把结果 JSONL 摊成一份文档的页表。
 
@@ -276,9 +289,13 @@ def parse_jsonl(raw: str) -> list[Page]:
     第 n 个就是第 n 页。结果里的页码标记（inputImage、图片网址里的
     markdown_N、dataInfo.numPages）全是行内的，靠不住，只能靠顺序。
 
-    解析不了的输入一律抛 JsonlLineError，不把 JSONDecodeError 漏出去：
+    解析不了的输入一律抛 JsonlLineError，不把 JSONDecodeError 漏出去，
+    形状不对（合法 JSON 但取出来的不是对象/列表/字符串）也一样：
     调用方（并发那层）只接得住这一个异常类，漏出去就不是「这一份失败」，
-    而是整批跟着崩。
+    而是整批跟着崩，用户看到的还是 Python 栈回溯。
+
+    缺字段仍然按空处理——「没给」和「给了个不是那个形状的」是两回事，
+    前者照常出页，后者才报错。
     """
     pages = []
     for lineno, line in enumerate(raw.splitlines(), start=1):
@@ -289,15 +306,20 @@ def parse_jsonl(raw: str) -> list[Page]:
             obj = json.loads(line)
         except json.JSONDecodeError as exc:
             raise JsonlLineError(f"结果第 {lineno} 行不是合法 JSON：{exc}") from exc
+        obj = _expect(obj, dict, "顶层", lineno)
         if obj.get("errorCode"):
             raise JsonlLineError(
                 f"结果第 {lineno} 行报错：{obj.get('errorMsg') or obj['errorCode']}")
-        result = obj.get("result") or {}
-        for item in result.get("layoutParsingResults") or []:
-            md = item.get("markdown") or {}
+        result = _expect(obj.get("result") or {}, dict, "result", lineno)
+        items = _expect(result.get("layoutParsingResults") or [],
+                        list, "layoutParsingResults", lineno)
+        for item in items:
+            item = _expect(item, dict, "layoutParsingResults 里的一项", lineno)
+            md = _expect(item.get("markdown") or {}, dict, "markdown", lineno)
+            images = _expect(md.get("images") or {}, dict, "images", lineno)
             pages.append(Page(
                 index=len(pages),
-                text=md.get("text") or "",
-                images=dict(md.get("images") or {}),
+                text=_expect(md.get("text") or "", str, "text", lineno),
+                images=dict(images),
             ))
     return pages
