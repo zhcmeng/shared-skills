@@ -296,6 +296,11 @@ class TestParseJsonl(unittest.TestCase):
         raw = jsonl_line([("一", {}), ("二", {})], num_pages=9)
         self.assertEqual(len(parse_jsonl(raw)), 2)
 
+    def test_a_smaller_num_pages_does_not_truncate_the_pages(self):
+        # 反方向：numPages 比项数小的时候也不许拿它截断
+        raw = jsonl_line([("一", {}), ("二", {})], num_pages=1)
+        self.assertEqual([p.text for p in parse_jsonl(raw)], ["一", "二"])
+
     def test_unparsable_line_raises_with_line_number(self):
         # 代理塞回来的 HTML、被截断的半行、任何非 JSON：解析不了也得抛自己的
         # 异常类。上层并发那层只接得住 JsonlLineError，漏出去会让整批跑崩，
