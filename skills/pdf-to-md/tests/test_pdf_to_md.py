@@ -4,6 +4,7 @@ import json
 import os
 import sys
 import tempfile
+import threading
 import unittest
 from concurrent.futures import Future
 from unittest import mock
@@ -1109,6 +1110,17 @@ class TestCollectInputs(unittest.TestCase):
 
 
 class TestParseArgs(unittest.TestCase):
+    def output(self, name="out"):
+        """给一个不存在的输出路径。
+
+        写死相对路径 "out" 是跟工作目录较劲：parse_args 有一句「--output
+        已经是个文件就报错」，当前目录下真有叫 out 的文件时，这两条用例会在
+        断言之前就抛 SystemExit(2) 出来。
+        """
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        return os.path.join(tmp.name, name)
+
     def test_output_is_required(self):
         # 同下面两条：argparse 的 usage 与报错是写 stderr 的，这里要接住，
         # 否则它直接喷进测试输出里，把整套输出弄脏
@@ -1120,7 +1132,7 @@ class TestParseArgs(unittest.TestCase):
         self.assertIn("--output", err.getvalue())
 
     def test_defaults(self):
-        args = convert.parse_args(["a.pdf", "--output", "out"])
+        args = convert.parse_args(["a.pdf", "--output", self.output()])
         self.assertEqual(args.model, aistudio.DEFAULT_MODEL)
         self.assertEqual(args.jobs, 4)
         self.assertFalse(args.force)
@@ -1131,7 +1143,7 @@ class TestParseArgs(unittest.TestCase):
         err = io.StringIO()
         with mock.patch.object(sys, "stderr", err), \
              self.assertRaises(SystemExit) as ctx:
-            convert.parse_args(["a.pdf", "--output", "out", "--jobs", "0"])
+            convert.parse_args(["a.pdf", "--output", self.output(), "--jobs", "0"])
         self.assertEqual(ctx.exception.code, 2)
         self.assertIn("jobs", err.getvalue())
 
@@ -1306,8 +1318,8 @@ class TestFormatDuration(unittest.TestCase):
 
 class TestDisplayWidth(unittest.TestCase):
     def test_wide_characters_take_two_columns(self):
-        # 进度行靠它算要补多少空格才能把上一行整个盖掉。中日韩字符按一格
-        # 算的话，中文文件名那一行会比实际短，上一行的尾巴就留在屏幕上。
+        # 清行时按它算要打多少空格才能把上一行整个盖掉。中日韩字符按一格
+        # 算的话，中文文件名那一行会被清得短一截，上一行的尾巴就留在屏幕上。
         self.assertEqual(convert._display_width("abc"), 3)
         self.assertEqual(convert._display_width("中文"), 4)
         self.assertEqual(convert._display_width("a中"), 3)
@@ -1317,9 +1329,60 @@ class TestDisplayWidth(unittest.TestCase):
 
 class TestProgress(unittest.TestCase):
     def make(self, total=2):
-        import io
         buf = io.StringIO()
         return buf, convert.Progress(total, stream=buf)
+
+    def test_a_worker_thread_waits_for_the_lock_before_redrawing(self):
+        """好几个任务同时想改那一行动态进度，谁也不能插到别人中间。
+
+        不等的话，工作线程的 `add` 会在主线程正迭代 `inflight` 的半路往里
+        塞一个键——那是 `RuntimeError: dictionary changed size during
+        iteration`，而且是在屏幕上乱串字符之后才炸。
+        """
+        buf, p = self.make()
+        p.add("a")
+        real_lock = p.lock
+        entered = threading.Event()
+        done = []
+
+        class TracedLock:
+            """真锁外面套一层，只为在「准备抢锁」那一刻报个信。
+
+            信在 acquire() **之前**报，所以等到信就说明这个线程下一步必然
+            是抢锁——否则只能靠 sleep 猜它走到哪儿了。
+            """
+
+            def __enter__(self):
+                entered.set()
+                real_lock.acquire()
+                return self
+
+            def __exit__(self, *exc):
+                real_lock.release()
+                return False
+
+        p.lock = TracedLock()
+
+        def worker():
+            p.pages("a", 1, 2)
+            done.append(1)
+
+        # 主线程直接拿真锁（不走 TracedLock），于是那个信只可能是工作线程报的
+        real_lock.acquire()
+        try:
+            thread = threading.Thread(target=worker, daemon=True)
+            thread.start()
+            # 信是在 acquire() **之前**报的，所以等到信就说明工作线程已经站在
+            # 抢锁那一格上了；锁在主线程手里，它过不去。下面两条断言因此是
+            # **必然**成立的，不用 sleep 去等——等出来的只是让测试变慢。
+            self.assertTrue(entered.wait(5), "工作线程没走到抢锁那一步")
+            self.assertEqual(done, [])
+            self.assertEqual(p.inflight["a"], (None, None))
+        finally:
+            real_lock.release()
+        thread.join(timeout=5)
+        self.assertEqual(done, [1])
+        self.assertIn("1/2 页", buf.getvalue())   # 放行之后照画不误
 
     def test_done_line_names_the_file_pages_and_time(self):
         buf, p = self.make()
@@ -1443,6 +1506,63 @@ class TestRun(unittest.TestCase):
         self.assertIn("有图没取回来", text)
         self.assertIn("\n  a：x.jpg、y.jpg", text)
 
+    def test_completions_are_reported_as_they_finish_not_in_submission_order(self):
+        """谁先转完谁先报——那一行动态进度条的全部价值就在这儿。
+
+        这条得让两头都真起来：假池子给的是当场就算完的 Future，而
+        `as_completed` 对一堆**已经完成**的 Future 是随便挑着吐的（实测三次
+        跑出三种序），那种假池子上「按提交序」和「按完成序」根本看不出差别。
+        这里让提交序和完成序**相反**（先提交的最慢），并且拿主线程自己的
+        报账动作当闸门——每报完一个才放行下一个——于是不用 sleep 也是确定的。
+        """
+        submitted = ["slow", "mid", "fast"]       # 提交序：最慢的排在最前
+        finished = ["fast", "mid", "slow"]        # 完成序：正好倒过来
+        tasks = [convert.Task(target=f"/tmp/{n}.pdf", name=n, origin=n)
+                 for n in submitted]
+        futures = {n: Future() for n in submitted}
+        gate = threading.Semaphore(0)
+        reported = []
+
+        class GatedPool:
+            """交出去的是没完成的 Future，由 feeder 线程按指定顺序完成。"""
+
+            def __init__(self, max_workers=None):
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def submit(self, fn, *a, **k):
+                return futures[a[0].name]
+
+        def feeder():
+            for name in finished:
+                futures[name].set_result(convert.Result(name, 1, 0.1, []))
+                # 等主线程把这一个报出来，再放行下一个。超时只是兜底：
+                # 正确实现下这个等待是零长度的，真等满说明主线程卡住了。
+                gate.acquire(timeout=5)
+
+        real_done_line = convert.Progress.done_line
+
+        def spy(progress, result):
+            reported.append(result.name)
+            real_done_line(progress, result)
+            gate.release()
+
+        thread = threading.Thread(target=feeder, daemon=True)
+        with mock.patch.object(convert, "ThreadPoolExecutor", GatedPool), \
+             mock.patch.object(convert.Progress, "done_line", spy):
+            thread.start()
+            convert.run(tasks, self.args(jobs=3))
+        thread.join(timeout=5)
+        # 换成「按提交序遍历 futures」，主线程会卡在第一份（最慢的、还没完成）
+        # 上，直到它完成才一次把三行全吐出来——屏幕上就是长时间不动、然后三行
+        # 一起蹦出来。
+        self.assertEqual(reported, finished)
+
     def test_jobs_is_passed_to_the_pool(self):
         """--jobs 得真传下去；不传的话这个开关就是个摆设。"""
         seen = {}
@@ -1521,10 +1641,15 @@ class TestMain(unittest.TestCase):
         退出码 2，好让调用方分得清「用法/环境不对」和「有文件没转成」。
         """
         err = io.StringIO()
+        # --output 得指向一个不存在的路径：parse_args 见它已经是个文件就会
+        # 直接 SystemExit(2) 出来，那条断言根本轮不到。
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        out = os.path.join(tmp.name, "out")
         with mock.patch.object(convert, "check_dependencies",
                                side_effect=SystemExit("缺依赖：lxml")), \
              mock.patch("sys.stderr", err):
-            self.assertEqual(convert.main(["--output", "out", "a.pdf"]), 2)
+            self.assertEqual(convert.main(["--output", out, "a.pdf"]), 2)
         self.assertIn("缺依赖：lxml", err.getvalue())
 
 

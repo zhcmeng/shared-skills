@@ -250,9 +250,11 @@ class Progress:
             eta = elapsed / self.done * left
             bits.append(f"预计剩余 {format_duration(eta)}")
         line = "  ".join(bits)
-        pad = " " * max(0, self._width - _display_width(line))
+        # 盖掉上一行的是 _clear_locked——它按记下来的宽度打一串空格。这里
+        # 不用再补：三个调用点（add / pages / note）都先调了它，进来时
+        # self._width 一定是 0，补出来永远是空串。
         self._width = _display_width(line)
-        self.stream.write("\r" + line + pad)
+        self.stream.write("\r" + line)
         self.stream.flush()
 
     def _clear_locked(self):
