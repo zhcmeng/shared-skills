@@ -112,10 +112,15 @@ def _rejected_from(resp, what="请求"):
 def submit(target, model, token):
     """提交一份 PDF（本地路径或公网网址），返回 jobId。
 
-    这个函数只往外抛两种异常：SubmitRejected 和 NetworkError。调用方（并发
-    那层）只接得住这两种，别的漏出去就不是「这一份失败」而是整批跟着崩。
-    所以「服务说成功却没给任务号」也按提交被拒办——拿不到任务号走不下去，
-    而 _rejected_from 会把原始响应体带进 msg，用户看得见服务到底回了什么。
+    服务与网络这两条路上，它只往外抛 SubmitRejected 和 NetworkError，调用方
+    （并发那层）接得住这两种。所以「服务说成功却没给任务号」也按提交被拒办——
+    拿不到任务号走不下去，而 _rejected_from 会把原始响应体带进 msg，用户看得
+    见服务到底回了什么。
+
+    本地文件读不出来（不存在、没权限）时抛的是 OSError，**不包成
+    SubmitRejected**：那是本机的问题，说成「服务拒了这次提交」是编瞎话；也不
+    包成 NetworkError——那会白白重试三次。Task 12 的捕获表里带着 OSError，
+    一样只让这一份失败。
     """
     headers = {"Authorization": f"bearer {token}"}
 

@@ -563,6 +563,12 @@ class TestSubmit(unittest.TestCase):
         self.assertEqual(captured["data"]["model"], "PP-StructureV3")
         self.assertIn("file", captured["files"])
 
+    def test_missing_local_file_raises_oserror_not_submit_rejected(self):
+        # 文件不存在是本机的问题，不是「服务拒了这次提交」，也不该白白重试。
+        # 这个形状 Task 12 的捕获表依赖着：它接了 OSError，漏出去就是整批崩。
+        with self.assertRaises(OSError):
+            aistudio.submit("/no/such/file.pdf", "m", "t")
+
     def test_http_400_becomes_submit_rejected_with_the_service_wording(self):
         resp = FakeResponse(status_code=400,
                             body={"traceId": "t1", "code": 10004,
