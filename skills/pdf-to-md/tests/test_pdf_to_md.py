@@ -91,6 +91,12 @@ class TestStripWrapperTags(unittest.TestCase):
     def test_attribute_less_unknown_tag_is_dropped(self):
         self.assertEqual(strip_wrapper_tags("前<image>后"), "前后")
 
+    def test_stray_tag_is_only_dropped_whole(self):
+        # 残标签只认光秃秃的开标签；带属性的 <image …> 连同收尾那半一起留着，
+        # 不能只删收尾的一半、留下个配不平的标签
+        html = '<image src="a.png">图</image>'
+        self.assertEqual(strip_wrapper_tags(html), html)
+
     def test_text_that_merely_looks_like_a_tag_is_left_alone(self):
         # 认不出来又没属性的，不能一律当残标签删——正文里这些形状很常见，
         # 删了是静默丢内容，比留着一个看得见的标签坏得多

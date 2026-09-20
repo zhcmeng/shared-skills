@@ -135,9 +135,11 @@ _KEEP = {"table", "thead", "tbody", "tfoot", "tr", "td", "th",
          "br", "a", "u", "s", "blockquote", "hr", "ul", "ol", "li"}
 
 # 实测到的转换残留：裸的 <image>，没属性、没内容，跟文档内容无关。
-# 只删名字在这张名单里的——不能写成「不认识又没属性就删」：正文里
+# 只删光秃秃的开标签——不能写成「不认识又没属性就删」：正文里
 # `List<String>`、`x<y>z`、`<name>` 这种形状很常见，<String> 会被当成标签，
 # 结果就是静默丢正文，比留着一个看得见的原始标签坏得多。
+# 收尾标签也不删：带属性的 `<image …>` 留着的时候，把它配对的那半删掉
+# 会留下个配不平的标签，那是另一种删错。要嘛整对留着，要嘛整对处理。
 # 以后真见到别的残标签，加在这里。
 _STRAY_TAGS = {"image"}
 
@@ -148,7 +150,7 @@ def strip_wrapper_tags(text):
     """拆掉包裹标签；已知的裸残标签整个去掉。
 
     三条规则：包裹名单里的拆掉标签留内容；保留名单里的原样不动；
-    其余的——只有名字在残标签名单里、又没属性的才去掉，
+    其余的——只有名字在残标签名单里、没属性、又不是收尾标签的才去掉，
     剩下的一律原样留着。
     """
     def repl(m):
@@ -157,7 +159,7 @@ def strip_wrapper_tags(text):
             return ""
         if name in _KEEP:
             return m.group(0)
-        if name in _STRAY_TAGS and not m.group(3).strip():
+        if name in _STRAY_TAGS and not m.group(1) and not m.group(3).strip():
             return ""
         return m.group(0)
 
