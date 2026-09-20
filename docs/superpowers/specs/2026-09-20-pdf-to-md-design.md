@@ -37,7 +37,7 @@
 | 决策 | 选了什么 | 为什么 |
 |:---|:---|:---|
 | 调库还是走 MCP | 直接 import `paddleocr_mcp` | 结果直接到手，正文与图片不经对话，没有返回值上限这回事 |
-| token 从哪来 | 环境变量 `PADDLEOCR_MCP_AISTUDIO_ACCESS_TOKEN`，建议在 `~/.claude/settings.json` 的 `env` 段里设一次 | 库自己认的就是这个名字，不另立配置文件约定；不放插件的 `userConfig`，那条路到不了 Bash 工具 |
+| token 从哪来 | 环境变量 `PADDLEOCR_MCP_AISTUDIO_ACCESS_TOKEN`，设在 `~/.claude/settings.json` 的 `env` 段（本机已配好） | 库自己认的就是这个名字，不另立配置文件约定；不放插件的 `userConfig`，那条路到不了 Bash 工具 |
 | 输入从哪来 | 只收本地文件 | 网络那一层（重定向、超时、重试、反爬）是另一件事，混进来会把转换流程弄得没法测 |
 | 图片从哪来 | 解析结果给一张「图片名 → 图床网址」对照表，脚本照网址把图取回本地 | 正文里只有引用名，图片本体不在结果里——服务解析时自己把插图裁下来传到了它的对象存储 |
 | 输出布局 | `<输出根>/<名字>/<名字>.md` + `<输出根>/<名字>/images/` | md 与图片同在一个目录，整个目录能单独搬走 |
@@ -153,7 +153,7 @@ HTML 标签里的 `width`、`style` 这类属性一并丢掉——Markdown 没�
 
 只认环境变量 `PADDLEOCR_MCP_AISTUDIO_ACCESS_TOKEN`——`paddleocr-mcp` 自己认的就是这个名字，本 skill 不另立文件约定。
 
-推荐在 `~/.claude/settings.json` 的 `env` 段里设一次：
+它设在 `~/.claude/settings.json` 的 `env` 段，本机已配好：
 
 ```json
 {
@@ -167,7 +167,7 @@ HTML 标签里的 `width`、`style` 这类属性一并丢掉——Markdown 没�
 
 **不放进插件的 `userConfig`。** 那条路的值只导出给 hook 进程（`CLAUDE_PLUGIN_OPTION_<KEY>`），到不了 Bash 工具，而本 skill 的脚本正是通过 Bash 工具跑的。何况那会在启用插件时给每个使用者弹一个要 token 的框——通用 skill 不该有这种前提。
 
-缺 token 时报错要写清楚去哪儿加。
+缺 token 时的报错要写清楚去哪儿加。`SKILL.md` 里也要写明这一处——本机配好了不代表别人也配了。
 
 ### 配额与错误
 
