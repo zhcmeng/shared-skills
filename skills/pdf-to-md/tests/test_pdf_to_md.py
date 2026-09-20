@@ -408,6 +408,30 @@ class TestImageDownloads(unittest.TestCase):
         self.assertEqual(image_downloads(pages, names),
                          [("a.jpg", "https://x/1"), ("b.jpg", "https://x/2")])
 
+    def test_local_names_come_from_the_name_table_not_the_basename(self):
+        # 撞名的两份：查表给出 a.jpg 与 a-2.jpg，而两者的 basename 都是 a.jpg。
+        # 不查表、直接取 basename 的写法会在这里露馅。
+        pages = [Page(index=0, text="", images={"imgs/a.jpg": "https://x/1"}),
+                 Page(index=1, text="", images={"imgs/a.jpg": "https://x/2"})]
+        names = allocate_names(pages)
+        self.assertEqual(image_downloads(pages, names),
+                         [("a.jpg", "https://x/1"), ("a-2.jpg", "https://x/2")])
+
+    def test_same_url_twice_on_one_page_is_one_download(self):
+        pages = [Page(index=0, text="", images={"imgs/a.jpg": "https://x/same",
+                                                "imgs/b.jpg": "https://x/same"})]
+        names = allocate_names(pages)
+        self.assertEqual(image_downloads(pages, names),
+                         [("a.jpg", "https://x/same")])
+
+    def test_order_is_appearance_order_not_sorted(self):
+        # 后出现的那张，网址按字典序反而更靠前——排序实现会露馅
+        pages = [Page(index=0, text="", images={"imgs/b.jpg": "https://x/z"}),
+                 Page(index=1, text="", images={"imgs/a.jpg": "https://x/a"})]
+        names = allocate_names(pages)
+        self.assertEqual([url for _, url in image_downloads(pages, names)],
+                         ["https://x/z", "https://x/a"])
+
 
 if __name__ == "__main__":
     unittest.main()
