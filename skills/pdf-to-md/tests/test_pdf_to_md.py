@@ -678,15 +678,21 @@ class TestSubmit(unittest.TestCase):
 class TestPoll(unittest.TestCase):
     def run_poll(self, states, on_progress=None):
         seq = list(states)
-        # 盯 sleep，不把 POLL_INTERVAL patch 成 0：后者只在 poll 直接读常量
-        # 时才起作用，失效时唯一的症状是每条用例真睡几秒，没有断言能发现。
-        self.naps = []
+        # 把「问一次」和「等一次」按发生顺序记进一条流水。只记睡了几次不够：
+        # 「两次询问之间等」和「问完两次、返回前再睡一下」都是睡一次。
+        # 也不把 POLL_INTERVAL patch 成 0——那样只在 poll 直接读常量时起作用，
+        # 失效时唯一的症状是每条用例真睡几秒，没有断言能发现。
+        self.trace = []
 
         def fake_get(url, **kw):
+            self.trace.append("get")
             return FakeResponse(body={"code": 0, "data": seq.pop(0)})
 
+        def note_sleep(seconds):
+            self.trace.append(("sleep", seconds))
+
         with mock.patch.object(requests, "get", fake_get), \
-             mock.patch.object(aistudio.time, "sleep", self.naps.append):
+             mock.patch.object(aistudio.time, "sleep", note_sleep):
             return aistudio.poll("j1", "t", on_progress=on_progress)
 
     def test_asks_the_job_url_with_the_token(self):
@@ -713,8 +719,9 @@ class TestPoll(unittest.TestCase):
              "resultUrl": {"jsonUrl": "https://x/r.jsonl"}},
         ])
         self.assertEqual(url, "https://x/r.jsonl")
-        # 两次询问之间等一个 POLL_INTERVAL；拿到结果就走，不在 done 之后再睡
-        self.assertEqual(self.naps, [aistudio.POLL_INTERVAL])
+        # 问 → 等一个 POLL_INTERVAL → 再问；拿到结果就走，不在 done 之后再睡
+        self.assertEqual(self.trace,
+                         ["get", ("sleep", aistudio.POLL_INTERVAL), "get"])
 
     def test_running_reports_progress(self):
         seen = []
@@ -734,6 +741,19 @@ class TestPoll(unittest.TestCase):
         self.assertEqual(url, "u")
         self.assertEqual(seen, [])
 
+    def test_pending_does_not_report_progress(self):
+        # 约定的 progress 只在 running 时报。少写 state == "running" 这一半，
+        # pending 也带着 extractProgress 时会误报。本机没见过这种响应，但约定
+        # 就是约定，钉住它。
+        seen = []
+        url = self.run_poll([
+            {"jobId": "j1", "state": "pending",
+             "extractProgress": {"extractedPages": 1, "totalPages": 2}},
+            {"jobId": "j1", "state": "done", "resultUrl": {"jsonUrl": "u"}},
+        ], on_progress=lambda done, total: seen.append((done, total)))
+        self.assertEqual(url, "u")
+        self.assertEqual(seen, [])
+
     def test_failed_carries_the_service_error_message(self):
         with self.assertRaises(JobFailed) as ctx:
             self.run_poll([{"jobId": "j1", "state": "failed",
@@ -741,8 +761,9 @@ class TestPoll(unittest.TestCase):
         self.assertIn("文件损坏", str(ctx.exception))
 
     def test_done_without_result_url_is_an_error(self):
-        with self.assertRaises(JobFailed):
+        with self.assertRaises(JobFailed) as ctx:
             self.run_poll([{"jobId": "j1", "state": "done"}])
+        self.assertIn("结果地址", str(ctx.exception))
 
     def test_unknown_state_is_an_error_not_an_endless_loop(self):
         with self.assertRaises(JobFailed) as ctx:
@@ -757,6 +778,39 @@ class TestPoll(unittest.TestCase):
                 aistudio.poll("j1", "t")
         self.assertIn("hello", str(ctx.exception))
         self.assertIn("轮询", str(ctx.exception))
+
+    def test_200_with_a_nonzero_code_is_a_rejection_not_an_unknown_state(self):
+        # submit 那条路早就防着「HTTP 200 但 code 非 0」，Task 7 钉过这是真形状。
+        # 轮询这条路少写这一条，服务说「任务不存在」时会被说成
+        # 「没见过的任务状态：None」——服务自己写的原因和 traceId 全丢了，
+        # 使用者拿到的是一句误导人的诊断。
+        resp = FakeResponse(body={"code": 10002, "msg": "任务不存在",
+                                  "traceId": "tr-1"})
+        with mock.patch.object(requests, "get", lambda *a, **k: resp):
+            with self.assertRaises(SubmitRejected) as ctx:
+                aistudio.poll("j1", "t")
+        self.assertIn("10002", str(ctx.exception))
+        self.assertIn("任务不存在", str(ctx.exception))
+        self.assertIn("tr-1", str(ctx.exception))
+        self.assertIn("轮询", str(ctx.exception))
+
+    def test_a_transient_failure_does_not_kill_the_poll(self):
+        # 轮询可能要跑几十分钟，中间抖一下不该让整份白等。循环里若不经过
+        # _retry，网络类错误会当场穿出去，这一份就前功尽弃。
+        calls = []
+
+        def flaky(url, **kw):
+            calls.append(1)
+            if len(calls) < 3:
+                raise requests.ConnectionError("抖了一下")
+            return FakeResponse(body={"code": 0, "data": {
+                "jobId": "j1", "state": "done",
+                "resultUrl": {"jsonUrl": "u"}}})
+
+        with mock.patch.object(requests, "get", flaky), \
+             mock.patch.object(aistudio.time, "sleep", lambda s: None):
+            self.assertEqual(aistudio.poll("j1", "t"), "u")
+        self.assertEqual(len(calls), 3)
 
 
 if __name__ == "__main__":

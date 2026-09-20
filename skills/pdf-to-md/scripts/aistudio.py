@@ -164,6 +164,11 @@ def poll(job_id, token, on_progress=None):
 
     **没有总超时**——这是不用 paddleocr-mcp 库的主要理由之一：那个库把
     轮询超时写死 600 秒，超了就扔异常，而任务在服务端还在跑。
+
+    往外抛三种异常，Task 12 的捕获表接得住这三种：服务拒了这次询问时抛
+    SubmitRejected（同 submit，HTTP 200 但 code 非 0 也算拒了——那时候服务
+    写的原因比「没见过的任务状态：None」有用得多）；任务本身失败、说完成了
+    却没给地址、报了没见过的状态，抛 JobFailed；连不上服务抛 NetworkError。
     """
     headers = {"Authorization": f"bearer {token}"}
     while True:
@@ -172,7 +177,7 @@ def poll(job_id, token, on_progress=None):
                                  timeout=SMALL_TIMEOUT),
             "轮询")
         body = _body_of(resp)
-        if resp.status_code != 200 or not body:
+        if resp.status_code != 200 or not body or body.get("code"):
             raise _rejected_from(resp, "轮询")
         data = _data_of(body)
         state = data.get("state")
