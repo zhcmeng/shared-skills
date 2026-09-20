@@ -532,6 +532,11 @@ class BrokenBodyResponse:
 
 
 class TestGetToken(unittest.TestCase):
+    def test_the_env_var_name_is_the_one_the_settings_file_uses(self):
+        # 这个名字是跟用户 ~/.claude/settings.json 的约定。改了它不会报错，
+        # 只会悄悄读不到用户已经配好的 token——那是最难查的一种坏法。
+        self.assertEqual(aistudio.TOKEN_ENV, "PADDLEOCR_MCP_AISTUDIO_ACCESS_TOKEN")
+
     def test_reads_the_env_var(self):
         with mock.patch.dict(os.environ, {aistudio.TOKEN_ENV: "abc"}, clear=False):
             self.assertEqual(aistudio.get_token(), "abc")
@@ -578,6 +583,7 @@ class TestSubmit(unittest.TestCase):
         with mock.patch.object(requests, "post", fake_post):
             aistudio.submit(path, "PP-StructureV3", "t")
         self.assertNotIn("json", captured)
+        self.assertEqual(captured["url"], aistudio.JOB_URL)
         self.assertEqual(captured["data"]["model"], "PP-StructureV3")
         self.assertIn("file", captured["files"])
 
