@@ -11,7 +11,7 @@ import requests
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 
 import aistudio
-from aistudio import NetworkError, SubmitRejected
+from aistudio import JobFailed, NetworkError, SubmitRejected
 
 import markdown
 from markdown import (JsonlLineError, Page, PlaceholderLeftover, allocate_names,
@@ -673,6 +673,90 @@ class TestSubmit(unittest.TestCase):
         # 每次失败后睡一觉；最后一次失败直接抛，不再睡
         self.assertEqual(len(naps), aistudio.RETRY_ATTEMPTS - 1)
         self.assertIn("连不上", str(ctx.exception))
+
+
+class TestPoll(unittest.TestCase):
+    def run_poll(self, states, on_progress=None):
+        seq = list(states)
+        # 盯 sleep，不把 POLL_INTERVAL patch 成 0：后者只在 poll 直接读常量
+        # 时才起作用，失效时唯一的症状是每条用例真睡几秒，没有断言能发现。
+        self.naps = []
+
+        def fake_get(url, **kw):
+            return FakeResponse(body={"code": 0, "data": seq.pop(0)})
+
+        with mock.patch.object(requests, "get", fake_get), \
+             mock.patch.object(aistudio.time, "sleep", self.naps.append):
+            return aistudio.poll("j1", "t", on_progress=on_progress)
+
+    def test_asks_the_job_url_with_the_token(self):
+        seen = {}
+
+        def fake_get(url, **kw):
+            seen["url"] = url
+            seen.update(kw)
+            return FakeResponse(body={"code": 0, "data": {
+                "jobId": "j1", "state": "done",
+                "resultUrl": {"jsonUrl": "u"}}})
+
+        with mock.patch.object(requests, "get", fake_get):
+            aistudio.poll("j1", "tok")
+        self.assertEqual(seen["url"], aistudio.JOB_URL + "/j1")
+        self.assertEqual(seen["headers"]["Authorization"], "bearer tok")
+        self.assertEqual(seen["timeout"], aistudio.SMALL_TIMEOUT)
+
+    def test_pending_then_done_returns_the_jsonl_url(self):
+        url = self.run_poll([
+            {"jobId": "j1", "state": "pending"},
+            {"jobId": "j1", "state": "done",
+             "extractProgress": {"extractedPages": 3, "totalPages": 3},
+             "resultUrl": {"jsonUrl": "https://x/r.jsonl"}},
+        ])
+        self.assertEqual(url, "https://x/r.jsonl")
+        # 两次询问之间等一个 POLL_INTERVAL；拿到结果就走，不在 done 之后再睡
+        self.assertEqual(self.naps, [aistudio.POLL_INTERVAL])
+
+    def test_running_reports_progress(self):
+        seen = []
+        self.run_poll([
+            {"jobId": "j1", "state": "running",
+             "extractProgress": {"extractedPages": 6, "totalPages": 105}},
+            {"jobId": "j1", "state": "done", "resultUrl": {"jsonUrl": "u"}},
+        ], on_progress=lambda done, total: seen.append((done, total)))
+        self.assertEqual(seen, [(6, 105)])
+
+    def test_running_without_extract_progress_does_not_crash(self):
+        seen = []
+        url = self.run_poll([
+            {"jobId": "j1", "state": "running"},
+            {"jobId": "j1", "state": "done", "resultUrl": {"jsonUrl": "u"}},
+        ], on_progress=lambda done, total: seen.append((done, total)))
+        self.assertEqual(url, "u")
+        self.assertEqual(seen, [])
+
+    def test_failed_carries_the_service_error_message(self):
+        with self.assertRaises(JobFailed) as ctx:
+            self.run_poll([{"jobId": "j1", "state": "failed",
+                            "errorMsg": "解析失败：文件损坏"}])
+        self.assertIn("文件损坏", str(ctx.exception))
+
+    def test_done_without_result_url_is_an_error(self):
+        with self.assertRaises(JobFailed):
+            self.run_poll([{"jobId": "j1", "state": "done"}])
+
+    def test_unknown_state_is_an_error_not_an_endless_loop(self):
+        with self.assertRaises(JobFailed) as ctx:
+            self.run_poll([{"jobId": "j1", "state": "queued"}])
+        self.assertIn("queued", str(ctx.exception))
+
+    def test_200_with_a_non_json_body_is_an_error_not_a_crash(self):
+        # 轮询这条路上网关回了 200 却不是 JSON：同 Task 7，别让 ValueError 漏出去
+        resp = FakeResponse(status_code=200, text="<html>hello</html>")
+        with mock.patch.object(requests, "get", lambda *a, **k: resp):
+            with self.assertRaises(SubmitRejected) as ctx:
+                aistudio.poll("j1", "t")
+        self.assertIn("hello", str(ctx.exception))
+        self.assertIn("轮询", str(ctx.exception))
 
 
 if __name__ == "__main__":

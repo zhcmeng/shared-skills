@@ -16,6 +16,7 @@ UPLOAD_TIMEOUT = 900.0
 SMALL_TIMEOUT = 60.0
 RETRY_ATTEMPTS = 3
 RETRY_DELAY = 2.0
+POLL_INTERVAL = 3.0
 
 # 三个开关照官方示例给 False，也不给使用者开口子——本机没试过打开的效果
 OPTIONAL_PAYLOAD = {
@@ -153,3 +154,40 @@ def submit(target, model, token):
     if resp.status_code != 200 or body.get("code") or not job_id:
         raise _rejected_from(resp, "提交")
     return job_id
+
+
+_KNOWN_STATES = ("pending", "running", "done", "failed")
+
+
+def poll(job_id, token, on_progress=None):
+    """反复问任务状态，直到完成或失败。返回结果 JSONL 的地址。
+
+    **没有总超时**——这是不用 paddleocr-mcp 库的主要理由之一：那个库把
+    轮询超时写死 600 秒，超了就扔异常，而任务在服务端还在跑。
+    """
+    headers = {"Authorization": f"bearer {token}"}
+    while True:
+        resp = _retry(
+            lambda: requests.get(f"{JOB_URL}/{job_id}", headers=headers,
+                                 timeout=SMALL_TIMEOUT),
+            "轮询")
+        body = _body_of(resp)
+        if resp.status_code != 200 or not body:
+            raise _rejected_from(resp, "轮询")
+        data = _data_of(body)
+        state = data.get("state")
+
+        if state == "failed":
+            raise JobFailed(f"任务失败：{data.get('errorMsg') or '服务没说原因'}")
+        if state == "done":
+            url = (data.get("resultUrl") or {}).get("jsonUrl")
+            if not url:
+                raise JobFailed("任务说完成了，但没给结果地址")
+            return url
+        if state not in _KNOWN_STATES:
+            raise JobFailed(f"没见过的任务状态：{state!r}")
+        if state == "running" and on_progress:
+            prog = data.get("extractProgress")
+            if prog:
+                on_progress(prog.get("extractedPages"), prog.get("totalPages"))
+        time.sleep(POLL_INTERVAL)
