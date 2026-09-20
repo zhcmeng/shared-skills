@@ -1,4 +1,5 @@
 import argparse
+import dataclasses
 import io
 import json
 import os
@@ -88,6 +89,24 @@ class TestConvertTables(unittest.TestCase):
     def test_text_without_table_is_unchanged(self):
         text = "# 标题\n\n正文，里面有个 < 号。\n"
         self.assertEqual(convert_tables(text), text)
+
+    def test_a_char_that_grows_when_lowered_does_not_shift_a_later_table(self):
+        # İ（U+0130）lower() 之后是 2 个码位，拿 lower 的下标去切原文就错开一位：
+        # 它后面那张表算出来的区间对不上原文，整张表被当成「认不出收尾」原样留成
+        # HTML。不报错，只是表没转。
+        html = (chr(0x130) + " 开头\n"
+                "<table><tr><th>A</th></tr><tr><td>1</td></tr></table>")
+        out = convert_tables(html)
+        self.assertNotIn("<table", out)
+        self.assertIn("| A", out)
+        self.assertIn("| 1", out)
+
+    def test_a_char_that_grows_when_lowered_inside_a_table_keeps_later_text(self):
+        # 同一个错位的另一头：表内的 İ 让收尾下标多出一位，`</table>` 之后那一个字
+        # 被当成表格的一部分切走，正文里就少了它。同样不报错。
+        html = "<table><tr><td>" + chr(0x130) + "</td></tr></table>后面"
+        out = convert_tables(html)
+        self.assertIn("后面", out)
 
     def test_leftover_placeholder_raises(self):
         with self.assertRaises(PlaceholderLeftover):
@@ -359,6 +378,59 @@ class TestParseJsonl(unittest.TestCase):
         with self.assertRaises(JsonlLineError) as ctx:
             parse_jsonl(raw)
         self.assertIn("第 2 行", str(ctx.exception))
+
+    def test_a_number_too_big_for_python_raises_our_own_error(self):
+        # JSON 本身合法，超的是 Python 自己的整数位数上限（4300 位）：json.loads
+        # 抛的是裸 ValueError，不在并发那层的捕获表里，一份这样的结果会把整批带走。
+        raw = ('{"errorCode": 0, "result": {"layoutParsingResults": [], '
+               '"big": ' + "9" * 4301 + "}}")
+        with self.assertRaises(JsonlLineError) as ctx:
+            parse_jsonl(raw)
+        self.assertIn("第 1 行", str(ctx.exception))
+        # 这份 JSON 是合法的，报错别一口咬定「不是合法 JSON」——超的是 Python
+        # 自己的读法，用户拿到的线索得指对地方
+        self.assertIn("数值太大", str(ctx.exception))
+
+    def test_a_deeply_nested_line_raises_our_own_error(self):
+        # RecursionError 不是 ValueError 的子类，只放宽成 ValueError 接不住它
+        raw = '{"errorCode": 0, "x": ' + "[" * 100000 + "]" * 100000 + "}"
+        with self.assertRaises(JsonlLineError) as ctx:
+            parse_jsonl(raw)
+        self.assertIn("第 1 行", str(ctx.exception))
+
+    def test_input_that_is_not_text_raises_our_own_error(self):
+        # 走到这一步该拿到的是 JSONL 正文；给了别的东西（取结果那一步出了岔子）
+        # 也不能让 AttributeError 烂在 .splitlines() 上——那一样是掀翻整批。
+        for raw in (None, 42, ["一行"]):
+            with self.subTest(raw=raw):
+                with self.assertRaises(JsonlLineError):
+                    parse_jsonl(raw)
+
+    def test_a_falsy_shaped_result_is_a_shape_error_not_an_empty_document(self):
+        # {"result": []}：`[]` 是假值，被调用处的 `or {}` 悄悄换成 {}，于是解析出
+        # 0 页、报「一页都没解析出来」——用户被引去查自己的 PDF，而真相是服务
+        # 换了结构。给了个不是那个形状的值，就得按形状不对报出来。
+        raw = json.dumps({"errorCode": 0, "result": []})
+        with self.assertRaises(JsonlLineError) as ctx:
+            parse_jsonl(raw)
+        self.assertIn("result", str(ctx.exception))
+
+    def test_a_falsy_shaped_item_list_is_a_shape_error(self):
+        # {"layoutParsingResults": {}}：同一个坑的另一个入口，`{}` 也是假值
+        raw = json.dumps({"errorCode": 0,
+                          "result": {"layoutParsingResults": {}}})
+        with self.assertRaises(JsonlLineError) as ctx:
+            parse_jsonl(raw)
+        self.assertIn("layoutParsingResults", str(ctx.exception))
+
+    def test_a_bad_item_says_which_item_it_is(self):
+        # 一行通常装 3 页。不带序号的话，用户得自己数到第几项才知道是哪一页
+        raw = json.dumps({"errorCode": 0, "result": {"layoutParsingResults": [
+            {"markdown": {"text": "一"}}, 42]}})
+        with self.assertRaises(JsonlLineError) as ctx:
+            parse_jsonl(raw)
+        self.assertIn("第 1 行", str(ctx.exception))
+        self.assertIn("第 2 项", str(ctx.exception))
 
 
 class TestAllocateNames(unittest.TestCase):
@@ -1229,6 +1301,20 @@ class TestConvertOne(unittest.TestCase):
             submit=fake_submit, poll=fake_poll,
             fetch_jsonl=fake_fetch_jsonl, fetch_image=fake_fetch_image)
 
+    def fake_pipeline_raw(self, raw):
+        """同 fake_pipeline，但直接给原始 JSONL 正文——造畸形结果时用。"""
+        def fake_submit(target, model, token):
+            return "j1"
+
+        def fake_poll(job_id, token, on_progress=None):
+            return "https://x/r.jsonl"
+
+        return mock.patch.multiple(
+            aistudio,
+            submit=fake_submit, poll=fake_poll,
+            fetch_jsonl=lambda url: raw,
+            fetch_image=lambda url: b"\xff\xd8\xff\xe0jpeg")
+
     def test_writes_md_and_images(self):
         task = convert.Task(target="/tmp/a.pdf", name="a", origin="/tmp/a.pdf")
         pages = [("正文一", {}),
@@ -1274,8 +1360,48 @@ class TestConvertOne(unittest.TestCase):
         with self.fake_pipeline([]):
             with self.assertRaises(convert.EmptyDocument) as ctx:
                 convert.convert_one(task, self.root, "m", "t")
-        self.assertIn("一页都没解析出来", str(ctx.exception))
+        self.assertIn("一页正文都没解析出来", str(ctx.exception))
         self.assertFalse(os.path.exists(os.path.join(self.root, "a", "a.md")))
+
+    def test_a_result_with_no_usable_text_is_an_error(self):
+        # 这两种形状都解析出「1 个空页」，光数页数守不住：放行就会落一个只有换行
+        # 的 md、报 1 页、退出码 0。守门问的是「有没有一页带正文」。
+        lines = [
+            '{"errorCode": 0, "result": {"layoutParsingResults": [{}]}}',
+            '{"errorCode": 0, '
+            '"result": {"layoutParsingResults": [{"markdown": {}}]}}',
+        ]
+        for raw in lines:
+            with self.subTest(raw=raw):
+                task = convert.Task(target="/tmp/a.pdf", name="a",
+                                    origin="/tmp/a.pdf")
+                with self.fake_pipeline_raw(raw):
+                    with self.assertRaises(convert.EmptyDocument):
+                        convert.convert_one(task, self.root, "m", "t")
+                self.assertFalse(os.path.exists(
+                    os.path.join(self.root, "a", "a.md")))
+
+    def test_a_falsy_markdown_field_fails_the_document(self):
+        # `{"markdown": []}` 是同一种坏结果（1 个空页），改完 _expect 之后它在解析
+        # 那一层就被当成「形状不对」拦下了，轮不到守门。要钉的是这一份**失败、
+        # 不落文件**，别把它放行成「退出码 0 加一个空 md」。
+        raw = ('{"errorCode": 0, '
+               '"result": {"layoutParsingResults": [{"markdown": []}]}}')
+        task = convert.Task(target="/tmp/a.pdf", name="a", origin="/tmp/a.pdf")
+        with self.fake_pipeline_raw(raw):
+            with self.assertRaises(JsonlLineError):
+                convert.convert_one(task, self.root, "m", "t")
+        self.assertFalse(os.path.exists(os.path.join(self.root, "a", "a.md")))
+
+    def test_a_document_with_some_empty_pages_still_succeeds(self):
+        # 反向的一条：守门是「一页正文都没有」才算失败，不是「有一页空就失败」。
+        # 放宽成后者的话，夹着空白页的文档会被整份判死。
+        task = convert.Task(target="/tmp/a.pdf", name="a", origin="/tmp/a.pdf")
+        with self.fake_pipeline([("", {}), ("正文", {}), ("", {})]):
+            result = convert.convert_one(task, self.root, "m", "t")
+        self.assertEqual(result.pages, 3)
+        with open(os.path.join(self.root, "a", "a.md"), encoding="utf-8") as f:
+            self.assertIn("正文", f.read())
 
     def test_missing_image_does_not_fail_the_document(self):
         task = convert.Task(target="/tmp/a.pdf", name="a", origin="/tmp/a.pdf")
@@ -1335,12 +1461,22 @@ class TestProgress(unittest.TestCase):
         buf = io.StringIO()
         return buf, convert.Progress(total, stream=buf)
 
+    def test_a_result_does_not_carry_a_note(self):
+        # Result.note 从来没有谁赋过值，done_line 里那一支永远走不到。「缺图」
+        # 已经有 missing_images 一条通道，再开第二条就是把同一件事做两遍。
+        self.assertNotIn("note",
+                         {f.name for f in dataclasses.fields(convert.Result)})
+
     def test_a_worker_thread_waits_for_the_lock_before_redrawing(self):
         """好几个任务同时想改那一行动态进度，谁也不能插到别人中间。
 
-        不等的话，工作线程的 `add` 会在主线程正迭代 `inflight` 的半路往里
-        塞一个键——那是 `RuntimeError: dictionary changed size during
-        iteration`，而且是在屏幕上乱串字符之后才炸。
+        不等的话，主线程正迭代 `inflight` 的半路会有别的线程往里塞东西——
+        `add` 塞的是**新键**，那是 `RuntimeError: dictionary changed size
+        during iteration`，而且是在屏幕上乱串字符之后才炸。
+
+        本用例的 `TracedLock` 盯的是 `pages` 那条路（名字已在册，只改已有键、
+        不改长度，引不出那个 RuntimeError），验的是「谁都得先拿锁」这件事本身。
+        两个形状都走 `self.lock`，锁没了、漏了或者换成了各自的锁，这条就红。
         """
         buf, p = self.make()
         p.add("a")
@@ -1439,6 +1575,24 @@ class TestRun(unittest.TestCase):
             self.assertEqual(convert.run(tasks, self.args()), 0)
         # 那一行动态进度是这东西唯一的存在理由，完成数不累加它就永远显示 0
         self.assertIn("1/1 完成", self.out.getvalue())
+
+    def test_page_progress_reaches_the_progress_line(self):
+        """工作线程报上来的页数得真走到那行动态进度行上。
+
+        `work()` 里那根线（`on_pages=lambda d, t, n=task.name:
+        progress.pages(n, d, t)`）少接、接错名字、把 d/t 写反，屏幕上就永远只有
+        「进行中 a …」，看不到「21/194 页」——用户拿不到「跑到哪儿了」这个唯一
+        的进度信息，而且不报错。
+        """
+        tasks = [convert.Task(target="/tmp/a.pdf", name="a", origin="a")]
+
+        def fake(task, out_root, model, token, on_pages=None):
+            on_pages(21, 194)
+            return convert.Result("a", 194, 0.1, [])
+
+        with mock.patch.object(convert, "convert_one", fake):
+            self.assertEqual(convert.run(tasks, self.args()), 0)
+        self.assertIn("a 21/194 页", self.out.getvalue())
 
     def test_a_failing_file_does_not_stop_the_others(self):
         tasks = [convert.Task(target="/tmp/a.pdf", name="a", origin="a"),

@@ -4,6 +4,7 @@
 """
 import json
 import re
+import string
 from dataclasses import dataclass
 
 from lxml import html as lxml_html
@@ -16,6 +17,11 @@ _PLACEHOLDER_RE = re.compile(r"\x00T\d+\x00")
 
 _TABLE_OPEN = "<table"
 _TABLE_CLOSE = "</table>"
+
+# 折大小写时只折 ASCII。`str.lower()` 对 U+0130（İ）这类字符不保长（1 个码位
+# 变 2），拿 lower 的下标去切**原文**就会错开。要认的两个标签都是纯 ASCII，
+# 所以只折 ASCII 完全等价，而且一对一。
+_ASCII_LOWER = str.maketrans(string.ascii_uppercase, string.ascii_lowercase)
 
 
 class PlaceholderLeftover(Exception):
@@ -35,7 +41,7 @@ def _find_table_spans(text):
     认不出收尾的（没有 </table>）就当它不是表格，原样留着。
     """
     spans = []
-    lower = text.lower()
+    lower = text.translate(_ASCII_LOWER)
     pos = 0
     while True:
         start = lower.find(_TABLE_OPEN, pos)
@@ -269,12 +275,21 @@ class Page:
     images: dict[str, str]     # 图片名（形如 imgs/xxx.jpg）→ 完整网址
 
 
-def _expect(value, want, what, lineno):
+_NO_DEFAULT = object()
+
+
+def _expect(value, want, what, lineno, empty=_NO_DEFAULT):
     """取来的字段形状不对就抛自己的异常类——调用方只接得住 JsonlLineError。
 
-    缺字段/空值由调用处的 `or {}`、`or []` 兜成空，走不到这里；能走到这里的
-    都是「有值、但值不是那个形状」，也就是网关回了个 null、[]、裸数字这种。
+    `empty` 是「这个字段没给」时的兜底值，得由调用处显式给：给了它，`None` 就
+    换成它（缺字段照常出页）；没给，`None` 也按形状不对报出来。
+
+    除了 `None`，其余一律照 `isinstance` 判——`[]`、`{}`、`0`、`""` 这些假值
+    也算「给了个不是那个形状的」，不能悄悄降级成空。降级了会把「服务改了结构」
+    说成「你的文档是空的」，用户拿着一句「一页都没解析出来」去查自己的 PDF。
     """
+    if value is None and empty is not _NO_DEFAULT:
+        value = empty
     if not isinstance(value, want):
         raise JsonlLineError(
             f"结果第 {lineno} 行的 {what} 不是 {want.__name__}，"
@@ -289,8 +304,9 @@ def parse_jsonl(raw: str) -> list[Page]:
     第 n 个就是第 n 页。结果里的页码标记（inputImage、图片网址里的
     markdown_N、dataInfo.numPages）全是行内的，靠不住，只能靠顺序。
 
-    解析不了的输入一律抛 JsonlLineError，不把 JSONDecodeError 漏出去，
-    形状不对（合法 JSON 但取出来的不是对象/列表/字符串）也一样：
+    解析不了的输入一律抛 JsonlLineError，不把 JSONDecodeError、Python 读不了的
+    超长数值、嵌套太深，或者压根不是文本的输入漏出去，形状不对（合法 JSON 但
+    取出来的不是对象/列表/字符串）也一样：
     调用方（并发那层）只接得住这一个异常类，漏出去就不是「这一份失败」，
     而是整批跟着崩，用户看到的还是 Python 栈回溯。
 
@@ -298,28 +314,37 @@ def parse_jsonl(raw: str) -> list[Page]:
     前者照常出页，后者才报错。
     """
     pages = []
+    if not isinstance(raw, str):
+        raise JsonlLineError(
+            f"结果不是文本，是 {type(raw).__name__}——这一步该拿到 JSONL 正文")
     for lineno, line in enumerate(raw.splitlines(), start=1):
         line = line.strip()
         if not line:
             continue
         try:
             obj = json.loads(line)
-        except json.JSONDecodeError as exc:
-            raise JsonlLineError(f"结果第 {lineno} 行不是合法 JSON：{exc}") from exc
+        except (json.JSONDecodeError, ValueError, RecursionError) as exc:
+            # ValueError 兜的是 Python 自己的整数位数上限（4300 位）——那份 JSON
+            # 是合法的，是 Python 读不了那么长的数。RecursionError 兜的是嵌套
+            # 太深，它不是 ValueError 的子类。三种都只该让这一份失败。
+            raise JsonlLineError(
+                f"结果第 {lineno} 行不是合法 JSON"
+                f"（或者数值太大，Python 读不了）：{exc}") from exc
         obj = _expect(obj, dict, "顶层", lineno)
         if obj.get("errorCode"):
             raise JsonlLineError(
                 f"结果第 {lineno} 行报错：{obj.get('errorMsg') or obj['errorCode']}")
-        result = _expect(obj.get("result") or {}, dict, "result", lineno)
-        items = _expect(result.get("layoutParsingResults") or [],
-                        list, "layoutParsingResults", lineno)
-        for item in items:
-            item = _expect(item, dict, "layoutParsingResults 里的一项", lineno)
-            md = _expect(item.get("markdown") or {}, dict, "markdown", lineno)
-            images = _expect(md.get("images") or {}, dict, "images", lineno)
+        result = _expect(obj.get("result"), dict, "result", lineno, empty={})
+        items = _expect(result.get("layoutParsingResults"),
+                        list, "layoutParsingResults", lineno, empty=[])
+        for n, item in enumerate(items, start=1):
+            item = _expect(item, dict,
+                           f"layoutParsingResults 里第 {n} 项", lineno)
+            md = _expect(item.get("markdown"), dict, "markdown", lineno, empty={})
+            images = _expect(md.get("images"), dict, "images", lineno, empty={})
             pages.append(Page(
                 index=len(pages),
-                text=_expect(md.get("text") or "", str, "text", lineno),
+                text=_expect(md.get("text"), str, "text", lineno, empty=""),
                 images=dict(images),
             ))
     return pages
@@ -338,6 +363,10 @@ def allocate_names(pages):
     名字用接口给的那个（形如 img_in_image_box_1_2_3_4.jpg），不自己另起；
     只在两个不同网址落到同一个文件名时才加 -2、-3。作用域是**一份文档**，
     不跨文档共用名字表。
+
+    契约：`pages` 的 `index` 是**一份文档内的唯一页码**。下面按「(页码, 图片名)」
+    记账就指着这一条——页码撞了，两张不相干的图会被当成同一页上的同一个键。
+    `Page` 现在只有 `parse_jsonl` 一条构造路径（`index=len(pages)`），天然满足。
     """
     by_url = {}    # 网址 → 本地文件名
     taken = {}     # 本地文件名 → 网址

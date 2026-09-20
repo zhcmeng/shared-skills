@@ -149,7 +149,6 @@ class Result:
     pages: int
     seconds: float
     missing_images: list
-    note: str = ""
 
 
 def already_done(out_root, name):
@@ -169,10 +168,15 @@ def convert_one(task, out_root, model, token, on_pages=None):
     raw = aistudio.fetch_jsonl(jsonl_url)
 
     pages = md_utils.parse_jsonl(raw)
-    if not pages:
+    # 守的是「一页正文都没有」，不是「一页都没有」：整项空、markdown 空的时候
+    # 照样解析得出页，光数页数会放行，落一个只有换行的 md、报 1 页、退出码 0。
+    # 代价是整份都是空白页的 PDF 也判失败——那种文档转出来本来就是空的，
+    # 报失败比静默交一个空文件好。
+    if not any(page.text.strip() for page in pages):
         raise EmptyDocument(
-            f"{task.origin} 一页都没解析出来。服务收下了这份文件，"
-            f"但结果里没有任何页面——多半是空文档或整份都读不出内容。")
+            f"{task.origin} 一页正文都没解析出来。服务收下了这份文件，"
+            f"但结果里没有任何带内容的页面——文档本身可能是空的，"
+            f"也可能整份都读不出内容。")
 
     names = md_utils.allocate_names(pages)
     document = md_utils.assemble(pages, names)
@@ -288,8 +292,6 @@ class Progress:
         if result.missing_images:
             bits.append(f"缺 {len(result.missing_images)} 张图："
                         + "、".join(result.missing_images))
-        if result.note:
-            bits.append(result.note)
         self.note("  ".join(bits))
 
     def close(self):
