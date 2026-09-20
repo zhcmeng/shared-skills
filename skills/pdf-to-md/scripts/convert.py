@@ -64,9 +64,19 @@ def parse_args(argv=None):
     return args
 
 
+def _is_url(raw):
+    """网址只有这两种写法。
+
+    别写成 `startswith("http")`——那会把一个真名叫 `http_notes.pdf` 的本地
+    文件也认成网址，`isfile` 那一步根本轮不到，那个相对路径会被当成网址
+    丢给服务端。
+    """
+    return raw.startswith(("http://", "https://"))
+
+
 def output_dir_name(target):
     """从输入推一个输出目录名。"""
-    if target.startswith("http"):
+    if _is_url(target):
         path = urlparse(target).path
         last = path.rstrip("/").rsplit("/", 1)[-1]
         if not last:
@@ -80,12 +90,13 @@ def collect_inputs(raw_inputs):
     """把命令行给的东西摊成任务表：去重、去同名撞车。"""
     targets = []
     for raw in raw_inputs:
-        if raw.startswith("http"):
+        if _is_url(raw):
             targets.append(raw)
             continue
         path = os.path.abspath(raw)
         if os.path.isdir(path):
-            found = sorted(str(p) for p in Path(path).rglob("*.pdf"))
+            found = sorted(str(p) for p in Path(path).rglob("*.pdf")
+                           if p.is_file())
             targets.extend(found)
         elif os.path.isfile(path):
             targets.append(path)
@@ -96,7 +107,7 @@ def collect_inputs(raw_inputs):
     seen = set()
     unique = []
     for t in targets:
-        key = t if t.startswith("http") else os.path.normcase(os.path.abspath(t))
+        key = t if _is_url(t) else os.path.normcase(os.path.abspath(t))
         if key in seen:
             continue
         seen.add(key)

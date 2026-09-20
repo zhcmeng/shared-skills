@@ -1010,6 +1010,17 @@ class TestOutputDirName(unittest.TestCase):
     def test_trailing_slash_url_falls_back(self):
         self.assertEqual(convert.output_dir_name("https://x/y/"), "y")
 
+    def test_signed_url_with_a_dot_in_the_query_still_drops_the_query(self):
+        # 对象存储的签名网址 query 里带点是常态（`?auth=abc.def`）。不剥 query
+        # 切出来的是 `a.pdf?auth=abc`——里面那个 `?` 在 Windows 上根本建不出目录。
+        self.assertEqual(
+            convert.output_dir_name("https://x/y/a.pdf?auth=abc.def"), "a")
+
+    def test_bare_domain_falls_back_to_the_host(self):
+        # 路径是空的，`last` 取不出东西，只能退回主机名
+        self.assertEqual(convert.output_dir_name("https://x.example.com/"),
+                         "x.example")
+
 
 class TestCollectInputs(unittest.TestCase):
     def setUp(self):
@@ -1045,6 +1056,25 @@ class TestCollectInputs(unittest.TestCase):
             tasks = convert.collect_inputs([one, two])
         self.assertEqual(sorted(t.name for t in tasks), ["report", "report-2"])
         self.assertIn("report-2", err.getvalue())
+
+    def test_a_file_named_like_a_url_is_still_a_local_file(self):
+        # `startswith("http")` 会把一个真名叫 `http_notes.pdf` 的本地文件认成
+        # 网址：路径压根不被 stat，那个字符串被原样当成网址丢给服务端，报回来
+        # 的错跟「文件明明在」完全对不上。本地输入一律回绝对路径。
+        self.write("http_notes.pdf")
+        old = os.getcwd()
+        os.chdir(self.root)
+        self.addCleanup(os.chdir, old)
+        tasks = convert.collect_inputs(["http_notes.pdf"])
+        self.assertEqual(tasks[0].target, os.path.abspath("http_notes.pdf"))
+
+    def test_a_directory_named_like_a_pdf_is_not_collected(self):
+        # 目录名以 .pdf 结尾时 rglob 会把它一起收进来，交给 submit 必炸。
+        # 判据是「是不是文件」，不是「名字像不像」。
+        self.write("d/real.pdf")
+        os.makedirs(os.path.join(self.root, "d", "weird.pdf"))
+        tasks = convert.collect_inputs([os.path.join(self.root, "d")])
+        self.assertEqual([t.name for t in tasks], ["real"])
 
     def test_empty_directory_is_an_error(self):
         with self.assertRaises(SystemExit) as ctx:
