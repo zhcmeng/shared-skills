@@ -99,4 +99,45 @@ SYNTHJSONL
     | python "${statusline_src}/subagent-statusline.py" 2>/dev/null)"
   [ "$dup_sub" = '{"id": "dup", "content": "重复  ¥1.27(峰) · 缓存命中 90.0% · 总token 2.10M · 5m"}' ] \
     || fail "子代理状态栏把同一个 message.id 的多条记录重复累加了（实际：${dup_sub}）"
+
+  # ── fork 型子代理不能把父代理的历史算成自己的 ──
+  # fork 是把父代理的上下文整个复制出去另开一个代理：它的记录文件开头带着父代理那几次
+  # 调用，message.id 与父代理文件里的完全相同——同一份记录被抄了一份，不是新发生的调用。
+  # 按 id 收敛只在本文件内做，跨文件就漏了，fork 那一行会把父代理的开销再加一遍。
+  # 真实会话实测：3 个 fork 行各多算了父代理的 6 条调用，占该行 35%~45%。
+  #
+  # 这一组同时压住主状态栏：外层汇总要跨文件收敛，父代理那两次调用只算一次。
+  # 主会话自己 1 次（msg_m）、父代理 2 次（msg_p1/p2）、fork 自己 1 次（msg_f1），
+  # 合计 4 次 = ¥2.54 / 4.20M；不收敛的话会按 6 次算成 ¥3.82。
+  smoke_fork="$(scratch_dir)"
+  mkdir -p "${smoke_fork}/sess/subagents"
+  cat > "${smoke_fork}/sess.jsonl" <<'SYNTHJSONL'
+{"timestamp":"2026-09-16T02:00:00.000Z","message":{"id":"msg_m","stop_reason":"end_turn","model":"deepseek-flash","usage":{"input_tokens":100000,"cache_read_input_tokens":900000,"cache_creation_input_tokens":0,"output_tokens":50000}}}
+SYNTHJSONL
+  cat > "${smoke_fork}/sess/subagents/agent-p.jsonl" <<'SYNTHJSONL'
+{"timestamp":"2026-09-16T02:00:00.000Z","message":{"id":"msg_p1","stop_reason":"end_turn","model":"deepseek-flash","usage":{"input_tokens":100000,"cache_read_input_tokens":900000,"cache_creation_input_tokens":0,"output_tokens":50000}}}
+{"timestamp":"2026-09-16T02:05:00.000Z","message":{"id":"msg_p2","stop_reason":"end_turn","model":"deepseek-flash","usage":{"input_tokens":100000,"cache_read_input_tokens":900000,"cache_creation_input_tokens":0,"output_tokens":50000}}}
+SYNTHJSONL
+  cat > "${smoke_fork}/sess/subagents/agent-f.jsonl" <<'SYNTHJSONL'
+{"timestamp":"2026-09-16T02:00:00.000Z","message":{"id":"msg_p1","stop_reason":"end_turn","model":"deepseek-flash","usage":{"input_tokens":100000,"cache_read_input_tokens":900000,"cache_creation_input_tokens":0,"output_tokens":50000}}}
+{"timestamp":"2026-09-16T02:05:00.000Z","message":{"id":"msg_p2","stop_reason":"end_turn","model":"deepseek-flash","usage":{"input_tokens":100000,"cache_read_input_tokens":900000,"cache_creation_input_tokens":0,"output_tokens":50000}}}
+{"timestamp":"2026-09-16T02:10:00.000Z","message":{"id":"msg_f1","stop_reason":"end_turn","model":"deepseek-flash","usage":{"input_tokens":100000,"cache_read_input_tokens":900000,"cache_creation_input_tokens":0,"output_tokens":50000}}}
+SYNTHJSONL
+  printf '{"agentType":"general-purpose","spawnDepth":1}' \
+    > "${smoke_fork}/sess/subagents/agent-p.meta.json"
+  printf '{"agentType":"fork","isFork":true,"parentAgentId":"p","spawnDepth":2}' \
+    > "${smoke_fork}/sess/subagents/agent-f.meta.json"
+
+  fork_main="$(cd "$smoke_fork" && printf '{"transcript_path":"sess.jsonl"}' \
+    | python "${statusline_src}/statusline.py" 2>/dev/null)"
+  expect_contains "主状态栏（fork 复制的历史只算一次）" "$fork_main" '¥2.54(峰)' '总token 4.20M'
+
+  # 不给 startTime，时长那一截整段不显示，行内容因此与跑的时刻无关
+  fork_sub="$(cd "$smoke_fork" && printf '{"columns":160,"transcript_path":"sess.jsonl","tasks":[{"id":"p","description":"父代理","status":"running"},{"id":"f","description":"fork 出来的","status":"running"}]}' \
+    | python "${statusline_src}/subagent-statusline.py" 2>/dev/null)"
+  line_of() { printf '%s\n' "$fork_sub" | grep -F "\"id\": \"$1\""; }
+  [ "$(line_of f)" = '{"id": "f", "content": "fork 出来的  ¥0.64(峰) · 缓存命中 90.0% · 总token 1.05M"}' ] \
+    || fail "fork 子代理把父代理的历史算成了自己的（实际：$(line_of f)）"
+  [ "$(line_of p)" = '{"id": "p", "content": "父代理  ¥1.27(峰) · 缓存命中 90.0% · 总token 2.10M"}' ] \
+    || fail "父代理自己的开销被算少了（实际：$(line_of p)）"
 fi

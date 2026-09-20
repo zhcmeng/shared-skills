@@ -14,6 +14,12 @@ message.id 收敛成一条再累加，否则费用和 token 会按内容块个�
     <会话记录同名目录>/subagents/agent-<id>.jsonl
 里，带完整的 hit / miss / output 三类计数，因此本脚本去读那份记录来算。
 
+fork 型代理（把一个代理的上下文整个复制出去另开一个）的记录文件开头带着父代理那几次
+调用，message.id 与父代理文件里的完全一样——同一份记录被抄了一份，不是它自己发起的。
+按 id 收敛只在本文件内做，跨文件就漏了，会把父代理的开销算到 fork 头上（实测多出
+三到四成）。所以遇到有父代理的，还要读一遍父代理的记录，把那些 id 排掉，见
+inherited_ids()。
+
 时长：口径与主状态栏一致，都算挂钟时间（含等待与停顿）。还在跑的取「现在 −
       startTime」；已结束的必须停在它末条记录的时刻——任务行里只有 startTime、
       没有结束时刻，用「现在」会让跑完的代理一直涨下去。
@@ -85,12 +91,13 @@ def dedup_rank(msg):
     return (1 if msg.get("stop_reason") else 0, out or 0)
 
 
-def summarize(path):
+def summarize(path, skip_ids=frozenset()):
     """读某个 agent 的记录，返回 (命中, 未命中, 输出, 费用, 是否跨高峰, 是否跨空闲, 末条时间)。
 
     读不到返回 None。末条时间给已结束的代理当终点用，见文件头的时长说明。
     同一条回复的多条记录先按 message.id 收敛成一条再累加，否则费用和 token 会按
     内容块个数翻倍（真实会话实测被放大 2.6~4.2 倍）。
+    skip_ids 是父代理那边已经有的 id（fork 抄过来的历史），整条跳过不计数。
     """
     kept = {}
 
@@ -113,6 +120,8 @@ def summarize(path):
             key = msg.get("id")
             if not isinstance(key, str) or not key:
                 key = ("无 id", len(kept))
+            elif key in skip_ids:
+                continue
             prev = kept.get(key)
             if prev is None or dedup_rank(msg) > dedup_rank(prev[0]):
                 kept[key] = (msg, rec)
@@ -160,6 +169,62 @@ def agent_transcript(session_dir, agent_id):
         return None
     p = os.path.join(session_dir, "subagents", f"agent-{agent_id}.jsonl")
     return p if os.path.isfile(p) else None
+
+
+# 兄弟 fork 常常指向同一个父代理，记录读过一次就留着，别每个 task 重读一遍
+_IDS_CACHE = {}
+
+
+def message_ids(path):
+    """一个记录文件里出现过的 message.id 集合。读不到就给空集。"""
+    if path not in _IDS_CACHE:
+        ids = set()
+        try:
+            f = open(path, encoding="utf-8", errors="replace")
+        except OSError:
+            _IDS_CACHE[path] = ids
+            return ids
+        with f:
+            for line in f:
+                if '"usage"' not in line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                except ValueError:
+                    continue
+                msg = rec.get("message")
+                if isinstance(msg, dict) and isinstance(msg.get("id"), str):
+                    ids.add(msg["id"])
+        _IDS_CACHE[path] = ids
+    return _IDS_CACHE[path]
+
+
+def inherited_ids(session_dir, agent_id):
+    """这个代理从父代理那里抄来的 message.id 集合，算自己的开销时整条跳过。
+
+    fork 型代理（meta 里 isFork 为真）的记录文件开头是父代理那几次调用的整份复制，
+    它自己没发起过；这些 id 在父代理的记录里也有，不排掉就会把父代理的开销再算一遍
+    （实测这样的行多出三到四成）。
+
+    只看 parentAgentId 存在与否，不看 isFork：同一次调用只可能由一个代理发起，凡是在
+    父代理记录里出现过的 id 都不可能是子代理自己的。非 fork 的子代理本来就没有这种记录，
+    排了也是空集，不影响。读不到 meta、或父代理的记录不在，一律给空集，维持原样。
+    """
+    if not session_dir or not agent_id:
+        return frozenset()
+    meta_path = os.path.join(session_dir, "subagents", f"agent-{agent_id}.meta.json")
+    try:
+        with open(meta_path, encoding="utf-8") as f:
+            meta = json.load(f)
+    except (OSError, ValueError):
+        return frozenset()
+    if not isinstance(meta, dict):
+        return frozenset()
+    parent = meta.get("parentAgentId")
+    if not isinstance(parent, str) or not parent:
+        return frozenset()
+    parent_path = agent_transcript(session_dir, parent)
+    return frozenset(message_ids(parent_path)) if parent_path else frozenset()
 
 
 def resolve_session_dir(data):
@@ -302,7 +367,7 @@ def main():
         stats = None
         path = agent_transcript(session_dir, tid)
         if path:
-            stats = summarize(path)
+            stats = summarize(path, inherited_ids(session_dir, tid))
 
         # 行首放描述，替代被覆盖掉的默认渲染（默认是 name · description · token 数）
         label = task.get("description") or task.get("label") or task.get("name") or tid
