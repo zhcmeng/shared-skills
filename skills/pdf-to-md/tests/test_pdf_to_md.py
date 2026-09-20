@@ -888,6 +888,9 @@ class TestFetch(unittest.TestCase):
                 aistudio.fetch_image("https://x/a.jpg")
         self.assertIn("403", str(ctx.exception))
         self.assertEqual(len(tries), 1)
+        # 图床的网址带签名，取错了不会报错，只会取回一张废图或者 403，
+        # 所以「地址就是传进去那个」也得钉一句
+        self.assertEqual(tries[0], "https://x/a.jpg")
 
     def test_image_download_uses_a_shorter_retry_budget(self):
         self.assertLess(aistudio.IMAGE_RETRY_ATTEMPTS, aistudio.RETRY_ATTEMPTS)
@@ -959,7 +962,7 @@ class TestFetch(unittest.TestCase):
         # 对象存储偶尔在开头塞 BOM。留着它，第一行的 json.loads 就解不动，
         # 一份本来好好的结果从第一行起整份作废。
         resp = FakeResponse(text="")
-        # 显式写出 BOM 的三个字节，别用 ﻿ 那种转义：那个字符在编辑器里
+        # 显式写出 BOM 的三个字节，别用 '\ufeff' 那种转义：那个字符在编辑器里
         # 是隐形的，一旦在哪一环被吃掉，这条用例就退化成「没有 BOM」，而它
         # 照样绿——测的东西没了，谁也不知道。
         resp.content = b"\xef\xbb\xbf" + '{"errorCode":0}\n'.encode("utf-8")
