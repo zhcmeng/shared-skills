@@ -4,8 +4,13 @@ import sys
 import unittest
 from unittest import mock
 
+import requests
+
 # 把 scripts/ 插进 sys.path，照 download-md-images 那份测试的写法
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
+
+import aistudio
+from aistudio import NetworkError, SubmitRejected
 
 import markdown
 from markdown import (JsonlLineError, Page, PlaceholderLeftover, allocate_names,
@@ -494,6 +499,125 @@ class TestAssemble(unittest.TestCase):
 
     def test_empty_page_list_gives_empty_string(self):
         self.assertEqual(assemble([], {}), "")
+
+
+class FakeResponse:
+    def __init__(self, status_code=200, body=None, text=""):
+        self.status_code = status_code
+        self._body = body
+        self.text = text
+
+    def json(self):
+        if self._body is None:
+            raise ValueError("Expecting value: line 1 column 1 (char 0)")
+        return self._body
+
+
+class TestGetToken(unittest.TestCase):
+    def test_reads_the_env_var(self):
+        with mock.patch.dict(os.environ, {aistudio.TOKEN_ENV: "abc"}, clear=False):
+            self.assertEqual(aistudio.get_token(), "abc")
+
+    def test_missing_token_says_where_to_put_it(self):
+        with mock.patch.dict(os.environ, {}, clear=True):
+            with self.assertRaises(SystemExit) as ctx:
+                aistudio.get_token()
+        self.assertIn(aistudio.TOKEN_ENV, str(ctx.exception))
+        self.assertIn("settings.json", str(ctx.exception))
+
+
+class TestSubmit(unittest.TestCase):
+    def test_url_goes_in_a_json_body(self):
+        captured = {}
+
+        def fake_post(url, **kw):
+            captured.update(kw, url=url)
+            return FakeResponse(body={"code": 0, "data": {"jobId": "j1"}})
+
+        with mock.patch.object(requests, "post", fake_post):
+            job_id = aistudio.submit("https://example.com/a.pdf", "PaddleOCR-VL-1.6", "t")
+        self.assertEqual(job_id, "j1")
+        self.assertEqual(captured["json"]["fileUrl"], "https://example.com/a.pdf")
+        self.assertEqual(captured["json"]["model"], "PaddleOCR-VL-1.6")
+        self.assertEqual(captured["json"]["optionalPayload"],
+                         {"useDocOrientationClassify": False,
+                          "useDocUnwarping": False,
+                          "useChartRecognition": False})
+
+    def test_local_file_goes_as_multipart(self):
+        captured = {}
+
+        def fake_post(url, **kw):
+            captured.update(kw, url=url)
+            return FakeResponse(body={"code": 0, "data": {"jobId": "j2"}})
+
+        path = os.path.join(os.path.dirname(__file__), "fixture.pdf")
+        with open(path, "wb") as f:
+            f.write(b"%PDF-1.4\n")
+        try:
+            with mock.patch.object(requests, "post", fake_post):
+                aistudio.submit(path, "PP-StructureV3", "t")
+        finally:
+            os.remove(path)
+        self.assertNotIn("json", captured)
+        self.assertEqual(captured["data"]["model"], "PP-StructureV3")
+        self.assertIn("file", captured["files"])
+
+    def test_http_400_becomes_submit_rejected_with_the_service_wording(self):
+        resp = FakeResponse(status_code=400,
+                            body={"traceId": "t1", "code": 10004,
+                                  "msg": "文件格式不支持"})
+        with mock.patch.object(requests, "post", lambda *a, **k: resp):
+            with self.assertRaises(SubmitRejected) as ctx:
+                aistudio.submit("https://example.com/a.pdf", "m", "t")
+        self.assertEqual(ctx.exception.code, 10004)
+        self.assertIn("文件格式不支持", str(ctx.exception))
+
+    def test_non_json_error_body_does_not_crash(self):
+        # 网关返回 HTML 错误页时，报出来的该是「服务说了什么」而不是 JSON 解码错
+        resp = FakeResponse(status_code=502, text="<html>Bad Gateway</html>")
+        with mock.patch.object(requests, "post", lambda *a, **k: resp):
+            with self.assertRaises(SubmitRejected) as ctx:
+                aistudio.submit("https://example.com/a.pdf", "m", "t")
+        self.assertIn("502", str(ctx.exception))
+        self.assertIn("Bad Gateway", str(ctx.exception))
+
+    def test_code_nonzero_in_a_200_body_is_also_a_rejection(self):
+        resp = FakeResponse(status_code=200, body={"code": 10002, "msg": "文件 URL 无法识别"})
+        with mock.patch.object(requests, "post", lambda *a, **k: resp):
+            with self.assertRaises(SubmitRejected) as ctx:
+                aistudio.submit("https://example.com/a.pdf", "m", "t")
+        self.assertIn("文件 URL 无法识别", str(ctx.exception))
+
+    def test_200_with_a_non_json_body_is_a_rejection(self):
+        # 网关回了 200 却不是 JSON：不能崩在解码上，也不能让 ValueError 漏出去
+        resp = FakeResponse(status_code=200, text="<html>hello</html>")
+        with mock.patch.object(requests, "post", lambda *a, **k: resp):
+            with self.assertRaises(SubmitRejected) as ctx:
+                aistudio.submit("https://example.com/a.pdf", "m", "t")
+        self.assertIn("hello", str(ctx.exception))
+
+    def test_200_without_a_job_id_is_a_rejection(self):
+        # 说成功却没给任务号——拿不到 jobId 就走不下去，得算提交被拒
+        resp = FakeResponse(status_code=200, body={"code": 0, "msg": "Success"})
+        with mock.patch.object(requests, "post", lambda *a, **k: resp):
+            with self.assertRaises(SubmitRejected) as ctx:
+                aistudio.submit("https://example.com/a.pdf", "m", "t")
+        self.assertIn("Success", str(ctx.exception))
+
+    def test_network_error_is_retried_then_reported_as_such(self):
+        calls = []
+
+        def boom(*a, **k):
+            calls.append(1)
+            raise requests.ConnectionError("getaddrinfo failed")
+
+        with mock.patch.object(requests, "post", boom), \
+             mock.patch.object(aistudio, "RETRY_DELAY", 0):
+            with self.assertRaises(NetworkError) as ctx:
+                aistudio.submit("https://example.com/a.pdf", "m", "t")
+        self.assertEqual(len(calls), aistudio.RETRY_ATTEMPTS)
+        self.assertIn("连不上", str(ctx.exception))
 
 
 if __name__ == "__main__":
