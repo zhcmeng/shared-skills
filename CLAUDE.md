@@ -5,6 +5,6 @@
 这个仓库的改动有四类各有讲究，下面一条管一类。每类的细则在 README 的「维护」一节——那里是唯一的清单，加技能、改规则、改状态栏、改通知都在里面。
 
 - **改完自己跑检查，没有东西替你跑。** 这个仓库不装提交前钩子、也没有 CI——就是不让人每次提交都等两分钟。代价写在明处：忘跑就是没跑，没人会拦你。`bash checks/verify.sh` 跑全部（约两分钟）；`bash checks/verify.sh --changed` 只跑被本次改动影响到的模块（按暂存区挑，快得多）；`bash checks/verify.sh <关键词>` 只跑文件名里带该词的模块。它验的是 hook 接线、状态栏与常驻规则的同步、通知判定这几条链子；改动碰到这几处就跑一遍再收工。
-- **要抬版本号。** 改了 `plugin/skills/`、`plugin/rules/`、`plugin/statusline/`、`plugin/hooks/` 里的东西，就把 `plugin/.claude-plugin/plugin.json` 和 `.claude-plugin/marketplace.json` 里的版本号一起抬上去，两处必须一致。插件按版本号分目录安装、内容一致就不重装——不抬版本号的效果是「仓库改了，别人跑的还是旧的」，全程不报错。
+- **要抬版本号。** 改了 `plugin/skills/`、`plugin/rules/`、`plugin/statusline/`、`plugin/hooks/` 里的东西，就把 `plugin/.claude-plugin/plugin.json` 和 `.claude-plugin/marketplace.json` 里的版本号一起抬上去，两处必须一致。插件按版本号分目录安装、内容一致就不重装——不抬版本号的效果是「仓库改了，别人跑的还是旧的」，全程不报错。抬哪一位：`feat`／`refactor` 抬中间那位，`fix`／`docs`／`chore` 抬最后那位；判不准就看这次改的是「多了一个能力」还是「把已有的改对了」。
 - **`plugin/` 下的东西都会发出去。** 插件安装是把 `plugin/` 整个目录拷到使用者机器上，没有排除机制。测试用例、设计稿、临时文件，只要放在 `plugin/skills/<某技能>/` 下面就跟着发给每个使用者。不想发的放 `plugin/` 外面。
 - **每门技能自包含。** 改哪门就读它自己的 `SKILL.md`；同一目录下的 `README.md` 是写给人看的，技能运行时不会读它。

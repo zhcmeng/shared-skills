@@ -31,11 +31,13 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 SKILL_MD = HERE.parent / "SKILL.md"
 
-MODEL_DOC = "测试模型规格说明.md"
-CASE_DOC = "测试用例规格说明.md"
-PROC_DOC = "测试规程规格说明.md"
-DATA_DOC = "测试数据需求.md"
-ENV_DOC = "测试环境需求.md"
+# 五份产出的文件名。产出都用英文文件名，正文是中文——脚本读的只是文件名，
+# 栏目、编号、禁用词那几项照旧按中文认。
+MODEL_DOC = "Test Model Specification.md"
+CASE_DOC = "Test Case Specification.md"
+PROC_DOC = "Test Procedure Specification.md"
+DATA_DOC = "Test Data Requirements.md"
+ENV_DOC = "Test Environment Requirements.md"
 DOCS = [MODEL_DOC, CASE_DOC, PROC_DOC, DATA_DOC, ENV_DOC]
 
 # 文档模板第六、七节：这两份的栏是写死的，正好几栏就是几栏

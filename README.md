@@ -9,13 +9,13 @@
 ## 目录约定
 
 ```
-skills/<skill 名>/SKILL.md      # 必需，一个子目录 = 一个独立 skill
-skills/<skill 名>/<辅助文件>     # 可选：参考文档、脚本、模板
-statusline/<脚本名>.py          # 状态栏脚本，会被同步到配置目录，见下方「状态栏」
-rules/<规则名>.md               # 常驻规则，会被同步到配置目录，见下方「常驻规则」
+plugin/skills/<skill 名>/SKILL.md      # 必需，一个子目录 = 一个独立 skill
+plugin/skills/<skill 名>/<辅助文件>     # 可选：参考文档、脚本、模板
+plugin/statusline/<脚本名>.py          # 状态栏脚本，会被同步到配置目录，见下方「状态栏」
+plugin/rules/<规则名>.md               # 常驻规则，会被同步到配置目录，见下方「常驻规则」
 ```
 
-`skills/` 放在仓库根，与 `obra/superpowers` 的内部布局一致——将来若改用其它分发方式（`npx skills`、插件市场），目录无需重排。
+要发出去的东西都在 `plugin/` 下：插件安装是把 `plugin/` 整个目录拷到使用者机器上，没有排除机制。`checks/`、`docs/` 这些开发用的东西在仓库根，不跟着发出去。
 
 ## 收录的 skill
 
@@ -34,9 +34,9 @@ rules/<规则名>.md               # 常驻规则，会被同步到配置目录�
 
 ## 安装
 
-本仓库同时是一个 Claude Code 插件，`skills/` 会被自动注册，SessionStart hook 会把
+本仓库同时是一个 Claude Code 插件，`plugin/skills/` 会被自动注册，SessionStart hook 会把
 `plain-language` 的写作规则注入每个会话（`startup` / `clear` / `compact` 三种时机），
-同一个 hook 还会把 `statusline/` 下的脚本和 `rules/` 下的常驻规则同步到配置目录
+同一个 hook 还会把 `plugin/statusline/` 下的脚本和 `plugin/rules/` 下的常驻规则同步到配置目录
 （见下方「状态栏」「常驻规则」）。
 插件另外挂了五个通知 hook，后台会话需要你时弹 Windows 通知（见下方「通知」）。
 
@@ -45,9 +45,9 @@ rules/<规则名>.md               # 常驻规则，会被同步到配置目录�
 /plugin install shared-skills@shared-skills
 ```
 
-其它 agent 工具读 `~/.agents/skills/`，把 `skills/<名字>` 复制或链接过去即可；
-两条路互不干扰。只要技能不要常驻注入，删掉 `hooks/` 即可，`skills/` 不受影响
-（代价是状态栏脚本也不再同步，那种情况下得自己把 `statusline/` 下的脚本拷到配置目录）。
+其它 agent 工具读 `~/.agents/skills/`，把 `plugin/skills/<名字>` 复制或链接过去即可；
+两条路互不干扰。只要技能不要常驻注入，删掉 `plugin/hooks/` 即可，`plugin/skills/` 不受影响
+（代价是状态栏脚本也不再同步，那种情况下得自己把 `plugin/statusline/` 下的脚本拷到配置目录）。
 
 ## 状态栏
 
@@ -116,7 +116,7 @@ rules/<规则名>.md               # 常驻规则，会被同步到配置目录�
 
 同步是「内容一致就不动文件」，所以每次会话都跑一遍没有代价（实测增量约 1.5 毫秒，
 整个 hook 的耗时量不出差别）。**仓库是唯一真相**：配置目录里的那两个脚本会被仓库版本
-覆盖，改脚本请改仓库里的 `statusline/`，别改副本。
+覆盖，改脚本请改仓库里的 `plugin/statusline/`，别改副本。
 
 ## 常驻规则
 
@@ -124,8 +124,8 @@ rules/<规则名>.md               # 常驻规则，会被同步到配置目录�
 
 | 规则 | 怎么进上下文 |
 |:---|:---|
-| 说人话（`skills/plain-language/rules.md`） | SessionStart hook 以 `additionalContext` 注入 |
-| 改文件走专用工具（`rules/file-edits.md`） | 同步到配置目录的 `rules/` 下，由 Claude Code 自动加载 |
+| 说人话（`plugin/skills/plain-language/rules.md`） | SessionStart hook 以 `additionalContext` 注入 |
+| 改文件走专用工具（`plugin/rules/file-edits.md`） | 同步到配置目录的 `rules/` 下，由 Claude Code 自动加载 |
 
 第一条是按**写作时**组织的：`rules.md` 开头是判据（站在读者的角度，能不能一次读懂），接着那张表
 每行三列——正例、反例、原因（读者为什么会卡住），末尾列照原样写、不用动的那些；
@@ -148,13 +148,13 @@ bypass permissions（跳过权限确认）**——那个模式默认会引导模
 ### 幂等与覆盖
 
 和状态栏一个规矩：内容一致就不动文件，所以每次会话都跑一遍没有代价。**仓库是唯一真相**——
-配置目录里的规则会被仓库版本覆盖。想改规则请改本仓库的 `rules/`，改配置目录里的副本不作数，
-下一会话就被抹掉（`hooks/verify.sh` 里「被改坏要能修回」那条验的就是这件事）。
+配置目录里的规则会被仓库版本覆盖。想改规则请改本仓库的 `plugin/rules/`，改配置目录里的副本不作数，
+下一会话就被抹掉（`checks/verify.sh` 里「被改坏要能修回」那条验的就是这件事）。
 
 ### 怎么关掉
 
 删配置目录里的那条规则没用，下一会话会被同步回来。要关掉得从插件这边断：在自己的 fork 里
-删掉 `rules/file-edits.md`（或整个 `rules/`），或者把 `hooks/session-start` 里同步 `rules/`
+删掉 `plugin/rules/file-edits.md`（或整个 `plugin/rules/`），或者把 `plugin/hooks/session-start` 里同步 `rules/`
 的那一段去掉。
 
 ## 通知
@@ -240,66 +240,70 @@ bypass permissions（跳过权限确认）**——那个模式默认会引导模
 
 ### 怎么关掉
 
-只删 `hooks/hooks.json` 里 `UserPromptSubmit`、`Stop`、`PreToolUse`、`Notification` 这四段，
-`skills/` 和状态栏都不受影响。
+只删 `plugin/hooks/hooks.json` 里 `UserPromptSubmit`、`Stop`、`PreToolUse`、`Notification` 这四段，
+`plugin/skills/` 和状态栏都不受影响。
 
 ## 维护
 
-- **校验脚本**：`bash hooks/verify.sh` 跑全部，`bash hooks/verify.sh notify` 只跑文件名含该关键词的模块。
-  脚本拆在 `hooks/verify.d/` 下，一个模块管一件事，入口只负责按序加载和汇总：
+- **校验脚本**：`bash checks/verify.sh` 跑全部，`bash checks/verify.sh --changed` 只跑被本次改动
+  影响到的模块（按暂存区挑，快得多），`bash checks/verify.sh notify` 只跑文件名含该关键词的模块。
+  脚本拆在 `checks/verify.d/` 下，一个模块管一件事，入口只负责按序加载和汇总：
   `10-session-start`（注入文本、polyglot 两个分支）、`20-statusline-sync`、`25-rules-sync`、
-  `30-statusline-smoke`、`40-notify`（判定）、`50-notify-render`、`60-wiring`（hooks.json 接线）。
+  `30-statusline-smoke`、`40-notify`（判定）、`50-notify-render`、`60-wiring`（hooks.json 接线）、
+  `70-版本号一致`、`80-挑模块`（`--changed` 挑得对不对这件事本身）。
   加校验就加模块，别往入口里塞
-- **抬版本号**：改了 `skills/`、`rules/`、`statusline/`、`hooks/` 里的东西之后，把
-  `.claude-plugin/plugin.json` 与 `.claude-plugin/marketplace.json` 里的版本号一起抬上去，两处必须一致。
+- **抬版本号**：改了 `plugin/skills/`、`plugin/rules/`、`plugin/statusline/`、`plugin/hooks/` 里的东西之后，
+  把 `plugin/.claude-plugin/plugin.json` 与 `.claude-plugin/marketplace.json` 里的版本号一起抬上去，两处必须一致。
   插件按版本号分目录安装、内容一致就不重装——不抬版本号的效果是「仓库改了，别人（包括你自己
   下一个会话）跑的还是旧的」，全程不报错。抬版本号按批次做（一批内容改完统一抬一次），所以
-  `verify.sh` 对「内容动过、版本号还没抬」只提示不判失败
-- **新增一个 skill**：在 `skills/` 下建目录，写 `SKILL.md`，并在上方表格补一行
+  `checks/verify.sh` 对「内容动过、版本号还没抬」只提示不判失败
+- **抬哪一位**：`feat`／`refactor` 抬中间那位，`fix`／`docs`／`chore` 抬最后那位。判不准就看这次改的
+  是「多了一个能力」还是「把已有的改对了」——多一个能力抬中间，只是改对了抬最后
+- **新增一个 skill**：在 `plugin/skills/` 下建目录，写 `SKILL.md`，并在上方表格补一行
 - **同步 `agent-reach`**：它的 `SKILL.md` 和 `references/` 复制自上游仓库，不是自己写的。上游更新后照
-  `skills/agent-reach/THIRD-PARTY-NOTICES.md` 里的步骤重取一遍——`SKILL.md` 是整份覆盖，
+  `plugin/skills/agent-reach/THIRD-PARTY-NOTICES.md` 里的步骤重取一遍——`SKILL.md` 是整份覆盖，
   本地加的「命令行工具没装时」那节、以及删掉的上游 conda 说明，都要重做
   （`references/install.md` 是本地新增的，不受影响）
-- **改 `download-md-images` 脚本**：改 `skills/download-md-images/scripts/` 下的两个脚本，改完跑
-  `python skills/download-md-images/tests/test_download_md_images.py`——验的是两种图片引用的识别、
+- **改 `download-md-images` 脚本**：改 `plugin/skills/download-md-images/scripts/` 下的两个脚本，改完跑
+  `python plugin/skills/download-md-images/tests/test_download_md_images.py`——验的是两种图片引用的识别、
   扩展名推断（带查询串的网址、无扩展名默认 `.png`）和 frontmatter 里 `source_url` 取作 Referer
-- **改 `pdf-to-md` 脚本**：改 `skills/pdf-to-md/scripts/` 下的四个脚本（`markdown.py` 纯文本、
+- **改 `pdf-to-md` 脚本**：改 `plugin/skills/pdf-to-md/scripts/` 下的四个脚本（`markdown.py` 纯文本、
   `aistudio.py` 网络、`convert.py` 编排、`doctor.py` 体检），改完跑
-  `uv run --with requests --with lxml --with tabulate python skills/pdf-to-md/tests/test_pdf_to_md.py`
+  `uv run --with requests --with lxml --with tabulate python plugin/skills/pdf-to-md/tests/test_pdf_to_md.py`
   ——全部测试都不发真实请求，网络那一段用假响应喂进去。接口和返回结构的实测结论记在
   `docs/superpowers/specs/2026-09-20-pdf-to-md-design.md` 的「验过什么、还没验什么」一节。
   `doctor.py` **只用标准库，别让它 import 另外三个**：那三个缺依赖时它得能跑起来，测试里有一条
-  在 `python -S` 下真跑它。体检用的样例在 `assets/` 下：改 `doctor-sample.html` 之后要拿 Chromium
+  在 `python -S` 下真跑它。体检用的样例在 `plugin/skills/pdf-to-md/assets/` 下：改 `doctor-sample.html` 之后要拿 Chromium
   重新打印成 `doctor-sample.pdf`（命令写在 HTML 开头的注释里），HTML 里那句「校验标记」和
   `doctor.py` 的 `SAMPLE_MARKER` 必须一致——对不上时体检会把好环境报成坏的
-- **改 `test-case-design` 自检脚本**：改 `skills/test-case-design/scripts/check_docs.py`，改完跑
-  `python skills/test-case-design/tests/test_check_docs.py`——十二条，先造一套合规产出确认判过，
+- **改 `test-case-design` 自检脚本**：改 `plugin/skills/test-case-design/scripts/check_docs.py`，改完跑
+  `python plugin/skills/test-case-design/tests/test_check_docs.py`——十二条，先造一套合规产出确认判过，
   再逐处改坏确认每处都被逮住。禁用词表不在脚本里，是从 `SKILL.md` 的「必须照写的几个词」表
   解析出来的，改那张表脚本跟着变，不用两边各改一遍；那张表的写法变了解析不出来时，脚本会
   直接报错退出，不会静默放过
 - **改 skill**：只改本仓库。各工程放的是指向这里的链接，不在工程内改副本
 - **收录判据**：跟具体工程无关、别的工程拿去也能直接用。绑死某个工程的不收
-- **改规则**：`skills/plain-language/rules.md` 是规则的唯一真相，改它同时改变 skill 行为和常驻注入。改完跑 `bash hooks/verify.sh` 确认注入没断
-- **改状态栏脚本**：只改 `statusline/` 下的。配置目录里的副本每次会话都会被覆盖回去，改了不作数。
-  改完跑 `bash hooks/verify.sh`：它会校验同步有没有断（内容一致时不重写、被改坏能修回、
+- **改规则**：`plugin/skills/plain-language/rules.md` 是规则的唯一真相，改它同时改变 skill 行为和常驻注入。改完跑 `bash checks/verify.sh` 确认注入没断
+- **改状态栏脚本**：只改 `plugin/statusline/` 下的。配置目录里的副本每次会话都会被覆盖回去，改了不作数。
+  改完跑 `bash checks/verify.sh`：它会校验同步有没有断（内容一致时不重写、被改坏能修回、
   `CLAUDE_CONFIG_DIR` 优先于 `HOME`）。校验全程在临时目录里跑，不会动你真实的配置目录
-- **改常驻规则**：只改 `rules/` 下的，理由同上——配置目录里的副本同样每次会话都会被覆盖回去。
-  改完跑 `bash hooks/verify.sh rules`，验的是同一批性质（同步没断、内容一致时不重写、
+- **改常驻规则**：只改 `plugin/rules/` 下的，理由同上——配置目录里的副本同样每次会话都会被覆盖回去。
+  改完跑 `bash checks/verify.sh rules`，验的是同一批性质（同步没断、内容一致时不重写、
   被改坏能修回、`CLAUDE_CONFIG_DIR` 优先于 `HOME`）
-- **改通知判定**：改 `hooks/notify`。它是纯逻辑、不碰界面，`verify.sh` 里那批断言把「窗口说的
+- **改通知判定**：改 `plugin/hooks/notify`。它是纯逻辑、不碰界面，`checks/verify.sh` 里那批断言把「窗口说的
   是什么 × 标记写的是谁 × 事件来自谁」的组合都覆盖了
-- **改标题比对规则**：改 `hooks/notify.ps1` 里的 `Get-TitleVerdict`。`verify.sh` 用 `-Mode match`
+- **改标题比对规则**：改 `plugin/hooks/notify.ps1` 里的 `Get-TitleVerdict`。`checks/verify.sh` 用 `-Mode match`
   这个口子单独验它——真窗口在测试里摆不出来，而这条规则最容易错在「名字短一截就撞上」
-- **改通知渲染**：改 `hooks/notify.ps1`，它**必须存成带 UTF-8 BOM 的 UTF-8**。PowerShell 5.1
+- **改通知渲染**：改 `plugin/hooks/notify.ps1`，它**必须存成带 UTF-8 BOM 的 UTF-8**。PowerShell 5.1
   只在有 BOM 时按 UTF-8 解析，没有就按 GBK 解——里面的中文注释会字节错位、连带把换行吞掉，
-  脚本解析失败。而这个失败是静默的：通知再也不弹，会话照开。改完跑 `bash hooks/verify.sh`，
+  脚本解析失败。而这个失败是静默的：通知再也不弹，会话照开。改完跑 `bash checks/verify.sh`，
   它会查 BOM，也会真跑一次 PowerShell 把全文解析一遍
-- **改 hook 脚本**：`hooks/run-hook.cmd` 里只能有 ASCII 字符，中文注释也不行。cmd.exe 读到中文会解析错位，
+- **改 hook 脚本**：`plugin/hooks/run-hook.cmd` 里只能有 ASCII 字符，中文注释也不行。cmd.exe 读到中文会解析错位，
   而且不报错——会话照开。规则到没到却取决于崩在哪一步：实测两种都出现过，有时规则整段没进上下文
   （本机实测退出码 255），有时规则到了、却被一层 cmd 回显垃圾裹着（实测退出码 0）。改完跑一次
-  `bash hooks/verify.sh`：在 Windows 上它会自动跑一遍 cmd.exe、比对输出。手工排查时再跑
-  `cmd.exe /c "hooks\run-hook.cmd" session-start`，输出要和 `bash hooks/session-start` 一样。
-  别只看退出码：写法不对时它也是 0（Git Bash 里要写成 `cmd.exe //c "hooks\run-hook.cmd" session-start`）
+  `bash checks/verify.sh`：在 Windows 上它会自动跑一遍 cmd.exe、比对输出。手工排查时再跑
+  `cmd.exe /c "plugin\hooks\run-hook.cmd" session-start`，输出要和 `bash plugin/hooks/session-start` 一样。
+  别只看退出码：写法不对时它也是 0（Git Bash 里要写成 `cmd.exe //c "plugin\hooks\run-hook.cmd" session-start`）
 
 ## 许可证
 
