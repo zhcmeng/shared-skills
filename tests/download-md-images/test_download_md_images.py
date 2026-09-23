@@ -4,8 +4,9 @@ import tempfile
 import shutil
 import unittest
 
-# Add script dir to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'scripts'))
+# Tests live at the repo root; the script is still under plugin/skills/, so go up two levels
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'plugin',
+                                'skills', 'download-md-images', 'scripts'))
 from download_md_images import (
     find_remote_images,
     find_html_images,

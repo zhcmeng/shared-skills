@@ -14,7 +14,9 @@ from unittest import mock
 import requests
 
 # 把 scripts/ 插进 sys.path，照 download-md-images 那份测试的写法
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
+# 测试在仓库根 tests/ 下，脚本还在 plugin/skills/ 里，所以往上两层
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "plugin",
+                                "skills", "pdf-to-md", "scripts"))
 
 import aistudio
 import convert

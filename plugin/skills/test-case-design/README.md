@@ -80,10 +80,11 @@ skills/test-case-design/
 │       ├── 状态转移测试.md
 │       └── 场景测试.md
 ├── scripts/check_docs.py      产出写完自检：编号、栏目、对应表、禁用词
-└── tests/test_check_docs.py   上面那个脚本自己的测试
 ```
 
 七门技术一门一份文件——改一门碰不到别的，用不上的那几门也不占地方。
+
+上面那个脚本的测试不在这个目录里：它在仓库根的 `tests/test-case-design/` 下。装着技能一起发出去的东西里不含测试。
 
 想改技能行为，按下表动文件。README 只讲是什么、给什么、产出什么，不写做法：改做法细节不用回头改它；但 README 里复述别处事实的地方（开工要哪几样、五份产出的名字与内容、文件结构、来源与效力这些），那边改了这边要跟着改。拿不准就把你改掉的说法在 README 里搜一遍。
 
@@ -96,6 +97,6 @@ skills/test-case-design/
 | 覆盖率怎么算、各技术的要求、算完够不够怎么判 | `references/覆盖率与完成准则.md` |
 | 选型与组合（含七门各拿什么当模型、建它时依据里要有什么）、做到什么程度、七门之外的换用告知 | `references/技术选型与组合.md` |
 | 某一门技术的内容 | `references/技术/<那门>.md` |
-| 产出自检查哪些机械项 | `scripts/check_docs.py`，改完跑 `tests/test_check_docs.py` |
+| 产出自检查哪些机械项 | `scripts/check_docs.py`，改完跑 `python tests/test-case-design/test_check_docs.py`（在仓库根跑） |
 
 文件之间互相引用，写法有两种：多数文件用 Markdown 相对链接，`SKILL.md` 与 `references/文档模板.md` 里是反引号包着的路径（那是给 Claude 照着读的指令，不是给人点的链接）。改文件名时两种都要一起改——稳妥的办法是拿文件名全文搜一遍，只搜 `](` 会漏掉反引号那一类。

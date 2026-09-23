@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """check_docs.py 自己的测试。
 
-    python skills/test-case-design/tests/test_check_docs.py
+    python tests/test-case-design/test_check_docs.py
 
 先造一套最小但合规的产出，确认它判过；再一处一处地改坏，确认每一处都被逮住。
 检查脚本自己判错了比没有更糟——放过去一处，后面所有产出都跟着错。
@@ -16,7 +16,8 @@ import tempfile
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE.parent / "scripts"))
+# 测试在仓库根 tests/ 下，脚本还在 plugin/skills/ 里，所以往上两层
+sys.path.insert(0, str(HERE.parent.parent / "plugin" / "skills" / "test-case-design" / "scripts"))
 import check_docs  # noqa: E402
 
 MODEL = check_docs.MODEL_DOC

@@ -13,11 +13,15 @@ plugin/skills/<skill 名>/SKILL.md      # 必需，一个子目录 = 一个独�
 plugin/skills/<skill 名>/<辅助文件>     # 可选：参考文档、脚本、模板
 plugin/statusline/<脚本名>.py          # 状态栏脚本，会被同步到配置目录，见下方「状态栏」
 plugin/rules/<规则名>.md               # 常驻规则，会被同步到配置目录，见下方「常驻规则」
+
+tests/<技能名>/test_<脚本名>.py         # 技能里带的脚本，它自己的测试
 ```
 
-要发出去的东西都在 `plugin/` 下：插件安装是把 `plugin/` 整个目录拷到使用者机器上，没有排除机制。`checks/`、`docs/`、`evals/` 这些开发用的东西在仓库根，不跟着发出去。
+要发出去的东西都在 `plugin/` 下：插件安装是把 `plugin/` 整个目录拷到使用者机器上，没有排除机制。`checks/`、`docs/`、`evals/`、`tests/` 这些开发用的东西在仓库根，不跟着发出去。
 
-`evals/<技能名>/` 放那个技能的评测材料，三样分开：`test-case-design/`（`test-case-design` 技能产出的规格说明）、`cases/`（评测用例）、`results/`（跑出来的报告，框架自己写、不进 git）。
+一个技能两层测试，分在两个地方：**脚本层**是 `plugin/skills/<技能名>/scripts/` 下的代码，测试放 `tests/<技能名>/`；**本体层**是技能这套提示词本身（`SKILL.md` 加 `references/`），评测材料放 `evals/<技能名>/`。分界看跑法——脚本层改完就跑，几秒、不花钱、结果确定；本体层要真跑模型，几分钟、有花费、结果每次不完全一样，是「想验证某次改动有没有让技能变好还是变坏」时才跑。
+
+`evals/<技能名>/` 放那个技能的评测材料，三样分开：`test-case-design/`（`test-case-design` 技能产出的规格说明——围着整门技能写**一套**，脚本层与本体层在文档里按模型与覆盖项分，不按层拆成两套）、`cases/`（本体层的评测用例，一条一个目录：`prompt.md` 加 `graders/*.md`）、`results/`（跑出来的报告，框架自己写、不进 git）。
 
 ## 收录的 skill
 
@@ -267,11 +271,11 @@ bypass permissions（跳过权限确认）**——那个模式默认会引导模
   本地加的「命令行工具没装时」那节、以及删掉的上游 conda 说明，都要重做
   （`references/install.md` 是本地新增的，不受影响）
 - **改 `download-md-images` 脚本**：改 `plugin/skills/download-md-images/scripts/` 下的两个脚本，改完跑
-  `python plugin/skills/download-md-images/tests/test_download_md_images.py`——验的是两种图片引用的识别、
+  `python tests/download-md-images/test_download_md_images.py`——验的是两种图片引用的识别、
   扩展名推断（带查询串的网址、无扩展名默认 `.png`）和 frontmatter 里 `source_url` 取作 Referer
 - **改 `pdf-to-md` 脚本**：改 `plugin/skills/pdf-to-md/scripts/` 下的四个脚本（`markdown.py` 纯文本、
   `aistudio.py` 网络、`convert.py` 编排、`doctor.py` 体检），改完跑
-  `uv run --with requests --with lxml --with tabulate python plugin/skills/pdf-to-md/tests/test_pdf_to_md.py`
+  `uv run --with requests --with lxml --with tabulate python tests/pdf-to-md/test_pdf_to_md.py`
   ——全部测试都不发真实请求，网络那一段用假响应喂进去。接口和返回结构的实测结论记在
   `docs/superpowers/specs/2026-09-20-pdf-to-md-design.md` 的「验过什么、还没验什么」一节。
   `doctor.py` **只用标准库，别让它 import 另外三个**：那三个缺依赖时它得能跑起来，测试里有一条
@@ -279,7 +283,7 @@ bypass permissions（跳过权限确认）**——那个模式默认会引导模
   重新打印成 `doctor-sample.pdf`（命令写在 HTML 开头的注释里），HTML 里那句「校验标记」和
   `doctor.py` 的 `SAMPLE_MARKER` 必须一致——对不上时体检会把好环境报成坏的
 - **改 `test-case-design` 自检脚本**：改 `plugin/skills/test-case-design/scripts/check_docs.py`，改完跑
-  `python plugin/skills/test-case-design/tests/test_check_docs.py`——十二条，先造一套合规产出确认判过，
+  `python tests/test-case-design/test_check_docs.py`——十二条，先造一套合规产出确认判过，
   再逐处改坏确认每处都被逮住。禁用词表不在脚本里，是从 `SKILL.md` 的「必须照写的几个词」表
   解析出来的，改那张表脚本跟着变，不用两边各改一遍；那张表的写法变了解析不出来时，脚本会
   直接报错退出，不会静默放过
