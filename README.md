@@ -4,7 +4,7 @@
 
 这里放的不是某一个 skill，而是一批：它们之间没有主题关系，唯一的共同点是**跟具体工程无关、拿到哪里都能用**。跟某个工程绑死的东西不收（公司专属风格、指向本机固定路径的文档索引等），留在那个工程自己的 `.claude/skills/` 下。
 
-当前收录 **9** 个。
+当前收录 **10** 个。
 
 ## 目录约定
 
@@ -30,6 +30,7 @@ rules/<规则名>.md               # 常驻规则，会被同步到配置目录�
 | `whatis` | 快速了解一个对象（开源仓库、工具、概念、术语）：一段对话速览——是什么、能做什么、大概原理、什么场景用，末尾列出可直接回复字母继续追问的问题。 |
 | `agent-reach` | 从互联网取内容：网页搜索，以及 Twitter、小红书、B站、Reddit、YouTube、GitHub、雪球等 16 个平台，按平台挑后端。本机没装它的命令行工具时，先装本体再问你要不要补其余工具。 |
 | `pdf-to-md` | 把 PDF 转成 Markdown 落到磁盘：正文引用的图片一并下载到本地并改成相对路径，支持单个文件、目录批量、以及 PDF 的公网网址。解析走 PaddleOCR 的云端接口，整份 PDF 会上传过去，需要一个 token（配一次即可）。图片名跨页重名时会错开，转过的默认跳过。另带一条体检命令（`doctor.py`）：查 uv、token、输出目录，再真转一份自带样例，回答「这台机器现在能不能转」。 |
+| `test-case-design` | 给一段需求或一个功能设计测试用例：从测试模型一路做到测试规程，产出五份 Markdown——模型规格说明、用例规格说明、规程规格说明、数据需求、环境需求。开工要三样输入：测试依据、测试完成准则（要求的覆盖率）、风险信息，缺一样会停下来问，不自己编一个顶上。内容据 GB/T 38634 系列标准的修订征求意见稿整理，不是现行标准。另带一个自检脚本（`check_docs.py`）：产出写完跑一遍，查编号、栏目、两张对应表与禁用词。 |
 
 ## 安装
 
@@ -249,6 +250,11 @@ bypass permissions（跳过权限确认）**——那个模式默认会引导模
   `10-session-start`（注入文本、polyglot 两个分支）、`20-statusline-sync`、`25-rules-sync`、
   `30-statusline-smoke`、`40-notify`（判定）、`50-notify-render`、`60-wiring`（hooks.json 接线）。
   加校验就加模块，别往入口里塞
+- **抬版本号**：改了 `skills/`、`rules/`、`statusline/`、`hooks/` 里的东西之后，把
+  `.claude-plugin/plugin.json` 与 `.claude-plugin/marketplace.json` 里的版本号一起抬上去，两处必须一致。
+  插件按版本号分目录安装、内容一致就不重装——不抬版本号的效果是「仓库改了，别人（包括你自己
+  下一个会话）跑的还是旧的」，全程不报错。抬版本号按批次做（一批内容改完统一抬一次），所以
+  `verify.sh` 对「内容动过、版本号还没抬」只提示不判失败
 - **新增一个 skill**：在 `skills/` 下建目录，写 `SKILL.md`，并在上方表格补一行
 - **同步 `agent-reach`**：它的 `SKILL.md` 和 `references/` 复制自上游仓库，不是自己写的。上游更新后照
   `skills/agent-reach/THIRD-PARTY-NOTICES.md` 里的步骤重取一遍——`SKILL.md` 是整份覆盖，
@@ -266,6 +272,11 @@ bypass permissions（跳过权限确认）**——那个模式默认会引导模
   在 `python -S` 下真跑它。体检用的样例在 `assets/` 下：改 `doctor-sample.html` 之后要拿 Chromium
   重新打印成 `doctor-sample.pdf`（命令写在 HTML 开头的注释里），HTML 里那句「校验标记」和
   `doctor.py` 的 `SAMPLE_MARKER` 必须一致——对不上时体检会把好环境报成坏的
+- **改 `test-case-design` 自检脚本**：改 `skills/test-case-design/scripts/check_docs.py`，改完跑
+  `python skills/test-case-design/tests/test_check_docs.py`——十二条，先造一套合规产出确认判过，
+  再逐处改坏确认每处都被逮住。禁用词表不在脚本里，是从 `SKILL.md` 的「必须照写的几个词」表
+  解析出来的，改那张表脚本跟着变，不用两边各改一遍；那张表的写法变了解析不出来时，脚本会
+  直接报错退出，不会静默放过
 - **改 skill**：只改本仓库。各工程放的是指向这里的链接，不在工程内改副本
 - **收录判据**：跟具体工程无关、别的工程拿去也能直接用。绑死某个工程的不收
 - **改规则**：`skills/plain-language/rules.md` 是规则的唯一真相，改它同时改变 skill 行为和常驻注入。改完跑 `bash hooks/verify.sh` 确认注入没断
