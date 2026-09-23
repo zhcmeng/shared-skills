@@ -6,6 +6,7 @@
 # 用一个假的 PowerShell，不真弹：真弹既打扰人，也没法断言弹了什么。假的把收到的参数
 # 记进日志，断言的就是「真实运行时会交给 PowerShell 什么」。CLAUDE_NOTIFY_PS 是为此
 # 留的口子，顺带也让换别的 PowerShell 成为可能。
+# watch: plugin/hooks/notify plugin/hooks/run-hook.cmd
 notify_dir="$(scratch_dir)"
 notify_cfg="${notify_dir}/cfg"
 notify_log="${notify_dir}/log"

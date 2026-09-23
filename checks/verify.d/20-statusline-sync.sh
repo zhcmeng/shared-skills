@@ -2,6 +2,7 @@
 # settings.json 里的 statusLine 命令指向的是配置目录下的固定路径（插件安装目录带版本号，
 # 指不得），所以这两个脚本有没有被放到那儿，直接决定状态栏能不能用。
 # test_home 与 statusline_src 由入口提供。
+# watch: plugin/hooks/session-start plugin/statusline/
 test_cfg="${test_home}/.claude"
 
 # 自己先跑一次，别指望 10 跑过：单独跑这一块时 10 不会执行，否则会假报「没同步过去」

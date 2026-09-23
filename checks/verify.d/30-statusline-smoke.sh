@@ -12,6 +12,7 @@
 #
 # 断言一律写在 $( ) 外面：$( ) 起子 shell，在里面调 fail 只会加在子 shell 的副本上，
 # 计数传不出来，失败会被吞掉。
+# watch: plugin/statusline/
 if ! command -v python >/dev/null 2>&1; then
   echo "提示：没找到 python，跳过状态栏脚本冒烟测试（状态栏本身也得有 python 才跑得起来）"
 else

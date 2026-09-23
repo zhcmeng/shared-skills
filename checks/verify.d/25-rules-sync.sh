@@ -3,6 +3,7 @@
 # 而插件安装目录带版本号、指不得，所以只能靠 session-start 每次会话同步过去。
 # 这一步断了，表现是静默的：规则不再进上下文，会话照开，没有任何报错。
 # test_home 与 rules_src 由入口提供。
+# watch: plugin/hooks/session-start plugin/rules/
 test_cfg="${test_home}/.claude"
 
 # 自己先跑一次，别指望 20 跑过：单独跑这一块时 20 不会执行

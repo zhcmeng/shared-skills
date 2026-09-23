@@ -5,6 +5,7 @@
 # 关键词那几条盯的是 rules.md 的几个部分各还在不在——尤其那张表（正例／反例／原因）：
 # 它是整份规则里唯一在生成时起作用的组织方式，整段删掉的话，别的断言照样全过。
 # test_home 由入口提供，20 复用同一个。
+# watch: plugin/hooks/session-start plugin/hooks/run-hook.cmd plugin/hooks/hooks.json plugin/skills/plain-language/rules.md
 
 out="$(HOME="$test_home" bash "${HOOKS_DIR}/session-start" 2>/dev/null)"
 if [ -z "$out" ]; then

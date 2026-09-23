@@ -1,6 +1,7 @@
 # ── hooks.json 接线 ────────────────────────────────────────────────
 # 四条通知 hook 少一条，对应那个时刻就再也不提醒，而且不报错。
 # 用 node 解析而不是 grep —— JSON 换个缩进、换个字段顺序，grep 就会骗人。
+# watch: plugin/hooks/hooks.json
 hook_err="$(node -e '
 const fs = require("fs");
 const j = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
