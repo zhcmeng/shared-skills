@@ -9,8 +9,12 @@
 退出码：0 全过；1 有错；2 用法不对或读不到文件。
 
 管的都是机械项：编号连不连续、栏目齐不齐、引用指不指得到、对应表有没有留空、
-禁用词有没有漏进来。判断性的东西（模型建得对不对、覆盖项取全没有、用例导得够不够）
-不在这里管——那是人看的，脚本报不了。
+禁用词有没有漏进来。判断性的东西（模型建得对不对、覆盖项取全没有、用例导得够不够、
+引的编号对不对得上内容）不在这里管——那是人看的，脚本报不了。
+
+两条方向相反的引用检查：用例与规程里引了不存在的数据项或环境项，算错误（悬空）；
+测试数据需求与测试环境需求里定义了、却没有任何用例与规程引用的编号，算提示（孤儿）
+——某条数据或某项环境可能确实没有哪条用例直接引它。
 
 契约不在这份脚本里另立一套，来源是技能自己的两份文件：
 
@@ -41,7 +45,7 @@ ENV_DOC = "Test Environment Requirements.md"
 DOCS = [MODEL_DOC, CASE_DOC, PROC_DOC, DATA_DOC, ENV_DOC]
 
 # 文档模板第六、七节：这两份的栏是写死的，正好几栏就是几栏
-DATA_COLS = ["唯一标识符", "描述"]
+DATA_COLS = ["唯一标识符", "描述", "重置需求"]
 ENV_COLS = ["唯一标识符", "测试环境项", "描述"]
 # 文档模板第八节的两张对应表
 TRACE_COLS = ["依据的出处", "模型编号", "说明"]
@@ -156,6 +160,22 @@ def defined(parsed, text, cols, prefix):
     return out
 
 
+def referenced(text, prefix):
+    """一份文档里出现的某个前缀的编号集合——出现过就算，不区分它在哪一栏。"""
+    return {int(n) for n in re.findall(re.escape(prefix) + r"(\d+)", text)}
+
+
+def check_refs(text, rep, name, known):
+    """文档里出现的编号都要指得到定义处。
+
+    known：{"DATA-": {编号}, "ENV-": {编号}}。用例与规程这两份都可能引到数据项
+    与环境项，所以两个前缀都查。引了却不存在的，模型查不到就会编——算错误。
+    """
+    for prefix, ids in known.items():
+        for n in sorted(referenced(text, prefix) - ids):
+            rep.err(name, "引用了没有定义处的 %s%d" % (prefix, n))
+
+
 def check_contiguous(nums, prefix):
     if not nums:
         return "一个 %s 编号都没有" % prefix
@@ -237,9 +257,12 @@ def check_model(text, rep):
     return set(tms)
 
 
-def check_case(text, rep, tms):
+def check_case(text, rep, tms, datas, envs):
     """测试用例规格说明：覆盖项与用例各自的定义处、对应表、引用完整性。"""
     parsed = tables(text)
+
+    # 用例的「输入」「前置条件」栏该写编号指代，所以要指得到定义处
+    check_refs(text, rep, CASE_DOC, {"DATA-": datas, "ENV-": envs})
 
     tcovs = defined(parsed, text, COV_COLS, "TCOV-")
     bad = check_contiguous(sorted(tcovs), "TCOV-")
@@ -288,7 +311,7 @@ def check_case(text, rep, tms):
     if head is None:
         rep.err(CASE_DOC, "末尾没有「覆盖项 ↔ 用例」对应表（表头应为：%s）" % " | ".join(MAP_COLS))
         return
-    listed, empty, referenced = set(), [], set()
+    listed, empty, covered_ids = set(), [], set()
     for row in body:
         if len(row) < len(MAP_COLS):
             rep.err(CASE_DOC, "对应表有一行栏数不够：%s" % " | ".join(row))
@@ -308,7 +331,7 @@ def check_case(text, rep, tms):
         for x in re.findall(r"TC-(\d+)", covered):
             if int(x) not in tcs:
                 rep.err(CASE_DOC, "TCOV-%d 引用了没有定义处的 TC-%s" % (n, x))
-            referenced.add(int(x))
+            covered_ids.add(int(x))
 
     if empty:
         rep.err(CASE_DOC, "对应表留空 %d 行：%s ——留空表示这条覆盖项没有用例覆盖。"
@@ -318,7 +341,7 @@ def check_case(text, rep, tms):
         rep.err(CASE_DOC, "TCOV-%d 没进对应表" % n)
     for n in sorted(listed - set(tcovs)):
         rep.err(CASE_DOC, "对应表里的 TCOV-%d 在覆盖项清单里找不到" % n)
-    orphan = sorted(set(tcs) - referenced)
+    orphan = sorted(set(tcs) - covered_ids)
     if orphan:
         rep.err(CASE_DOC, "有定义处却没被任何覆盖项引用的用例：%s" % brief(orphan, "TC-"))
     if tcovs and set(tcovs) == listed and not empty and not orphan:
@@ -326,9 +349,12 @@ def check_case(text, rep, tms):
     return
 
 
-def check_proc(text, rep, tcs):
+def check_proc(text, rep, tcs, datas, envs):
     """测试规程规格说明：规程编号连续；栏齐；用例排得进去也排得全。"""
     parsed = tables(text)
+
+    # 规程的「启动」栏该写编号指代，所以要指得到定义处
+    check_refs(text, rep, PROC_DOC, {"DATA-": datas, "ENV-": envs})
     tps = defined(parsed, text, [], "TP-")
     bad = check_contiguous(sorted(tps), "TP-")
     if bad:
@@ -364,8 +390,12 @@ def check_proc(text, rep, tcs):
         rep.ok("全部 %d 条用例都被规程排到了" % len(tcs))
 
 
-def check_flat(text, rep, name, cols, prefix):
-    """测试数据需求 / 测试环境需求：栏写死，编号连续且与行数对得上。"""
+def check_flat(text, rep, name, cols, prefix, used=None):
+    """测试数据需求 / 测试环境需求：栏写死，编号连续且与行数对得上。
+
+    used：用例与规程里出现过的编号集合。给了就顺带报孤儿；给 None 表示不判
+    ——两份引用文档缺一份时，缺的那份已经有硬错误，这里再刷一屏提示没有用。
+    """
     parsed = tables(text)
     nums = defined(parsed, text, cols, prefix)
     bad = check_contiguous(sorted(nums), prefix)
@@ -373,6 +403,12 @@ def check_flat(text, rep, name, cols, prefix):
         rep.err(name, bad)
     else:
         rep.ok("%s1 至 %s%d 都有定义处，编号连续" % (prefix, prefix, len(nums)))
+
+    if used is not None:
+        idle = sorted(set(nums) - used)
+        if idle:
+            rep.warn(name, "这些编号定义了，但用例与规程里都没引用：%s"
+                           "——确认是故意不引，还是漏了" % brief(idle, prefix))
 
     head, body = pick(parsed, cols)
     if head is None:
@@ -445,6 +481,13 @@ def main():
         print("\n五份文档一份都没读到，先确认目录对不对。")
         return 1
 
+    # 用例与规程要跨文档查引用，所以定义处先都算出来，再逐份检查
+    tcs = defined(tables(texts.get(CASE_DOC, "")), texts.get(CASE_DOC, ""), CASE_COLS, "TC-")
+    datas = set(defined(tables(texts.get(DATA_DOC, "")), texts.get(DATA_DOC, ""),
+                        DATA_COLS, "DATA-"))
+    envs = set(defined(tables(texts.get(ENV_DOC, "")), texts.get(ENV_DOC, ""),
+                       ENV_COLS, "ENV-"))
+
     tms = None
     if MODEL_DOC in texts:
         print("[%s]" % MODEL_DOC)
@@ -452,20 +495,25 @@ def main():
 
     if CASE_DOC in texts:
         print("\n[%s]" % CASE_DOC)
-        check_case(texts[CASE_DOC], rep, tms)
+        check_case(texts[CASE_DOC], rep, tms, datas, envs)
         check_sections(texts, rep)
 
-    tcs = defined(tables(texts.get(CASE_DOC, "")), texts.get(CASE_DOC, ""), CASE_COLS, "TC-")
     if PROC_DOC in texts:
         print("\n[%s]" % PROC_DOC)
-        check_proc(texts[PROC_DOC], rep, set(tcs))
+        check_proc(texts[PROC_DOC], rep, set(tcs), datas, envs)
+
+    # 数据项与环境项有没有人用——两份引用文档都在才判
+    used_data = used_env = None
+    if CASE_DOC in texts and PROC_DOC in texts:
+        used_data = referenced(texts[CASE_DOC], "DATA-") | referenced(texts[PROC_DOC], "DATA-")
+        used_env = referenced(texts[CASE_DOC], "ENV-") | referenced(texts[PROC_DOC], "ENV-")
 
     if DATA_DOC in texts:
         print("\n[%s]" % DATA_DOC)
-        check_flat(texts[DATA_DOC], rep, DATA_DOC, DATA_COLS, "DATA-")
+        check_flat(texts[DATA_DOC], rep, DATA_DOC, DATA_COLS, "DATA-", used_data)
     if ENV_DOC in texts:
         print("\n[%s]" % ENV_DOC)
-        check_flat(texts[ENV_DOC], rep, ENV_DOC, ENV_COLS, "ENV-")
+        check_flat(texts[ENV_DOC], rep, ENV_DOC, ENV_COLS, "ENV-", used_env)
 
     print("\n[禁用词与出处]")
     check_words(texts, rep, banned)
