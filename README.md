@@ -15,7 +15,9 @@ plugin/statusline/<脚本名>.py          # 状态栏脚本，会被同步到配
 plugin/rules/<规则名>.md               # 常驻规则，会被同步到配置目录，见下方「常驻规则」
 ```
 
-要发出去的东西都在 `plugin/` 下：插件安装是把 `plugin/` 整个目录拷到使用者机器上，没有排除机制。`checks/`、`docs/` 这些开发用的东西在仓库根，不跟着发出去。
+要发出去的东西都在 `plugin/` 下：插件安装是把 `plugin/` 整个目录拷到使用者机器上，没有排除机制。`checks/`、`docs/`、`evals/` 这些开发用的东西在仓库根，不跟着发出去。
+
+`evals/<技能名>/` 放那个技能的评测材料，三样分开：`test-case-design/`（`test-case-design` 技能产出的规格说明）、`cases/`（评测用例）、`results/`（跑出来的报告，框架自己写、不进 git）。
 
 ## 收录的 skill
 
