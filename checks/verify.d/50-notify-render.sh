@@ -3,7 +3,7 @@
 # UTF-8 解析；没有 BOM 它按 GBK 解，中文注释的字节错位还会连带吞掉换行，报出来的行号
 # 都对不上（本机实测）。失败方式是静默的：脚本解析不了，通知就再也不弹，会话照开。
 # 所以既查 BOM，也真跑一次让 PowerShell 解析全文、顺便验证转义和中文输出。
-ps1="${SCRIPT_DIR}/notify.ps1"
+ps1="${HOOKS_DIR}/notify.ps1"
 if [ ! -f "$ps1" ]; then
   fail "缺 hooks/notify.ps1"
 else

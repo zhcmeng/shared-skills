@@ -6,7 +6,7 @@
 # 它是整份规则里唯一在生成时起作用的组织方式，整段删掉的话，别的断言照样全过。
 # test_home 由入口提供，20 复用同一个。
 
-out="$(HOME="$test_home" bash "${SCRIPT_DIR}/session-start" 2>/dev/null)"
+out="$(HOME="$test_home" bash "${HOOKS_DIR}/session-start" 2>/dev/null)"
 if [ -z "$out" ]; then
   fail "session-start 没有输出（应为一行 JSON）"
   echo "1 项失败" >&2
@@ -54,7 +54,7 @@ if [ "$parse_ok" -eq 1 ]; then
 fi
 
 # polyglot 包装没人测过就等于没护住：run-hook.cmd 的输出必须与直接调用 session-start 一致
-wrapped="$(HOME="$test_home" bash "${SCRIPT_DIR}/run-hook.cmd" session-start 2>/dev/null)"
+wrapped="$(HOME="$test_home" bash "${HOOKS_DIR}/run-hook.cmd" session-start 2>/dev/null)"
 [ "$wrapped" = "$out" ] || fail "run-hook.cmd 的输出与直接调用 session-start 不一致"
 
 # run-hook.cmd 在 Windows 上的生产路径是 cmd 批处理分支，上面那条只走了 bash 分支。
@@ -74,7 +74,7 @@ case "$(uname -s)" in
       #   接上 /dev/null 它读到 EOF 就正常退出。120 秒是宿主工具的超时值，不是 cmd.exe 的属性。
       # HOME 也必须传进去：cmd.exe 会继承环境变量，bash 分支再把 HOME 传给 session-start，
       # 否则这一跑会往真实用户的 ~/.claude 里同步脚本（实测过，环境变量能穿透 cmd.exe）。
-      cmd_out="$(cd "${SCRIPT_DIR}/.." && HOME="$test_home" MSYS_NO_PATHCONV=1 $cmd_bin /c "hooks\run-hook.cmd session-start" < /dev/null 2>/dev/null)"
+      cmd_out="$(cd "${REPO_ROOT}" && HOME="$test_home" MSYS_NO_PATHCONV=1 $cmd_bin /c "${RUN_HOOK_CMD_WIN} session-start" < /dev/null 2>/dev/null)"
       cmd_rc=$?
       [ "$cmd_rc" -eq 0 ] || fail "cmd.exe 走批处理分支退出码是 ${cmd_rc}（应为 0）"
       [ "$cmd_out" = "$out" ] || fail "cmd.exe 走批处理分支的输出与 session-start 不一致（Windows 上的生产路径已坏）"

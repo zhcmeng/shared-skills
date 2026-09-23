@@ -5,7 +5,7 @@
 test_cfg="${test_home}/.claude"
 
 # 自己先跑一次，别指望 10 跑过：单独跑这一块时 10 不会执行，否则会假报「没同步过去」
-HOME="$test_home" bash "${SCRIPT_DIR}/session-start" >/dev/null 2>&1
+HOME="$test_home" bash "${HOOKS_DIR}/session-start" >/dev/null 2>&1
 
 for f in statusline.py subagent-statusline.py; do
   if [ ! -f "${statusline_src}/${f}" ]; then
@@ -25,7 +25,7 @@ if [ -f "${test_cfg}/statusline.py" ]; then
   touch -t 200001010000 "${test_cfg}/statusline.py"
   idem_ref="$(scratch_file)"
   touch -t 200001020000 "$idem_ref"
-  HOME="$test_home" bash "${SCRIPT_DIR}/session-start" >/dev/null 2>&1
+  HOME="$test_home" bash "${HOOKS_DIR}/session-start" >/dev/null 2>&1
   [ "${test_cfg}/statusline.py" -ot "$idem_ref" ] \
     || fail "内容一致时仍重写了 statusline.py（同步不幂等）"
 fi
@@ -33,7 +33,7 @@ fi
 # 目标被改坏要能修回，否则「仓库是唯一真相」这句话不成立
 if [ -f "${test_cfg}/statusline.py" ]; then
   printf '\n# 校验脚本塞的杂质\n' >> "${test_cfg}/statusline.py"
-  HOME="$test_home" bash "${SCRIPT_DIR}/session-start" >/dev/null 2>&1
+  HOME="$test_home" bash "${HOOKS_DIR}/session-start" >/dev/null 2>&1
   cmp -s "${statusline_src}/statusline.py" "${test_cfg}/statusline.py" \
     || fail "目标被改坏后没能同步回仓库版本"
 fi
@@ -41,7 +41,7 @@ fi
 # 设了 CLAUDE_CONFIG_DIR 就该写到那儿，而不是继续写 $HOME/.claude
 cfg_alt="$(scratch_dir)"
 home_alt="$(scratch_dir)"
-CLAUDE_CONFIG_DIR="$cfg_alt" HOME="$home_alt" bash "${SCRIPT_DIR}/session-start" >/dev/null 2>&1
+CLAUDE_CONFIG_DIR="$cfg_alt" HOME="$home_alt" bash "${HOOKS_DIR}/session-start" >/dev/null 2>&1
 [ -f "${cfg_alt}/statusline.py" ] || fail "设了 CLAUDE_CONFIG_DIR 时没有同步到该目录"
 if [ -d "${home_alt}/.claude" ]; then
   fail "设了 CLAUDE_CONFIG_DIR 时仍往 HOME/.claude 写了"

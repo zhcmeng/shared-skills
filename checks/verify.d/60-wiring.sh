@@ -22,4 +22,4 @@ let pre = false;
 for (const g of (hooks.PreToolUse || [])) if (g.matcher === "AskUserQuestion") pre = true;
 if (!pre) errs.push("PreToolUse 没有匹配 AskUserQuestion（弹选择题那一刻接不住）");
 if (errs.length) { console.error(errs.join("；")); process.exit(1); }
-' "${SCRIPT_DIR}/hooks.json" 2>&1)" || fail "hooks.json 接线不对：${hook_err}"
+' "${HOOKS_DIR}/hooks.json" 2>&1)" || fail "hooks.json 接线不对：${hook_err}"

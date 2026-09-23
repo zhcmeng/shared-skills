@@ -48,7 +48,7 @@ mark() { printf '%s' "$1" > "${notify_cfg}/${MARK_NAME}"; }
 notify() {
   printf '%s' "$1" | STUB_LOG="$notify_log" STUB_FOCUSED="${STUB_FOCUSED:-}" \
     CLAUDE_CONFIG_DIR="$notify_cfg" CLAUDE_NOTIFY_PS="$notify_stub" \
-    bash "${SCRIPT_DIR}/notify" 2>/dev/null
+    bash "${HOOKS_DIR}/notify" 2>/dev/null
   return 0
 }
 calls() { cat "$notify_log" 2>/dev/null; }
@@ -399,7 +399,7 @@ expect_silent "不认识的 hook 事件"
 reset_calls
 alt_cfg="$(scratch_dir)"; alt_home="$(scratch_dir)"
 STUB_LOG="$notify_log" CLAUDE_CONFIG_DIR="$alt_cfg" HOME="$alt_home" \
-  CLAUDE_NOTIFY_PS="$notify_stub" bash "${SCRIPT_DIR}/notify" >/dev/null 2>&1 \
+  CLAUDE_NOTIFY_PS="$notify_stub" bash "${HOOKS_DIR}/notify" >/dev/null 2>&1 \
   <<< "$(ev_prompt session-a user "$win_cwd")"
 [ "$(cat "${alt_cfg}/${MARK_NAME}" 2>/dev/null)" = "session-a" ] \
   || fail "标记文件没有写在 CLAUDE_CONFIG_DIR 下"
@@ -407,7 +407,7 @@ STUB_LOG="$notify_log" CLAUDE_CONFIG_DIR="$alt_cfg" HOME="$alt_home" \
 
 # run-hook.cmd 的 bash 分支要能把 notify 透传进去
 STUB_LOG="$notify_log" CLAUDE_CONFIG_DIR="$notify_cfg" CLAUDE_NOTIFY_PS="$notify_stub" \
-  bash "${SCRIPT_DIR}/run-hook.cmd" notify >/dev/null 2>&1 <<< '{"hook_event_name":"不认识的","session_id":"x"}'
+  bash "${HOOKS_DIR}/run-hook.cmd" notify >/dev/null 2>&1 <<< '{"hook_event_name":"不认识的","session_id":"x"}'
 [ $? -eq 0 ] || fail "run-hook.cmd 透传 notify 时退出码非 0"
 
 # Windows 上的生产路径是 cmd 批处理分支。notify 还得靠标准输入拿到事件数据，
@@ -416,8 +416,8 @@ case "$(uname -s)" in
   MINGW*|MSYS*|CYGWIN*)
     if command -v cmd.exe >/dev/null 2>&1 && command -v timeout >/dev/null 2>&1; then
       reset_calls; mark "session-other"
-      (cd "${SCRIPT_DIR}/.." && STUB_LOG="$notify_log" CLAUDE_CONFIG_DIR="$notify_cfg" \
-        CLAUDE_NOTIFY_PS="$notify_stub" MSYS_NO_PATHCONV=1 timeout 20 cmd.exe /c "hooks\run-hook.cmd notify" \
+      (cd "${REPO_ROOT}" && STUB_LOG="$notify_log" CLAUDE_CONFIG_DIR="$notify_cfg" \
+        CLAUDE_NOTIFY_PS="$notify_stub" MSYS_NO_PATHCONV=1 timeout 20 cmd.exe /c "${RUN_HOOK_CMD_WIN} notify" \
         <<< "$(ev_stop session-cmd "$win_cwd" "走批处理分支")" 2>/dev/null)
       expect_toast "cmd.exe 批处理分支" "[-Tag] [sessioncmd]" "[-Body] [答完了：走批处理分支]"
     fi

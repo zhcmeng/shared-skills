@@ -2,8 +2,8 @@
 # 校验脚本的入口：查依赖、按序加载 verify.d/ 下的模块、汇总结果。
 # 每个模块只校验一件事，入口不掺业务逻辑。
 #
-#   bash hooks/verify.sh            跑全部
-#   bash hooks/verify.sh notify     只跑文件名里带 notify 的模块
+#   bash checks/verify.sh            跑全部
+#   bash checks/verify.sh notify     只跑文件名里带 notify 的模块
 #
 # 模块是被 source 进同一个 shell 的，共享这里定义的 fail / scratch_dir /
 # scratch_file / test_home / statusline_src / rules_src。别改成靠 $( ) 返回值传数组那种写法：
@@ -11,8 +11,19 @@
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-RULES_FILE="${SCRIPT_DIR}/../skills/plain-language/rules.md"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+PLUGIN_DIR="${REPO_ROOT}"          # 插件根。任务 2 会改成 "${REPO_ROOT}/plugin"
+HOOKS_DIR="${PLUGIN_DIR}/hooks"    # 运行时 hook 所在
+# cmd.exe 的批处理分支要从仓库根用相对路径调它（见 10 里那段说明）。
+# 从仓库根起算，所以前面带 plugin/。
+RUN_HOOK_CMD_WIN='hooks\run-hook.cmd'
+RULES_FILE="${PLUGIN_DIR}/skills/plain-language/rules.md"
 VERIFY_D="${SCRIPT_DIR}/verify.d"
+
+# 下面这些变量分两类，别混：
+#   SCRIPT_DIR —— 检查脚本自己的东西（verify.d 在哪）
+#   REPO_ROOT / PLUGIN_DIR / HOOKS_DIR —— 被检查的运行时文件在哪
+# 两者以前都写成 ${SCRIPT_DIR}/...，长得一模一样，改目录时最容易一起改错。
 
 fails=0
 fail() { echo "FAIL: $1" >&2; fails=$((fails + 1)); }
@@ -50,8 +61,8 @@ done
 # 10、20、25 共用这个替身 HOME：session-start 会把 statusline/ 下的脚本和 rules/ 下的
 # 规则同步到配置目录，不换 HOME 就会写进真实用户的 ~/.claude。校验脚本不该动真东西。
 test_home="$(scratch_dir)"
-statusline_src="$(cd "${SCRIPT_DIR}/../statusline" 2>/dev/null && pwd)"
-rules_src="$(cd "${SCRIPT_DIR}/../rules" 2>/dev/null && pwd)"
+statusline_src="$(cd "${PLUGIN_DIR}/statusline" 2>/dev/null && pwd)"
+rules_src="$(cd "${PLUGIN_DIR}/rules" 2>/dev/null && pwd)"
 
 mods=("$VERIFY_D"/*.sh)
 if [ ! -e "${mods[0]}" ]; then

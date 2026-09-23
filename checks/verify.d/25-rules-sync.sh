@@ -6,7 +6,7 @@
 test_cfg="${test_home}/.claude"
 
 # 自己先跑一次，别指望 20 跑过：单独跑这一块时 20 不会执行
-HOME="$test_home" bash "${SCRIPT_DIR}/session-start" >/dev/null 2>&1
+HOME="$test_home" bash "${HOOKS_DIR}/session-start" >/dev/null 2>&1
 
 rules_found=0
 for f in "${rules_src}"/*.md; do
@@ -34,7 +34,7 @@ for f in "${rules_src}"/*.md; do
   touch -t 200001010000 "${test_cfg}/rules/${name}"
   idem_ref="$(scratch_file)"
   touch -t 200001020000 "$idem_ref"
-  HOME="$test_home" bash "${SCRIPT_DIR}/session-start" >/dev/null 2>&1
+  HOME="$test_home" bash "${HOOKS_DIR}/session-start" >/dev/null 2>&1
   [ "${test_cfg}/rules/${name}" -ot "$idem_ref" ] \
     || fail "内容一致时仍重写了 rules/${name}（同步不幂等）"
 done
@@ -47,7 +47,7 @@ for f in "${rules_src}"/*.md; do
   name="${f##*/}"
   [ -f "${test_cfg}/rules/${name}" ] || continue
   printf '\n# 校验脚本塞的杂质\n' >> "${test_cfg}/rules/${name}"
-  HOME="$test_home" bash "${SCRIPT_DIR}/session-start" >/dev/null 2>&1
+  HOME="$test_home" bash "${HOOKS_DIR}/session-start" >/dev/null 2>&1
   cmp -s "$f" "${test_cfg}/rules/${name}" \
     || fail "rules/${name} 被改坏后没能同步回仓库版本"
 done
@@ -55,7 +55,7 @@ done
 # 设了 CLAUDE_CONFIG_DIR 就该写到那儿，而不是继续写 $HOME/.claude
 cfg_alt="$(scratch_dir)"
 home_alt="$(scratch_dir)"
-CLAUDE_CONFIG_DIR="$cfg_alt" HOME="$home_alt" bash "${SCRIPT_DIR}/session-start" >/dev/null 2>&1
+CLAUDE_CONFIG_DIR="$cfg_alt" HOME="$home_alt" bash "${HOOKS_DIR}/session-start" >/dev/null 2>&1
 for f in "${rules_src}"/*.md; do
   [ -f "$f" ] || continue
   name="${f##*/}"
