@@ -126,12 +126,13 @@ tests/<技能名>/test_<脚本名>.py         # 技能里带的脚本，它自�
 
 ## 常驻规则
 
-插件带两条常驻规则，走的不是同一条路：
+插件带三条常驻规则，走的不是同一条路：
 
 | 规则 | 怎么进上下文 |
 |:---|:---|
 | 说人话（`plugin/skills/plain-language/rules.md`） | SessionStart hook 以 `additionalContext` 注入 |
 | 改文件走专用工具（`plugin/rules/file-edits.md`） | 同步到配置目录的 `rules/` 下，由 Claude Code 自动加载 |
+| 跑命令写全路径（`plugin/rules/shell-commands.md`） | 同上 |
 
 第一条是按**写作时**组织的：`rules.md` 开头是判据（站在读者的角度，能不能一次读懂），接着那张表
 每行三列——正例、反例、原因（读者为什么会卡住），末尾列照原样写、不用动的那些；
@@ -141,6 +142,11 @@ tests/<技能名>/test_<脚本名>.py         # 技能里带的脚本，它自�
 第二条管的是：改文件走 Read / Edit / Write，不走命令行。**任何权限模式下都适用，包括
 bypass permissions（跳过权限确认）**——那个模式默认会引导模型改用命令行改文件（见下方
 「为什么会有 `rules/` 而不是直接写 `CLAUDE.md`」一节里的说明），这条规则就是用来盖过它的。
+
+第三条管的是：跑命令时把路径写全，不用 `cd` 去挪工作目录。工作目录在命令之间是持久的，
+`cd` 一次，后面每条命令的起点都跟着变；要指定目录就用工具自带的参数（`git -C <仓库>`、
+`make -C <目录>`、`npm --prefix <目录>`）。这条的措辞是微测出来的，数据与判据见
+`evals/rules/cases/full-paths-no-cd/`。
 
 配置目录下的 `rules/` 是 Claude Code 的**用户级常驻规则位置**：里面的 `*.md` 会和
 `CLAUDE.md` 一起自动加载，不需要在 `settings.json` 里配任何东西。
