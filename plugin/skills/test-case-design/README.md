@@ -38,7 +38,7 @@
 | `Test Data Requirements.md` | 用例与规程要用的数据，逐条列出 |
 | `Test Environment Requirements.md` | 测试规程要在什么环境上跑，逐项列出 |
 
-每份的栏位、编号方案与对应表格式见 [文档模板](references/文档模板.md)；填起来长什么样，[文档示例](references/文档示例.md) 里有两个项目的填写示例。
+每份的栏位、编号方案与对应表格式见 [文档模板](references/文档模板.md)；填起来长什么样，[文档示例](references/文档示例.md) 里有一整套填写示例。
 
 ## 管到哪为止
 
