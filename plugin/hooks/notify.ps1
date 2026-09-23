@@ -1,5 +1,5 @@
 ﻿# 通知渲染层：弹一条通知、撤掉某条通知，外加回答一个问题（你现在看的是不是这个会话）。
-# 判定逻辑一概不在这里，在 hooks/notify 里（那一半纯逻辑、verify.sh 能测；这一半只能肉眼验）。
+# 判定逻辑一概不在这里，在 plugin/hooks/notify 里（那一半纯逻辑、checks/verify.sh 能测；这一半只能肉眼验）。
 #
 # 为什么必须是 Windows PowerShell 5.1 而不是 7：这套系统通知接口属于 WinRT，PowerShell 7
 # 加载不出来（本机实测报 "Unable to find type ToastNotificationManager"），只有系统自带的

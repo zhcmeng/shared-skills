@@ -12,11 +12,11 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-PLUGIN_DIR="${REPO_ROOT}"          # 插件根。任务 2 会改成 "${REPO_ROOT}/plugin"
+PLUGIN_DIR="${REPO_ROOT}/plugin"   # 插件根：会跟着插件发出去的那部分
 HOOKS_DIR="${PLUGIN_DIR}/hooks"    # 运行时 hook 所在
 # cmd.exe 的批处理分支要从仓库根用相对路径调它（见 10 里那段说明）。
 # 从仓库根起算，所以前面带 plugin/。
-RUN_HOOK_CMD_WIN='hooks\run-hook.cmd'
+RUN_HOOK_CMD_WIN='plugin\hooks\run-hook.cmd'
 RULES_FILE="${PLUGIN_DIR}/skills/plain-language/rules.md"
 VERIFY_D="${SCRIPT_DIR}/verify.d"
 

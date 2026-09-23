@@ -14,7 +14,7 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 NOTIFY_PS1="${SCRIPT_DIR}/notify.ps1"
 
-# 标记文件名是 hooks/notify 与 hooks/verify.sh 之间的约定，改名两边都要改
+# 标记文件名是 hooks/notify 与 checks/verify.d/40-notify.sh 之间的约定，改名两边都要改
 MARK_NAME=".notify-current-session"
 # 这个目录里放着「屏幕上现在挂着哪几条通知」，一条一个空文件，文件名是通知标签。
 # 撤通知要起一次 PowerShell（本机实测约 750 毫秒），而 PostToolUse 是唯一每个工具调用
