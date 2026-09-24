@@ -288,11 +288,14 @@ bypass permissions（跳过权限确认）**——那个模式默认会引导模
   在 `python -S` 下真跑它。体检用的样例在 `plugin/skills/pdf-to-md/assets/` 下：改 `doctor-sample.html` 之后要拿 Chromium
   重新打印成 `doctor-sample.pdf`（命令写在 HTML 开头的注释里），HTML 里那句「校验标记」和
   `doctor.py` 的 `SAMPLE_MARKER` 必须一致——对不上时体检会把好环境报成坏的
-- **改 `test-case-design` 自检脚本**：改 `plugin/skills/test-case-design/scripts/check_docs.py`，改完跑
-  `python tests/test-case-design/test_check_docs.py`——十二条，先造一套合规产出确认判过，
-  再逐处改坏确认每处都被逮住。禁用词表不在脚本里，是从 `SKILL.md` 的「必须照写的几个词」表
-  解析出来的，改那张表脚本跟着变，不用两边各改一遍；那张表的写法变了解析不出来时，脚本会
-  直接报错退出，不会静默放过
+- **改 `test-case-design` 的脚本**：脚本在 `plugin/skills/test-case-design/scripts/` 下，两个，各有一份测试在
+  `tests/test-case-design/` 下，改哪个跑哪个（都在仓库根跑）。`check_docs.py` 是产出写完的自检，测试十二条，
+  先造一套合规产出确认判过，再逐处改坏确认每处都被逮住。禁用词表不在脚本里，是从 `SKILL.md` 的「必须照写
+  的几个词」表解析出来的，改那张表脚本跟着变，不用两边各改一遍；那张表的写法变了解析不出来时，脚本会
+  直接报错退出，不会静默放过。`issue_ids.py` 是写条目前的取号，改完跑
+  `python tests/test-case-design/test_issue_ids.py`——它不另存台账，基准是产出目录里那五份文档，靠**直接调
+  `check_docs.py` 的判定**算「哪些号已经用过」；这份判定不许在 `issue_ids.py` 里另写一份，两边一旦分叉，
+  发出去的号就会撞上文档里已有的号
 - **改 skill**：只改本仓库。各工程放的是指向这里的链接，不在工程内改副本
 - **收录判据**：跟具体工程无关、别的工程拿去也能直接用。绑死某个工程的不收
 - **改规则**：`plugin/skills/plain-language/rules.md` 是规则的唯一真相，改它同时改变 skill 行为和常驻注入。改完跑 `bash checks/verify.sh` 确认注入没断
