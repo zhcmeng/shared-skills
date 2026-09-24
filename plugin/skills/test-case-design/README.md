@@ -106,8 +106,8 @@ skills/test-case-design/
 | 覆盖率怎么算、各技术的要求、算完够不够怎么判 | `references/覆盖率与完成准则.md` |
 | 选型与组合（含七门各拿什么当模型、建它时依据里要有什么）、做到什么程度、七门之外的换用告知 | `references/技术选型与组合.md` |
 | 某一门技术的内容 | `references/技术/<那门>.md` |
-| 产出自检查哪些机械项 | `scripts/check_docs.py`，改完跑 `python tests/test-case-design/test_check_docs.py`（在仓库根跑）。决策依据那份「只增不改」就是靠它查的：编号断了就报错 |
-| 写条目前的取号 | `scripts/issue_ids.py`，改完跑 `python tests/test-case-design/test_issue_ids.py`（在仓库根跑）。它认「哪些号已经用过」用的是 `check_docs.py` 里的判定，两边别分叉 |
+| 产出自检查哪些机械项 | `scripts/check_docs.py`，改完跑 `bash tests/run.sh test-case-design`（在仓库根跑；只想跑这一份就 `python -X utf8 tests/test-case-design/test_check_docs.py`）。决策依据那份「只增不改」就是靠它查的：编号断了就报错 |
+| 写条目前的取号 | `scripts/issue_ids.py`，改完跑 `bash tests/run.sh test-case-design`（在仓库根跑）。它认「哪些号已经用过」用的是 `check_docs.py` 里的判定，两边别分叉 |
 
 文件之间互相引用，写法有两种：多数文件用 Markdown 相对链接，`SKILL.md` 与 `references/文档模板.md` 里是反引号包着的路径（那是给 Claude 照着读的指令，不是给人点的链接）。改文件名时两种都要一起改——稳妥的办法是拿文件名全文搜一遍，只搜 `](` 会漏掉反引号那一类。
 

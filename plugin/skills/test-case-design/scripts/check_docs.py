@@ -377,15 +377,26 @@ def check_proc(text, rep, tcs, datas, envs):
 
     if not tps:
         return
-    # 一条规程从它的标题到下一个标题算一块，块里出现过的用例就是这条规程排进去的
+    # 一条规程从它的标题到下一个标题算一块，块里出现过的用例就是这条规程排进去的。
+    # 标题必须以编号起头：认错了标题，块就切错，用例会算到别的规程头上。
+    # 没以编号起头、但标题里带着编号的（「一、TP-1 主干」这种）单独记下来——
+    # 这时「一条也没排到」是这个格式问题造成的，得说准是哪一处，别让人去猜「有序执行
+    # 测试用例」那栏出了什么事。
     scheduled = set()
+    bad_head = []
     for block in re.split(r"^#{1,6}\s+", text, flags=re.M)[1:]:
-        first = block.splitlines()[0] if block.strip() else ""
-        if not re.match(r"TP-\d+", first.strip()):
-            continue
-        scheduled |= {int(m) for m in re.findall(r"TC-(\d+)", block)}
+        first = block.splitlines()[0].strip() if block.strip() else ""
+        if re.match(r"TP-\d+", first):
+            scheduled |= {int(m) for m in re.findall(r"TC-(\d+)", block)}
+        elif re.search(r"TP-\d+", first):
+            bad_head.append(first)
+    if bad_head:
+        rep.err(PROC_DOC, "这些规程的标题没以编号起头，认不出规程的边界：%s"
+                          "——标题写成「TP-N 目标」的样子（编号紧跟 # 之后，前头不加序号）"
+                % "、".join("「%s」" % s for s in bad_head))
     if not scheduled:
-        rep.err(PROC_DOC, "每条规程都没排出用例（「有序执行测试用例」那栏是空的？）")
+        if not bad_head:
+            rep.err(PROC_DOC, "每条规程都没排出用例（「有序执行测试用例」那栏是空的？）")
         return
     un = sorted(set(tcs) - scheduled)
     if un:
@@ -484,7 +495,30 @@ def check_sections(texts, rep):
                            "（模板说这份分三块写；多出来的算不算多造，自己定）" % "、".join(extra))
 
 
+def prefer_utf8(stream):
+    """这一路输出被重定向走时，改成按 UTF-8 吐字节；真控制台不动。
+
+    和 pdf-to-md 那边的 `convert.prefer_utf8` 同一份逻辑，抄过来的（那边 doctor.py
+    里也是抄的）。本机（Windows 中文版）上标准流接的是管道时，Python 取的是区域
+    编码 cp936：中文落成 GBK 字节，而接住它的一方（Claude Code 的任务窗口、编辑器
+    里的输出面板）一律按 UTF-8 解，屏幕上就是「���」——自检的结论成了乱码，等于
+    没报。真控制台不切：那里的编码是 Python 按终端挑好的，换掉反而会花屏。
+
+    流不认得 reconfigure（比如测试里的 StringIO）就放过，不是报错。
+    """
+    if stream.isatty():
+        return
+    if (getattr(stream, "encoding", "") or "").lower().replace("-", "") == "utf8":
+        return
+    reconfigure = getattr(stream, "reconfigure", None)
+    if reconfigure is not None:
+        reconfigure(encoding="utf-8")
+
+
 def main():
+    # 在解析参数之前：用法写错、读不到目录时那几句提示也是中文
+    prefer_utf8(sys.stdout)
+    prefer_utf8(sys.stderr)
     if len(sys.argv) != 2:
         print("用法：python check_docs.py <产出目录>")
         return 2

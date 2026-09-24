@@ -10,7 +10,9 @@
 
 import contextlib
 import io
+import os
 import shutil
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -158,6 +160,8 @@ CASES = [
      (CASE, "按 DATA-1 取一段文本", "按 DATA-9 取一段文本"), (), 1, "引用了没有定义处的 DATA-9"),
     ("规程引用了没有定义处的环境项",
      (PROC, "ENV-1 就位", "ENV-9 就位"), (), 1, "引用了没有定义处的 ENV-9"),
+    ("规程标题带了中文序号、没以编号起头——认不出这条规程从哪儿起，块自然切不出用例",
+     (PROC, "## TP-1 主干", "## 一、TP-1 主干"), (), 1, "没以编号起头"),
     ("数据项有定义处却没人引用",
      (CASE, "按 DATA-1 取一段文本", "用一段文本作输入"), (), 0, "定义了，但用例与规程里都没引用：DATA-1"),
     ("环境项有定义处却没人引用",
@@ -207,6 +211,34 @@ def make(root, tweak, drop):
         (root / name).write_text(text, encoding="utf-8")
 
 
+def check_pipe_utf8():
+    """输出被重定向到管道时按 UTF-8 吐字节，中文交到下一环手上不是「���」。
+
+    上面那些例走的是重定向到 StringIO，验的是判得对不对，验不到「字节按什么编码
+    落下来」。这条真的开一个子进程、接一根管道，验拿回来的那串字节。
+
+    PYTHONIOENCODING 特意设成 gbk——本机管道上默认就是它；不设的话管道编码本来
+    就是 UTF-8，这条在哪台机器上都验不到东西。
+    """
+    root = Path(tempfile.mkdtemp(prefix="check-docs-utf8-"))
+    try:
+        make(root, None, ())
+        proc = subprocess.run(
+            [sys.executable, os.path.abspath(check_docs.__file__), str(root)],
+            capture_output=True, env=dict(os.environ, PYTHONIOENCODING="gbk"))
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+    if proc.returncode != 0:
+        return ["退出码 %s，期望 0" % proc.returncode]
+    try:
+        text = proc.stdout.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        return ["吐出来的字节按 UTF-8 解不开：%s" % exc]
+    if "检查目录：" not in text:
+        return ["按 UTF-8 解出来的文本里找不到中文提示，实际开头是：%r" % text[:60]]
+    return []
+
+
 def main():
     print("跑 %d 例\n" % len(CASES))
     bad = 0
@@ -235,6 +267,18 @@ def main():
                 print("       " + line)
         else:
             print("[通过] %s" % title)
+
+    # 另起一条：上面那些都走 StringIO，编码不在这条路上
+    print()
+    title = "输出被重定向到管道时按 UTF-8 吐字节（把本机管道默认的 GBK 也设上了）"
+    problems = check_pipe_utf8()
+    if problems:
+        bad += 1
+        print("[失败] %s" % title)
+        for p in problems:
+            print("       %s" % p)
+    else:
+        print("[通过] %s" % title)
 
     print()
     if bad:

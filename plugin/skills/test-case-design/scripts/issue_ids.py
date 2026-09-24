@@ -177,7 +177,30 @@ def parse_args(argv):
     return Path(rest[0]), prefix, count
 
 
+def prefer_utf8(stream):
+    """这一路输出被重定向走时，改成按 UTF-8 吐字节；真控制台不动。
+
+    和 pdf-to-md 那边的 `convert.prefer_utf8` 同一份逻辑，抄过来的（那边 doctor.py
+    里也是抄的）。本机（Windows 中文版）上标准流接的是管道时，Python 取的是区域
+    编码 cp936：中文落成 GBK 字节，而接住它的一方（Claude Code 的任务窗口、编辑器
+    里的输出面板）一律按 UTF-8 解，屏幕上就是「���」——发出去的号成了乱码，写进
+    文档就跟着错。真控制台不切：那里的编码是 Python 按终端挑好的，换掉反而会花屏。
+
+    流不认得 reconfigure（比如测试里的 StringIO）就放过，不是报错。
+    """
+    if stream.isatty():
+        return
+    if (getattr(stream, "encoding", "") or "").lower().replace("-", "") == "utf8":
+        return
+    reconfigure = getattr(stream, "reconfigure", None)
+    if reconfigure is not None:
+        reconfigure(encoding="utf-8")
+
+
 def main():
+    # 在解析参数之前：用法写错、读不到目录时那几句提示也是中文
+    prefer_utf8(sys.stdout)
+    prefer_utf8(sys.stderr)
     parsed = parse_args(sys.argv[1:])
     if parsed is None:
         print(USAGE)
