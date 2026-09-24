@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # SessionStart hook：把 plain-language 的写作规则注入上下文；顺带把 statusline/ 下的
-# 状态栏脚本和 rules/ 下的常驻规则同步到配置目录。
+# 状态栏脚本和 rules/ 下的常驻规则同步到配置目录，再给上游 i-have-adhd 插件建上它的
+# 常驻标记文件。
 # 任何异常都静默退出——绝不阻塞会话。
 set -uo pipefail
 
@@ -63,6 +64,25 @@ if [ -n "$CFG_DIR" ]; then
         [ -f "$f" ] || continue
         sync_file "$f" "${CFG_DIR}/rules" "${f##*/}"
     done
+
+    # ── ADHD 输出形状：替上游插件建它的常驻标记文件 ────────────────────
+    # 上游 i-have-adhd 插件的 SessionStart 钩子只在 <配置目录>/.i-have-adhd-always
+    # 存在时才把它的规则注入上下文——光装插件不改变任何行为，得有人建这个文件。
+    # 这里替它建上，那套输出形状规则就每次会话自动生效。
+    #
+    # 为什么不把那份正文抄进本仓库：那套内容的价值全在措辞上（上游自己带评测磨过），
+    # 抄一份就得跟着同步，还多一份「两处维护必然漂移」的账。建个空文件让它自己注入，
+    # 内容永远跟上游最新。
+    # 代价写在 README 的「ADHD 输出形状」一节：这条链子依赖上游插件装着，没装就
+    # 静默失效（规则一个字都不进上下文，不报错）；删掉这个文件也关不掉，下一会话
+    # 又会建回来——要关得改这一段。
+    #
+    # 已存在就不动：上游只判文件在不在，内容没有意义，覆盖只会抹掉用户自己塞的东西。
+    ADHD_FLAG="${CFG_DIR}/.i-have-adhd-always"
+    if [ ! -e "$ADHD_FLAG" ]; then
+        [ -d "$CFG_DIR" ] || mkdir -p "$CFG_DIR" 2>/dev/null || true
+        : > "$ADHD_FLAG" 2>/dev/null || true
+    fi
 fi
 
 [ -f "$RULES_FILE" ] || exit 0

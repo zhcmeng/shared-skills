@@ -1,6 +1,6 @@
 # shared-skills
 
-跨工程共享的 Agent Skill 集合，同时是一个 Claude Code 插件。插件本体在 `plugin/` 下，只有它会被装到使用者机器上；`checks/`、`docs/`、`evals/`、`tests/` 这些开发用的东西在仓库根，不跟着发出去。`plugin/skills/` 会被自动注册，hook 会把 `plugin/rules/` 下的常驻规则与 `plugin/statusline/` 下的脚本同步到配置目录。
+跨工程共享的 Agent Skill 集合，同时是一个 Claude Code 插件。插件本体在 `plugin/` 下，只有它会被装到使用者机器上；`checks/`、`docs/`、`evals/`、`tests/` 这些开发用的东西在仓库根，不跟着发出去。`plugin/skills/` 会被自动注册，hook 会把 `plugin/rules/` 下的常驻规则与 `plugin/statusline/` 下的脚本同步到配置目录，并给上游 `i-have-adhd` 插件建上它的常驻标记文件（那条链子的开关与代价写在 README 的「常驻规则」一节）。
 
 这个仓库的改动有五类各有讲究，下面一条管一类。每类的细则在 README 的「维护」一节——那里是唯一的清单，加技能、改规则、改状态栏、改通知都在里面。
 

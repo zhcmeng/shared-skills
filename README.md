@@ -42,8 +42,8 @@ tests/<技能名>/test_<脚本名>.py         # 技能里带的脚本，它自�
 
 本仓库同时是一个 Claude Code 插件，`plugin/skills/` 会被自动注册，SessionStart hook 会把
 `plain-language` 的写作规则注入每个会话（`startup` / `clear` / `compact` 三种时机），
-同一个 hook 还会把 `plugin/statusline/` 下的脚本和 `plugin/rules/` 下的常驻规则同步到配置目录
-（见下方「状态栏」「常驻规则」）。
+同一个 hook 还会把 `plugin/statusline/` 下的脚本和 `plugin/rules/` 下的常驻规则同步到配置目录，
+并给上游 `i-have-adhd` 插件建上它的常驻标记文件（见下方「状态栏」「常驻规则」）。
 插件另外挂了五个通知 hook，后台会话需要你时弹 Windows 通知（见下方「通知」）。
 
 ```
@@ -169,6 +169,32 @@ bypass permissions（跳过权限确认）**——那个模式默认会引导模
 删掉 `plugin/rules/file-edits.md`（或整个 `plugin/rules/`），或者把 `plugin/hooks/session-start` 里同步 `rules/`
 的那一段去掉。
 
+### ADHD 输出形状（常驻，正文来自上游插件）
+
+还有一套输出形状规则不在这三条里，正文也不是本仓库写的：先说下一步动作、多步任务编号、每轮
+重述进度、结尾留一个两分钟能做完的动作、报错平铺直叙、不写开场白和收尾客套。它来自上游
+`i-have-adhd` 插件。
+
+进上下文的路子和上面三条都不同——本仓库不存这份正文，只替上游建一个标记文件：
+
+1. `plugin/hooks/session-start` 每次会话检查 `<配置目录>/.i-have-adhd-always`，没有就建一个空文件。
+2. 上游插件自己的 SessionStart hook 看到这个文件，把它的 `SKILL.md` 正文注入上下文。
+3. 文件已存在就一个字节都不动：上游只判文件在不在，内容没有意义，覆盖只会抹掉你自己塞的东西。
+
+好处是那份正文永远跟上游最新，本仓库不用维护它。代价两条：
+
+- **依赖上游插件装着。** 没装 `i-have-adhd` 或者把它禁用了，标记文件白建，这套规则一个字都不进
+  上下文，全程不报错。查 `claude plugin list`；手打 `/i-have-adhd` 是当场开一次。
+- **第一次会话不一定吃到。** 同一轮 SessionStart 里两个插件的 hook 谁先跑没有保证——本仓库这一轮
+  刚建好文件，上游那一个可能已经跑完了。第二个会话起就稳。
+
+怎么确认它能生效：`ls "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/.i-have-adhd-always"` 能列出文件，
+并且在 `claude plugin list` 里 `i-have-adhd` 是启用的——两条都满足才会注入，缺一条就静静不进上下文。
+
+**怎么关掉**：和上面一个规矩，删配置目录里的标记文件没用，下一会话又会建回来；要关得从本仓库断，
+删掉 `plugin/hooks/session-start` 里建标记文件的那一段（`ADHD_FLAG` 那几行）。只想过一个会话不用它，
+跟模型说「stop adhd mode」，本次会话关掉，下次会话照旧自动生效。
+
 ## 通知
 
 后台会话需要你的时候弹一条 Windows 通知，提醒你切过去。**当前会话不弹**——你正看着它，
@@ -261,8 +287,9 @@ bypass permissions（跳过权限确认）**——那个模式默认会引导模
   影响到的模块（按暂存区挑，快得多），`bash checks/verify.sh notify` 只跑文件名含该关键词的模块。
   脚本拆在 `checks/verify.d/` 下，一个模块管一件事，入口只负责按序加载和汇总：
   `10-session-start`（注入文本、polyglot 两个分支）、`20-statusline-sync`、`25-rules-sync`、
-  `30-statusline-smoke`、`40-notify`（判定）、`50-notify-render`、`60-wiring`（hooks.json 接线）、
-  `70-版本号一致`、`80-挑模块`（`--changed` 挑得对不对这件事本身）。
+  `26-adhd-flag`（给上游插件建常驻标记文件）、`30-statusline-smoke`、`40-notify`（判定）、
+  `50-notify-render`、`60-wiring`（hooks.json 接线）、`70-版本号一致`、
+  `80-挑模块`（`--changed` 挑得对不对这件事本身）。
   加校验就加模块，别往入口里塞
 - **抬版本号**：改了 `plugin/skills/`、`plugin/rules/`、`plugin/statusline/`、`plugin/hooks/` 里的东西之后，
   把 `plugin/.claude-plugin/plugin.json` 与 `.claude-plugin/marketplace.json` 里的版本号一起抬上去，两处必须一致。
@@ -305,6 +332,10 @@ bypass permissions（跳过权限确认）**——那个模式默认会引导模
 - **改常驻规则**：只改 `plugin/rules/` 下的，理由同上——配置目录里的副本同样每次会话都会被覆盖回去。
   改完跑 `bash checks/verify.sh rules`，验的是同一批性质（同步没断、内容一致时不重写、
   被改坏能修回、`CLAUDE_CONFIG_DIR` 优先于 `HOME`）
+- **改 ADHD 常驻**：那份正文在上游 `i-have-adhd` 插件里，本仓库只有 `plugin/hooks/session-start` 里
+  建标记文件的那几行（`ADHD_FLAG`）。改完跑 `bash checks/verify.sh adhd`，验的是文件建出来了、
+  已存在时一个字节都不动、设了 `CLAUDE_CONFIG_DIR` 时建到那儿而不是 `HOME/.claude`。
+  上游那份正文更新不用管——本仓库不存它，也就没有同步这回事
 - **改通知判定**：改 `plugin/hooks/notify`。它是纯逻辑、不碰界面，`checks/verify.sh` 里那批断言把「窗口说的
   是什么 × 标记写的是谁 × 事件来自谁」的组合都覆盖了
 - **改标题比对规则**：改 `plugin/hooks/notify.ps1` 里的 `Get-TitleVerdict`。`checks/verify.sh` 用 `-Mode match`
