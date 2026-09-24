@@ -6,7 +6,7 @@
     {
       "name": "shared-skills",
       "description": "跨工程共享的 Agent Skill 集合：三条常驻规则（说人话、改文件用 Read/Edit/Write、跑命令写全路径，会话启动时注入）、ADHD 输出形状常驻（替上游 i-have-adhd 插件建标记文件）、英文文档翻译、提交、Markdown 导出、Markdown 图片本地化、PDF 转 Markdown、token 计数、快速了解一个对象、联网取内容（16 个平台）、状态栏脚本、后台会话通知",
-      "version": "1.19.0",
+      "version": "1.19.1",
       "source": "./plugin",
       "author": { "name": "zhcmeng" }
     }
