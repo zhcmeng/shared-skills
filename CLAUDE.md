@@ -9,3 +9,13 @@
 - **`plugin/` 下的东西都会发出去。** 插件安装是把 `plugin/` 整个目录拷到使用者机器上，没有排除机制。测试用例、设计稿、临时文件，只要放在 `plugin/skills/<某技能>/` 下面就跟着发给每个使用者。不想发的放 `plugin/` 外面。
 - **一个技能两层测试，都放仓库根，都不跟着发出去。** 脚本层：`plugin/skills/<技能名>/scripts/` 下的代码，测试放 `tests/<技能名>/`，文件名 `test_<脚本名>.py`——`check_docs.py` 对 `test_check_docs.py`，一眼看得出谁测谁；改完照 README「维护」里那条命令跑一遍。本体层：技能这套提示词本身（`SKILL.md` 加 `references/`），评测材料放 `evals/<被评测的技能名>/`，没特别说就默认落这儿；三样分开——`test-case-design/` 装 `test-case-design` 技能产出的五份规格说明，它围着整门技能写**一套**，脚本层与本体层在文档里按模型与覆盖项分、不按层拆成两套（脚本层那些用例要注明对应 `tests/<技能名>/` 下哪一条）；`cases/` 是评测用例，一条一个目录：`prompt.md` 加 `graders/*.md`；`results/` 是跑出来的报告，评测框架自己写、不进 git。
 - **每门技能自包含。** 改哪门就读它自己的 `SKILL.md`；同一目录下的 `README.md` 是写给人看的，技能运行时不会读它。
+
+## Agent skills
+
+### Issue tracker
+
+issue 与需求写在仓库里的 `.scratch/<功能名>/` 下，一个功能一个目录的 markdown 文件；不在 GitHub 上开 issue。见 `docs/agents/issue-tracker.md`。
+
+### Domain docs
+
+单上下文布局：根目录一份 `CONTEXT.md`，决策记录放 `docs/adr/`。见 `docs/agents/domain.md`。
