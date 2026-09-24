@@ -33,7 +33,7 @@
 | D2 | 触发方式 | 只允许用户手动触发（`disable-model-invocation: true`）。模型不自动调 |
 | D3 | 判据顺序 | 先判该不该配，再讲怎么加。不该配的要在结论里明说 |
 | D4 | 内容口径 | 主体讲通用机制；superpowers 只作版本化出处，逐条对照放 `references/` |
-| D5 | 技能结构 | 一个 `SKILL.md` ＋ `references/上游台账机制.md` |
+| D5 | 技能结构 | 一个 `SKILL.md` ＋ `references/上游台账机制.md` ＋ `references/台账实例.md`（后者后补，见 §7） |
 | D6 | 技能名 | `skill-ledger` |
 | D7 | 适用范围 | 管任何仓库里的技能。结尾那道「改完跑什么检查」交给目标技能所在仓库自己的规矩，不写死本仓的 |
 | D8 | 无参数时 | 只给判据与清单，当参考读；给了技能名或路径，才针对那个技能出清单 |
@@ -115,10 +115,13 @@ D8 与 D1 不冲突：两种用法产出的都是清单，区别只是「清单�
 plugin/skills/skill-ledger/
 ├── SKILL.md                        主流程，模型默认只读这一份
 └── references/
-    └── 上游台账机制.md              上游那套的逐条对照、版本出处、核对步骤
+    ├── 上游台账机制.md              上游那套的逐条对照、版本出处、核对步骤
+    └── 台账实例.md                  一份真跑过的台账全文 ＋ 六件事各自落在哪
 ```
 
 `SKILL.md` 装判据、六件事、四处落点、清单格式。上游的细节不常用的，放 reference，不占每次的上下文。
+
+实例是后补的，单独一个文件、不塞进 `上游台账机制.md`：那个文件管的是「上游写在哪、原话是什么、上游更新了怎么核对」，实例一件都不沾；掺进去，以后上游每发一版都得陪着复核一段跟上游无关的内容。实例用本仓 2026-09-23 那份检查脚本迁移的台账（76 行，短到能一口气读完），全文照抄，不走路径引用——那种工作区活干完就删，引用会烂。
 
 ## 8. 版本出处与核对
 
@@ -154,9 +157,10 @@ plugin/skills/skill-ledger/
 
 1. 新建 `plugin/skills/skill-ledger/SKILL.md`
 2. 新建 `plugin/skills/skill-ledger/references/上游台账机制.md`
-3. `README.md` 收录表补一行
-4. 抬版本号：`plugin/.claude-plugin/plugin.json` 与 `.claude-plugin/marketplace.json` 两处一起，1.16.2 → 1.17.0（多一个能力，抬中间那位）
-5. 跑 `bash checks/verify.sh`
+3. 新建 `plugin/skills/skill-ledger/references/台账实例.md`（后补，见 §7）
+4. `README.md` 收录表补一行
+5. 抬版本号：`plugin/.claude-plugin/plugin.json` 与 `.claude-plugin/marketplace.json` 两处一起，1.16.2 → 1.17.0（多一个能力，抬中间那位）
+6. 跑 `bash checks/verify.sh`
 
 **不动任何现有技能本体。**
 
