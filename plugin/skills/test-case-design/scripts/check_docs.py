@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""校验 test-case-design 产出的五份规格说明是否符合技能定下的契约。
+"""校验 test-case-design 产出的六份文档是否符合技能定下的契约。
 
 用法：
 
@@ -18,7 +18,7 @@
 
 契约不在这份脚本里另立一套，来源是技能自己的两份文件：
 
-  - `references/文档模板.md`：五份文档的栏目、编号方案、两张对应表的格式
+  - `references/文档模板.md`：六份文档的栏目、编号方案、两张对应表的格式
   - `SKILL.md` 的「必须照写的几个词」表：禁用词
 
 那份表改了，这里跟着变，不用两边各改一遍。
@@ -35,14 +35,15 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 SKILL_MD = HERE.parent / "SKILL.md"
 
-# 五份产出的文件名。产出都用英文文件名，正文是中文——脚本读的只是文件名，
+# 六份产出的文件名。产出都用英文文件名，正文是中文——脚本读的只是文件名，
 # 栏目、编号、禁用词那几项照旧按中文认。
 MODEL_DOC = "Test Model Specification.md"
 CASE_DOC = "Test Case Specification.md"
 PROC_DOC = "Test Procedure Specification.md"
 DATA_DOC = "Test Data Requirements.md"
 ENV_DOC = "Test Environment Requirements.md"
-DOCS = [MODEL_DOC, CASE_DOC, PROC_DOC, DATA_DOC, ENV_DOC]
+DECISION_DOC = "Decision Basis.md"
+DOCS = [MODEL_DOC, CASE_DOC, PROC_DOC, DATA_DOC, ENV_DOC, DECISION_DOC]
 
 # 文档模板第六、七节：这两份的栏是写死的，正好几栏就是几栏
 DATA_COLS = ["唯一标识符", "描述", "重置需求"]
@@ -55,6 +56,9 @@ COV_COLS = ["唯一标识符", "描述", "风险等级", "可追溯性"]
 # 用例那几栏里必查的三栏。前置条件可以全篇统一说明一次，可追溯性由对应表承接，
 # 风险等级是「需要时写」——按模板这三栏都不必逐条出现，故不列。
 CASE_COLS = ["目标", "输入", "预期结果"]
+
+# 文档模板第九节：决策依据文档一张表，一行一条决策，栏目写死
+DEC_COLS = ["唯一标识符", "在哪一步", "决定", "考虑过的其他做法", "依据", "依据的来源"]
 
 # SKILL.md 里「产出文档里只写测试内容，不把技能文件里的节号与出处带出去」点名的东西。
 # 禁用词表本身从 SKILL.md 解析，不在这里再抄一份。
@@ -426,6 +430,36 @@ def check_flat(text, rep, name, cols, prefix, used=None):
             rep.err(name, "有一行有空栏：%s" % " | ".join(row))
 
 
+def check_decision(text, rep):
+    """决策依据文档：一条决策一行，编号连续、栏目齐、不留空。
+
+    这份文档只增不改，所以编号必须是 1 起连号。中间缺号、或者最大的号比行数大，
+    都说明有旧条目被删掉或被改写过——那正是这份文档最不能出的错，单列出来报。
+    """
+    parsed = tables(text)
+    nums = defined(parsed, text, DEC_COLS, "DEC-")
+    bad = check_contiguous(sorted(nums), "DEC-")
+    if bad:
+        rep.err(DECISION_DOC, bad + "——这份只增不改，旧条目不该被删或被改写")
+        return
+    rep.ok("决策 DEC-1 至 DEC-%d 都有定义处，编号连续" % len(nums))
+
+    head, body = pick(parsed, DEC_COLS)
+    if head is None:
+        rep.err(DECISION_DOC, "没找到表头为「%s」的表" % " | ".join(DEC_COLS))
+        return
+    extra = [c for c in head if c not in DEC_COLS]
+    if extra:
+        rep.err(DECISION_DOC, "多出模板没有的栏：%s" % "、".join(extra))
+    if len(body) != len(nums):
+        rep.err(DECISION_DOC, "表里 %d 行，编号有 %d 个，对不上" % (len(body), len(nums)))
+    for row in body:
+        if len(row) < len(DEC_COLS):
+            rep.err(DECISION_DOC, "有一行栏数不够：%s" % " | ".join(row))
+        elif not all(row[:len(DEC_COLS)]):
+            rep.err(DECISION_DOC, "有一行有空栏：%s" % " | ".join(row))
+
+
 def check_words(texts, rep, banned):
     hits = {}
     for name, text in texts.items():
@@ -433,7 +467,7 @@ def check_words(texts, rep, banned):
             if w in text:
                 hits.setdefault(name, []).append(w)
     if not hits:
-        rep.ok("五份文档没有禁用词，也没带技能的节号与出处")
+        rep.ok("六份文档没有禁用词，也没带技能的节号与出处")
         return
     for name, words in hits.items():
         rep.err(name, "出现不该出现的词：%s" % "、".join(sorted(set(words))))
@@ -478,7 +512,7 @@ def main():
     for name in missing:
         rep.err(name, "缺这份文档")
     if not texts:
-        print("\n五份文档一份都没读到，先确认目录对不对。")
+        print("\n六份文档一份都没读到，先确认目录对不对。")
         return 1
 
     # 用例与规程要跨文档查引用，所以定义处先都算出来，再逐份检查
@@ -514,6 +548,10 @@ def main():
     if ENV_DOC in texts:
         print("\n[%s]" % ENV_DOC)
         check_flat(texts[ENV_DOC], rep, ENV_DOC, ENV_COLS, "ENV-", used_env)
+
+    if DECISION_DOC in texts:
+        print("\n[%s]" % DECISION_DOC)
+        check_decision(texts[DECISION_DOC], rep)
 
     print("\n[禁用词与出处]")
     check_words(texts, rep, banned)

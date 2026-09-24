@@ -29,6 +29,7 @@ PROC = check_docs.PROC_DOC
 DATA = check_docs.DATA_DOC
 ENV = check_docs.ENV_DOC
 MODEL = check_docs.MODEL_DOC
+DECISION = check_docs.DECISION_DOC
 
 MODEL_TEXT = """# 测试模型规格说明
 
@@ -98,12 +99,21 @@ ENV_TEXT = """# 测试环境需求
 | ENV-1 | 解释器 | Python 3 |
 """
 
+DECISION_TEXT = """# 决策依据
+
+| 唯一标识符 | 在哪一步 | 决定 | 考虑过的其他做法 | 依据 | 依据的来源 |
+|:---|:---|:---|:---|:---|:---|
+| DEC-1 | 第 1 步 | 只选等价类划分一门 | 判定表测试；分叉少 | 只有一处取值分歧 | 从测试项推的 |
+| DEC-2 | 第 1 步 | 模型建到取值一级 | 建到语句一级；没必要 | 完成准则取 100% | 技能定的 |
+"""
+
 BASE = {
     MODEL: MODEL_TEXT,
     CASE: CASE_TEXT,
     PROC: PROC_TEXT,
     DATA: DATA_TEXT,
     ENV: ENV_TEXT,
+    DECISION: DECISION_TEXT,
 }
 
 # 项目自己的编号惯例：不带 TM- 那一套，脚本按标题、加粗标签、表首格认
@@ -120,21 +130,23 @@ CUSTOM_TEXT = """# 测试用例规格说明
 # 输出里该有哪些话 / 不该有哪些话（可选）、输出该正好是哪几行（可选）
 CASES = [
     dict(
-        name="空目录：六种编号都从 1 起",
+        name="空目录：七种编号都从 1 起",
         docs={},
         argv=["<目录>"],
         code=0,
         want=["| TM- | 无 | TM-1 |", "| TCOV- | 无 | TCOV-1 |", "| TC- | 无 | TC-1 |",
-              "| TP- | 无 | TP-1 |", "| DATA- | 无 | DATA-1 |", "| ENV- | 无 | ENV-1 |"],
+              "| TP- | 无 | TP-1 |", "| DATA- | 无 | DATA-1 |", "| ENV- | 无 | ENV-1 |",
+              "| DEC- | 无 | DEC-1 |"],
         not_want=["提示"],
     ),
     dict(
-        name="五份都在：总览报的是已经用到的最大号",
+        name="六份都在：总览报的是已经用到的最大号",
         docs=BASE,
         argv=["<目录>"],
         code=0,
         want=["| TM- | TM-1 | TM-2 |", "| TCOV- | TCOV-2 | TCOV-3 |", "| TC- | TC-1 | TC-2 |",
-              "| TP- | TP-1 | TP-2 |", "| DATA- | DATA-1 | DATA-2 |", "| ENV- | ENV-1 | ENV-2 |"],
+              "| TP- | TP-1 | TP-2 |", "| DATA- | DATA-1 | DATA-2 |", "| ENV- | ENV-1 | ENV-2 |",
+              "| DEC- | DEC-2 | DEC-3 |"],
         not_want=["提示"],
     ),
     dict(
@@ -180,6 +192,13 @@ CASES = [
         argv=["<目录>", "TC-"],
         code=0,
         lines=["TC-1"],
+    ),
+    dict(
+        name="决策依据接着盘上往下发号",
+        docs=BASE,
+        argv=["<目录>", "DEC-", "--count", "2"],
+        code=0,
+        lines=["DEC-3", "DEC-4"],
     ),
     dict(
         name="项目自己的编号惯例照传",

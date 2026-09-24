@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""给五份规格说明里的条目发编号。
+"""给六份文档里的条目发编号。
 
 用法：
 
-    python issue_ids.py <产出目录>                     总览：六种编号各用到几号、下一个可用几号
+    python issue_ids.py <产出目录>                     总览：七种编号各用到几号、下一个可用几号
     python issue_ids.py <产出目录> TC- --count 8       发号：打 8 个号，一行一个（不给 --count 就是 1 个）
 
 退出码：0 正常；2 用法不对、读不到目录，或前缀像是漏了分隔符。
 
-编号不另存台账，基准就是产出目录里那五份文档：每次现读一遍，取已经定义过的条目里最大的
+编号不另存台账，基准就是产出目录里那六份文档：每次现读一遍，取已经定义过的条目里最大的
 号加一。目录还是空的就从 1 起。号只往后加——删条目腾出来的号不回收。
 
 「什么算一条已定义的条目」「什么算文档里出现过这个号」都不在这份脚本里另立一套，直接复用
@@ -35,7 +35,7 @@ if str(HERE) not in sys.path:
 
 import check_docs  # noqa: E402  「什么是定义处」只有一份，见 check_docs.py
 
-# 六种编号，以及认定义处时要看哪几栏。栏位与 check_docs.py 查同一个对象时用的那几栏相同：
+# 七种编号，以及认定义处时要看哪几栏。栏位与 check_docs.py 查同一个对象时用的那几栏相同：
 # TM 与 TP 不带栏位要求（标题、加粗标签、任何表的表首格都认），其余按各自那份文档的栏位认。
 PREFIXES = [
     ("TM-", []),
@@ -44,12 +44,13 @@ PREFIXES = [
     ("TP-", []),
     ("DATA-", check_docs.DATA_COLS),
     ("ENV-", check_docs.ENV_COLS),
+    ("DEC-", check_docs.DEC_COLS),
 ]
 DEFAULT_COUNT = 1
 
 USAGE = """用法：
     python issue_ids.py <产出目录>
-        总览：六种编号各用到几号、下一个可用几号
+        总览：七种编号各用到几号、下一个可用几号
 
     python issue_ids.py <产出目录> <前缀> [--count N]
         发号：打 N 个号，一行一个（默认 1 个）。前缀照写、含分隔符，如 TC-；
@@ -66,7 +67,7 @@ def cols_for(prefix):
 
 
 def read_docs(root):
-    """读产出目录里那五份文档，返回 {文件名: 正文}。
+    """读产出目录里那六份文档，返回 {文件名: 正文}。
 
     缺哪份都不算错——步骤还没走到那儿、或者只补写其中一份，都是正常的。
     """
@@ -124,7 +125,7 @@ def missing_dash_hint(texts, prefix):
 def overview(root, texts):
     print("产出目录：%s\n" % root)
     if not texts:
-        print("目录里还没有五份文档，六种编号都从 1 起。\n")
+        print("目录里还没有六份文档，七种编号都从 1 起。\n")
     print("| 前缀 | 已用到 | 下一个可用 |")
     print("|:---|:---|:---|")
     for prefix, _ in PREFIXES:
