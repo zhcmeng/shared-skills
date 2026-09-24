@@ -225,9 +225,6 @@ bypass permissions（跳过权限确认）**——那个模式默认会引导模
 整个没有），所以不能整条相等。也不能按「名字在里面就行」比——会话名常常是别人的一段，本机
 在跑的就有「每日新闻」和「每日新闻3」，那样比会让前者的提醒在你看后者时被误压掉。
 
-这里原先写着「判定不看窗口焦点」，理由是多个会话常常共用一个终端窗口、看窗口分不出你在
-哪个标签。这个理由不成立——窗口标题跟着当前标签走，恰恰分得出。
-
 只算你自己敲的那句。Claude Code 还会借同一个事件把会话叫醒——最常见的是后台任务跑完，
 它替你往那个会话里投一条提示词，让会话接着干。那种不算「你在用这个会话」：算了的话，后台
 任务一跑完就把记号挪到它自己身上，你正看着的那个反倒成了「后台」，通知就开始乱弹。斜杠
@@ -251,9 +248,6 @@ bypass permissions（跳过权限确认）**——那个模式默认会引导模
 
 几个会话同时有事时，屏幕上会同时挂着好几条，各是各的——实测两条并排堆在右下角。排不排队
 是系统自己的事，不是我们控制的。
-
-（这条以前写的是「一次只显示一条，点掉一条下一条才顶上来」。那是通知还是普通通知时候的
-样子；真变成常驻之后就不再排队了。）
 
 标题排成「项目名 · 会话名」：
 
@@ -300,30 +294,8 @@ bypass permissions（跳过权限确认）**——那个模式默认会引导模
 - **抬哪一位**：`feat`／`refactor` 抬中间那位，`fix`／`docs`／`chore` 抬最后那位。判不准就看这次改的
   是「多了一个能力」还是「把已有的改对了」——多一个能力抬中间，只是改对了抬最后
 - **新增一个 skill**：在 `plugin/skills/` 下建目录，写 `SKILL.md`，并在上方表格补一行
-- **同步 `agent-reach`**：它的 `SKILL.md` 和 `references/` 复制自上游仓库，不是自己写的。上游更新后照
-  `plugin/skills/agent-reach/THIRD-PARTY-NOTICES.md` 里的步骤重取一遍——`SKILL.md` 是整份覆盖，
-  本地加的「命令行工具没装时」那节、以及删掉的上游 conda 说明，都要重做
-  （`references/install.md` 是本地新增的，不受影响）
-- **改 `download-md-images` 脚本**：改 `plugin/skills/download-md-images/scripts/` 下的两个脚本，改完跑
-  `python tests/download-md-images/test_download_md_images.py`——验的是两种图片引用的识别、
-  扩展名推断（带查询串的网址、无扩展名默认 `.png`）和 frontmatter 里 `source_url` 取作 Referer
-- **改 `pdf-to-md` 脚本**：改 `plugin/skills/pdf-to-md/scripts/` 下的四个脚本（`markdown.py` 纯文本、
-  `aistudio.py` 网络、`convert.py` 编排、`doctor.py` 体检），改完跑
-  `uv run --with requests --with lxml --with tabulate python tests/pdf-to-md/test_pdf_to_md.py`
-  ——全部测试都不发真实请求，网络那一段用假响应喂进去。接口和返回结构的实测结论记在
-  `docs/superpowers/specs/2026-09-20-pdf-to-md-design.md` 的「验过什么、还没验什么」一节。
-  `doctor.py` **只用标准库，别让它 import 另外三个**：那三个缺依赖时它得能跑起来，测试里有一条
-  在 `python -S` 下真跑它。体检用的样例在 `plugin/skills/pdf-to-md/assets/` 下：改 `doctor-sample.html` 之后要拿 Chromium
-  重新打印成 `doctor-sample.pdf`（命令写在 HTML 开头的注释里），HTML 里那句「校验标记」和
-  `doctor.py` 的 `SAMPLE_MARKER` 必须一致——对不上时体检会把好环境报成坏的
-- **改 `test-case-design` 的脚本**：脚本在 `plugin/skills/test-case-design/scripts/` 下，两个，各有一份测试在
-  `tests/test-case-design/` 下，改哪个跑哪个（都在仓库根跑）。`check_docs.py` 是产出写完的自检，测试十二条，
-  先造一套合规产出确认判过，再逐处改坏确认每处都被逮住。禁用词表不在脚本里，是从 `SKILL.md` 的「必须照写
-  的几个词」表解析出来的，改那张表脚本跟着变，不用两边各改一遍；那张表的写法变了解析不出来时，脚本会
-  直接报错退出，不会静默放过。`issue_ids.py` 是写条目前的取号，改完跑
-  `python tests/test-case-design/test_issue_ids.py`——它不另存台账，基准是产出目录里那五份文档，靠**直接调
-  `check_docs.py` 的判定**算「哪些号已经用过」；这份判定不许在 `issue_ids.py` 里另写一份，两边一旦分叉，
-  发出去的号就会撞上文档里已有的号
+- **改某个技能自己的东西**（脚本、素材、从上游同步）：细则在那个技能目录下的 `README.md` 里。
+  技能自己的说明放技能自己旁边，不堆到这份仓库说明里——`plugin/skills/test-case-design/README.md` 是现成的样子
 - **改 skill**：只改本仓库。各工程放的是指向这里的链接，不在工程内改副本
 - **收录判据**：跟具体工程无关、别的工程拿去也能直接用。绑死某个工程的不收
 - **改规则**：`plugin/skills/plain-language/rules.md` 是规则的唯一真相，改它同时改变 skill 行为和常驻注入。改完跑 `bash checks/verify.sh` 确认注入没断
