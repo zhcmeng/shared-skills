@@ -9,8 +9,9 @@
 退出码：0 全过；1 有错；2 用法不对或读不到文件。
 
 管的都是机械项：编号连不连续、栏目齐不齐、引用指不指得到、对应表有没有留空、
-禁用词有没有漏进来。判断性的东西（模型建得对不对、覆盖项取全没有、用例导得够不够、
-引的编号对不对得上内容）不在这里管——那是人看的，脚本报不了。
+枚举出的英文名合不合形制、禁用词有没有漏进来。判断性的东西（模型建得对不对、
+覆盖项取全没有、用例导得够不够、引的编号对不对得上内容、英文名取得准不准）
+不在这里管——那是人看的，脚本报不了。
 
 两条方向相反的引用检查：用例与规程里引了不存在的数据项或环境项，算错误（悬空）；
 测试数据需求与测试环境需求里定义了、却没有任何用例与规程引用的编号，算提示（孤儿）
@@ -45,7 +46,8 @@ ENV_DOC = "Test Environment Requirements.md"
 DECISION_DOC = "Decision Basis.md"
 DOCS = [MODEL_DOC, CASE_DOC, PROC_DOC, DATA_DOC, ENV_DOC, DECISION_DOC]
 
-# 文档模板第六、七节：这两份的栏是写死的，正好几栏就是几栏
+# 文档模板第六、七节：这两份的栏是写死的，正好几栏就是几栏。
+# 这两组只做「认定义处」用，所以不含英文名——英文名另查，见下面 NAME_COL 那段说明。
 DATA_COLS = ["唯一标识符", "描述", "重置需求"]
 ENV_COLS = ["唯一标识符", "测试环境项", "描述"]
 # 文档模板第八节的两张对应表
@@ -63,6 +65,21 @@ DEC_COLS = ["唯一标识符", "在哪一步", "决定", "考虑过的其他做�
 # SKILL.md 里「产出文档里只写测试内容，不把技能文件里的节号与出处带出去」点名的东西。
 # 禁用词表本身从 SKILL.md 解析，不在这里再抄一份。
 LEAKED = ["references/", "GB/T", "TD1", "TD2", "TD3", "TD4"]
+
+# 「英文名」这一栏：给下游把条目落成代码时照抄的名字核（模板第二节）。
+# 六类条目都带它，决策依据那份不带——那份记的是过程，不落成任何对象。
+#
+# 认条目定义处用的那几组栏（COV_COLS、CASE_COLS、DATA_COLS、ENV_COLS、DEC_COLS）特意
+# 不把这一栏并进去：并进去以后，技能改版前写下的产出目录会认不出自己的条目，
+# issue_ids.py 就照着发重号。这一栏另查一遍即可，两边不搭着。
+NAME_COL = "英文名"
+# 小写字母起头，只含小写字母、数字、下划线
+NAME_RE = re.compile(r"[a-z][a-z0-9_]*")
+# 名字里不许拿编号起头：下游拼标识符时自己会带编号，带了就成 tcov_1_tcov_1_…
+NAME_IS_ID = re.compile(r"(tm|tcov|tc|tp|data|env|dec)_?\d")
+# 模型与规程不写成宽表：模型用加粗字段，规程写在两列表里。两种写法都认。
+NAME_BOLD = re.compile(r"^\*\*" + NAME_COL + r"\*\*[：:]\s*(.*?)\s*$", re.M)
+NAME_ROW = re.compile(r"^\|\s*" + NAME_COL + r"\s*\|\s*([^|]*?)\s*\|\s*$", re.M)
 
 # 这几个从「容易写成」一栏里解析出来，但不能按字面禁：
 #   「测试用例」「测试数据」本身是技能要求的术语（测试用例规格说明、测试数据需求）；
@@ -164,6 +181,40 @@ def defined(parsed, text, cols, prefix):
     return out
 
 
+def check_name(value, rep, where, who):
+    """一条「英文名」：不能空、要合形制、不许拿编号起头。
+
+    判的是形制，不是名字取得好不好——名字取得准不准由人看。
+    """
+    if not value:
+        rep.err(where, "%s 的「英文名」是空的——空着等于这个名字还是留给下游每次现取" % who)
+        return
+    if not NAME_RE.fullmatch(value):
+        rep.err(where, "%s 的「英文名」不合形制：%s——应是小写字母起头，"
+                       "只含小写字母、数字、下划线" % (who, value))
+        return
+    if NAME_IS_ID.match(value):
+        rep.err(where, "%s 的「英文名」以编号起头：%s——编号由下游自己拼，"
+                       "这一栏只写名字本身" % (who, value))
+
+
+def check_name_col(head, body, rep, where, label):
+    """宽表里的「英文名」栏：栏在不在、每一行的值合不合形制。"""
+    if NAME_COL not in head:
+        rep.err(where, "%s缺栏目：%s" % (label, NAME_COL))
+        return
+    i = head.index(NAME_COL)
+    for row in body:
+        if not row:
+            continue
+        check_name(row[i] if i < len(row) else "", rep, where, row[0])
+
+
+def name_fields(text):
+    """模型与规程的「英文名」：加粗字段与两列表行两种写法都收。"""
+    return [m.strip() for m in NAME_BOLD.findall(text) + NAME_ROW.findall(text)]
+
+
 def referenced(text, prefix):
     """一份文档里出现的某个前缀的编号集合——出现过就算，不区分它在哪一栏。"""
     return {int(n) for n in re.findall(re.escape(prefix) + r"(\d+)", text)}
@@ -228,10 +279,18 @@ def check_model(text, rep):
     else:
         rep.ok("模型 TM-1 至 TM-%d 都有定义处，编号连续" % len(tms))
 
-    fields = ["唯一标识符", "目标", "风险等级", "测试策略摘要", "测试模型"]
+    fields = ["唯一标识符", "英文名", "目标", "风险等级", "测试策略摘要", "测试模型"]
     missing = [f for f in fields if ("**%s**" % f) not in text and ("| %s |" % f) not in text]
     if missing:
         rep.err(MODEL_DOC, "模型缺栏目：%s" % "、".join(missing))
+
+    # 一个模型一个英文名，只看数量对不对得上；哪一行配哪个模型由人看
+    names = name_fields(text)
+    if names and len(names) != len(tms):
+        rep.err(MODEL_DOC, "%d 个模型，英文名写了 %d 个——每个模型都要有一个"
+                % (len(tms), len(names)))
+    for value in names:
+        check_name(value, rep, MODEL_DOC, "模型")
 
     head, body = pick(parsed, TRACE_COLS)
     if head is None:
@@ -303,6 +362,10 @@ def check_case(text, rep, tms, datas, envs):
         # 一份文档里常有好几张用例表（按风险分组），同一条错误只报一次
         rep.err(CASE_DOC, "用例表首栏写的是「%s」，模板第四节这一栏叫「唯一标识符」"
                 % "、".join(wrong))
+    for head, body in pick_all(parsed, COV_COLS):
+        check_name_col(head, body, rep, CASE_DOC, "覆盖项清单")
+    for head, body in case_tables:
+        check_name_col(head, body, rep, CASE_DOC, "用例表")
     tcs = defined(parsed, text, CASE_COLS, "TC-")
     bad = check_contiguous(sorted(tcs), "TC-")
     if bad:
@@ -366,10 +429,18 @@ def check_proc(text, rep, tcs, datas, envs):
     else:
         rep.ok("规程 TP-1 至 TP-%d 都有定义处，编号连续" % len(tps))
 
-    fields = ["唯一标识符", "目标", "启动", "有序执行测试用例", "与其他规程的关系", "停止与结束"]
+    fields = ["唯一标识符", "英文名", "目标", "启动", "有序执行测试用例",
+              "与其他规程的关系", "停止与结束"]
     missing = [f for f in fields if ("**%s**" % f) not in text and ("| %s |" % f) not in text]
     if missing:
         rep.err(PROC_DOC, "规程缺栏目：%s" % "、".join(missing))
+
+    names = name_fields(text)
+    if names and len(names) != len(tps):
+        rep.err(PROC_DOC, "%d 条规程，英文名写了 %d 个——每条规程都要有一个"
+                % (len(tps), len(names)))
+    for value in names:
+        check_name(value, rep, PROC_DOC, "规程")
 
     for n in sorted({int(m) for m in re.findall(r"TC-(\d+)", text)}):
         if n not in tcs:
@@ -429,16 +500,27 @@ def check_flat(text, rep, name, cols, prefix, used=None):
     if head is None:
         rep.err(name, "没找到表头为「%s」的表" % " | ".join(cols))
         return
-    extra = [c for c in head if c not in cols]
+    # 「英文名」是模板给这两份加的栏（模板第二、六、七节），决策依据那份不走这里
+    if NAME_COL not in head:
+        rep.err(name, "缺栏目：%s" % NAME_COL)
+    want = [c for c in cols + [NAME_COL] if c in head]
+    extra = [c for c in head if c not in cols + [NAME_COL]]
     if extra:
         rep.err(name, "多出模板没有的栏：%s" % "、".join(extra))
     if len(body) != len(nums):
         rep.err(name, "表里 %d 行，编号有 %d 个，对不上" % (len(body), len(nums)))
+    # 逐格按表头取，不按下标硬切：加了一栏之后位置全往后挪，按位置切会看错格子
     for row in body:
-        if len(row) < len(cols):
+        if [c for c in want if head.index(c) >= len(row)]:
             rep.err(name, "有一行栏数不够：%s" % " | ".join(row))
-        elif not all(row[:len(cols)]):
+            continue
+        if [c for c in want if not row[head.index(c)]]:
             rep.err(name, "有一行有空栏：%s" % " | ".join(row))
+    if NAME_COL in head:
+        i = head.index(NAME_COL)
+        for row in body:
+            if len(row) > i:
+                check_name(row[i], rep, name, row[0] if row else "?")
 
 
 def check_decision(text, rep):
