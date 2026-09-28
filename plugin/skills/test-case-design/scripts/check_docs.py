@@ -76,6 +76,11 @@ PLACE_HEAD = "成品落点"
 PLACE_COLS = ["成品", "落的是哪些条目"]
 NOT_YET = "还没落成"
 
+# 测试规程的两栏取值写死（文档模板第五节）。取值后面允许带一句括号说明，
+# 所以按「起头」判，不按全等。
+EXECUTORS = ("脚本", "控制器", "子代理")
+CHANGES = ("只读", "会写")
+
 # SKILL.md 里「产出文档里只写测试内容，不把技能文件里的节号与出处带出去」点名的东西。
 # 禁用词表本身从 SKILL.md 解析，不在这里再抄一份。
 LEAKED = ["references/", "GB/T", "TD1", "TD2", "TD3", "TD4"]
@@ -227,6 +232,18 @@ def check_name_col(head, body, rep, where, label):
 def name_fields(text):
     """模型与规程的「英文名」：加粗字段与两列表行两种写法都收。"""
     return [m.strip() for m in NAME_BOLD.findall(text) + NAME_ROW.findall(text)]
+
+
+def field_values(text, label):
+    """某个栏目的取值：加粗字段与两列表行两种写法都收。
+
+    规程的「执行器」「改动文件」用它。这两个名字特意不放进 check_proc 里那张
+    粗查表——文末「各批落到哪」那张表的表头里有「执行器」三字，粗查会被它蒙混
+    过去：一条规程都没填，也会判成「栏在」。
+    """
+    bold = re.compile(r"^\*\*" + label + r"\*\*[：:]\s*(.*?)\s*$", re.M)
+    row = re.compile(r"^\|\s*" + label + r"\s*\|\s*([^|]*?)\s*\|\s*$", re.M)
+    return [m.strip() for m in bold.findall(text) + row.findall(text)]
 
 
 def referenced(text, prefix):
@@ -502,6 +519,19 @@ def check_proc(text, rep, tcs, datas, envs):
                 % (len(tps), len(names)))
     for value in names:
         check_name(value, rep, PROC_DOC, "规程")
+
+    for label, allowed in (("执行器", EXECUTORS), ("改动文件", CHANGES)):
+        values = field_values(text, label)
+        if len(values) != len(tps):
+            rep.err(PROC_DOC, "%d 条规程，「%s」栏写了 %d 个——每条规程都要有这一栏"
+                    % (len(tps), label, len(values)))
+            continue
+        surplus = [v for v in values if not v.startswith(allowed)]
+        for value in surplus:
+            rep.err(PROC_DOC, "「%s」栏的取值不在给定的几个里：%s——只能是 %s"
+                    % (label, value, "、".join(allowed)))
+        if not surplus:
+            rep.ok("「%s」栏 %d 条规程都填了" % (label, len(values)))
 
     for n in sorted({int(m) for m in re.findall(r"TC-(\d+)", text)}):
         if n not in tcs:
