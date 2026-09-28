@@ -59,8 +59,22 @@ COV_COLS = ["唯一标识符", "描述", "风险等级", "可追溯性"]
 # 风险等级是「需要时写」——按模板这三栏都不必逐条出现，故不列。
 CASE_COLS = ["目标", "输入", "预期结果"]
 
-# 文档模板第九节：决策依据文档一张表，一行一条决策，栏目写死
+# 文档模板第九节：决策依据文档分两块写，一行一条决策，栏目写死。
+# 第一块「用户决策」装「用户给的」那几条——用户拍板的，可以直接改；第二块「模型决策」
+# 装其余几条——只增不改。块名由脚本认，所以在这里定死；这两块分得对不对是机械项：
+# 「依据的来源」栏只填三个值之一，哪一行归哪一块判得了。
 DEC_COLS = ["唯一标识符", "在哪一步", "决定", "考虑过的其他做法", "依据", "依据的来源"]
+USER_HEAD = "用户决策"
+MODEL_HEAD = "模型决策"
+USER_SRC = "用户给的"
+
+# 文档模板第四节：测试用例规格说明分四块写，第四块是「成品落点」——成品（落下来的
+# 测试代码、评测用例）落在哪、每一类条目的编号在成品里怎么出现。设计的时候成品多半
+# 还没落，那一块写「还没落成」；落成之后回来把表填上。
+# 表里的路径由 check_landing.py 拿去读成品，两处共用这一份定义。
+PLACE_HEAD = "成品落点"
+PLACE_COLS = ["成品", "落的是哪些条目"]
+NOT_YET = "还没落成"
 
 # SKILL.md 里「产出文档里只写测试内容，不把技能文件里的节号与出处带出去」点名的东西。
 # 禁用词表本身从 SKILL.md 解析，不在这里再抄一份。
@@ -416,6 +430,53 @@ def check_case(text, rep, tms, datas, envs):
     return
 
 
+def place_block(text):
+    """切出测试用例规格说明里的「成品落点」那一块；没有这一块时返回 None。
+
+    这一块是模板第四节的第四块。check_landing.py 也从这里取成品路径——两边认的
+    必须是同一块，所以切法不各写一份。
+    """
+    m = re.search(r"^#{2,}\s*[^\n]*" + PLACE_HEAD + r"[^\n]*$", text, re.M)
+    if not m:
+        return None
+    rest = text[m.end():]
+    nxt = re.search(r"^##\s", rest, re.M)
+    return rest[:nxt.start()] if nxt else rest
+
+
+def check_place(text, rep):
+    """成品落点那一块：在不在、表齐不齐。
+
+    只管机械项——成品路径读不读得到、编号在成品里出没出现，归 check_landing.py。
+    这一块落成之后才填得全，所以写成「还没落成」也算填了。
+    """
+    block = place_block(text)
+    if block is None:
+        rep.err(CASE_DOC, "没有「%s」这一块——这份按模板分四块写，第四块写成品落在哪、"
+                          "每一类条目的编号在成品里怎么出现" % PLACE_HEAD)
+        return
+    if NOT_YET in block:
+        rep.ok("「%s」那一块写着「%s」——落成之后回来把表填上，再跑一遍落成对照"
+               % (PLACE_HEAD, NOT_YET))
+        return
+    head, body = pick(tables(block), PLACE_COLS)
+    if head is None:
+        rep.err(CASE_DOC, "「%s」里没有那张表（表头应为：%s）；成品还没落成的话，"
+                          "那一块写「%s」" % (PLACE_HEAD, " | ".join(PLACE_COLS), NOT_YET))
+        return
+    if not body:
+        rep.err(CASE_DOC, "「%s」表一行都没有——一份成品也要有一行；还没落成就写「%s」"
+                % (PLACE_HEAD, NOT_YET))
+        return
+    broken = 0
+    for row in body:
+        if len(row) < len(PLACE_COLS) or not all(row[:len(PLACE_COLS)]):
+            rep.err(CASE_DOC, "「%s」表有一行有空栏：%s" % (PLACE_HEAD, " | ".join(row)))
+            broken += 1
+    if not broken:
+        rep.ok("成品落点表 %d 行" % len(body))
+
+
 def check_proc(text, rep, tcs, datas, envs):
     """测试规程规格说明：规程编号连续；栏齐；用例排得进去也排得全。"""
     parsed = tables(text)
@@ -523,11 +584,59 @@ def check_flat(text, rep, name, cols, prefix, used=None):
                 check_name(row[i], rep, name, row[0] if row else "?")
 
 
-def check_decision(text, rep):
-    """决策依据文档：一条决策一行，编号连续、栏目齐、不留空。
+def sections(text):
+    """按 `##` 标题切块，返回 [(标题, 正文), ...]。
 
-    这份文档只增不改，所以编号必须是 1 起连号。中间缺号、或者最大的号比行数大，
-    都说明有旧条目被删掉或被改写过——那正是这份文档最不能出的错，单列出来报。
+    第一个标题之前的那一段，标题写 None。决策依据分两块写，两块各自的表要分开放、
+    分开看，所以先按标题切开。
+    """
+    parts = re.split(r"^(##\s+[^\n]*)$", text, flags=re.M)
+    out = [(None, parts[0])]
+    for i in range(1, len(parts) - 1, 2):
+        out.append((parts[i].strip(), parts[i + 1]))
+    return out
+
+
+def check_decision_blocks(text, rep):
+    """两块分得对不对：用户拍板的单独在前一块，其余在后一块。
+
+    分块是机械项——「依据的来源」栏只填 `技能定的`、`从测试项推的`、`用户给的` 之一，
+    哪一行该归哪一块判得了。分开的意义在用处上：用户要能一眼看到自己拍板的那几条、
+    随手改；混在一起，他就得逐行翻「依据的来源」栏才找得出来。
+    """
+    for title, body in sections(text):
+        for head, rows in tables(body):
+            if not all(c in head for c in DEC_COLS):
+                continue
+            i = head.index("依据的来源")
+            src = [(r[0], r[i]) for r in rows if len(r) > i]
+            if title is None or not (USER_HEAD in title or MODEL_HEAD in title):
+                where = ("标题「%s」底下" % title) if title else "开头没有标题的那一段里"
+                rep.err(DECISION_DOC, "%s有一张决策表，不在「%s」「%s」这两块里——"
+                                      "这份分两块写：你拍板的那几条放「%s」，其余放「%s」"
+                        % (where, USER_HEAD, MODEL_HEAD, USER_HEAD, MODEL_HEAD))
+                continue
+            if USER_HEAD in title:
+                bad = ["%s（依据的来源写着「%s」）" % (dec, s) for dec, s in src
+                       if s != USER_SRC]
+                if bad:
+                    rep.err(DECISION_DOC, "「%s」那一块只装「%s」那几条，这里混进了"
+                                          "别的来源：%s"
+                            % (USER_HEAD, USER_SRC, "、".join(bad)))
+            else:
+                bad = [dec for dec, s in src if s == USER_SRC]
+                if bad:
+                    rep.err(DECISION_DOC, "%s 的依据是「%s」，却写在「%s」那一块里——"
+                                          "这几条要单独放在「%s」那一块，好让你一眼看到、"
+                                          "随手就改"
+                            % ("、".join(bad), USER_SRC, MODEL_HEAD, USER_HEAD))
+
+
+def check_decision(text, rep):
+    """决策依据文档：分两块写，一条决策一行，编号连续、栏目齐、不留空。
+
+    这份文档编号只增不改，所以编号必须是 1 起连号。中间缺号、或者最大的号比行数大，
+    都说明有旧条目被删掉或被改写过，单列出来报。
     """
     parsed = tables(text)
     nums = defined(parsed, text, DEC_COLS, "DEC-")
@@ -537,20 +646,26 @@ def check_decision(text, rep):
         return
     rep.ok("决策 DEC-1 至 DEC-%d 都有定义处，编号连续" % len(nums))
 
-    head, body = pick(parsed, DEC_COLS)
-    if head is None:
+    blocks = pick_all(parsed, DEC_COLS)
+    if not blocks:
         rep.err(DECISION_DOC, "没找到表头为「%s」的表" % " | ".join(DEC_COLS))
         return
-    extra = [c for c in head if c not in DEC_COLS]
-    if extra:
-        rep.err(DECISION_DOC, "多出模板没有的栏：%s" % "、".join(extra))
-    if len(body) != len(nums):
-        rep.err(DECISION_DOC, "表里 %d 行，编号有 %d 个，对不上" % (len(body), len(nums)))
-    for row in body:
-        if len(row) < len(DEC_COLS):
-            rep.err(DECISION_DOC, "有一行栏数不够：%s" % " | ".join(row))
-        elif not all(row[:len(DEC_COLS)]):
-            rep.err(DECISION_DOC, "有一行有空栏：%s" % " | ".join(row))
+    # 分成两块之后，一张表里只装一部分号，行数要按所有表合起来数
+    rows = 0
+    for head, body in blocks:
+        extra = [c for c in head if c not in DEC_COLS]
+        if extra:
+            rep.err(DECISION_DOC, "多出模板没有的栏：%s" % "、".join(extra))
+        rows += len(body)
+        for row in body:
+            if len(row) < len(DEC_COLS):
+                rep.err(DECISION_DOC, "有一行栏数不够：%s" % " | ".join(row))
+            elif not all(row[:len(DEC_COLS)]):
+                rep.err(DECISION_DOC, "有一行有空栏：%s" % " | ".join(row))
+    if rows != len(nums):
+        rep.err(DECISION_DOC, "表里 %d 行，编号有 %d 个，对不上" % (rows, len(nums)))
+
+    check_decision_blocks(text, rep)
 
 
 def check_words(texts, rep, banned):
@@ -567,14 +682,14 @@ def check_words(texts, rep, banned):
 
 
 def check_sections(texts, rep):
-    """模板说测试用例规格说明分三块写。多出来的顶层小节只提示不判错——
+    """模板说测试用例规格说明分四块写。多出来的顶层小节只提示不判错——
     多一段算不算「多造」是人的判断，脚本不替人定。"""
     heads = re.findall(r"^##\s+(.+)$", texts.get(CASE_DOC, ""), re.M)
-    known = ("覆盖项", "测试用例", "对应表")
+    known = ("覆盖项", "测试用例", "对应表", PLACE_HEAD)
     extra = [h for h in heads if not any(k in h for k in known)]
     if extra:
-        rep.warn(CASE_DOC, "有模板三块之外的顶层小节：%s"
-                           "（模板说这份分三块写；多出来的算不算多造，自己定）" % "、".join(extra))
+        rep.warn(CASE_DOC, "有模板四块之外的顶层小节：%s"
+                           "（模板说这份分四块写；多出来的算不算多造，自己定）" % "、".join(extra))
 
 
 def prefer_utf8(stream):
@@ -646,17 +761,24 @@ def main():
     if CASE_DOC in texts:
         print("\n[%s]" % CASE_DOC)
         check_case(texts[CASE_DOC], rep, tms, datas, envs)
+        check_place(texts[CASE_DOC], rep)
         check_sections(texts, rep)
 
     if PROC_DOC in texts:
         print("\n[%s]" % PROC_DOC)
         check_proc(texts[PROC_DOC], rep, set(tcs), datas, envs)
 
-    # 数据项与环境项有没有人用——两份引用文档都在才判
+    # 数据项与环境项有没有人用——两份引用文档都在才判。
+    # 「成品落点」那一块不算引用：它记的是成品落在哪，里面顺带列到几个编号是常事，
+    # 拿它当「有人用了」，一件谁也没用的数据就会一直不吭声。
     used_data = used_env = None
     if CASE_DOC in texts and PROC_DOC in texts:
-        used_data = referenced(texts[CASE_DOC], "DATA-") | referenced(texts[PROC_DOC], "DATA-")
-        used_env = referenced(texts[CASE_DOC], "ENV-") | referenced(texts[PROC_DOC], "ENV-")
+        case_text = texts[CASE_DOC]
+        block = place_block(case_text)
+        if block:
+            case_text = case_text.replace(block, "")
+        used_data = referenced(case_text, "DATA-") | referenced(texts[PROC_DOC], "DATA-")
+        used_env = referenced(case_text, "ENV-") | referenced(texts[PROC_DOC], "ENV-")
 
     if DATA_DOC in texts:
         print("\n[%s]" % DATA_DOC)

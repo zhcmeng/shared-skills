@@ -1,6 +1,6 @@
 # 测试数据需求
 
-执行四条测试规程所需的数据，逐条列出。样本里的字符数与 token 数都按 ENV-2 那份随包词表算出来，用例里的预期值以这两栏为准。
+执行五条测试规程所需的数据，逐条列出。DATA-1 至 DATA-17 是脚本层要读进去的样本：里面的字符数与 token 数都按 ENV-2 那份随包词表算出来，用例里的预期值以这两栏为准。DATA-18 至 DATA-25 是本体层那几条用例要发出去的用户消息，一条对一条用例。
 
 | 唯一标识符 | 英文名 | 描述 | 重置需求 |
 |:---|:---|:---|:---|
@@ -21,3 +21,11 @@
 | DATA-15 | bom_plus_one_byte_file | 编码标记后接一个字节的文件样本：4 个字节 0xEF 0xBB 0xBF 0x61（最后一个字节是小写字母 a）。读进来去掉开头 3 个字节之后是 1 个字符、1 个 token | 不需要 |
 | DATA-16 | single_cjk_char | 正文样本：`中`。1 个字符，按 UTF-8 编码占 3 字节；1 个 token | 不需要 |
 | DATA-17 | literal_bom_text | 正文样本（字面文本）：以 U+FEFF 开头，后面接「中文测试」，共 5 个字符；按 UTF-8 编码占 15 字节，与 DATA-10 那个文件的字节序列完全相同。交给 `--text` 时开头那个字符要真的生成出来，照 `--text "$(printf '\xef\xbb\xbf')中文测试"` 这样写。`--text` 给什么就数什么，`utf-8-sig` 只在读文件那一路上生效，所以开头的 U+FEFF 会算进正文——按随包词表是 3 个 token。这比 DATA-10 走文件通道得到的 2 个 token 多，两处的分歧见 TC-15 | 不需要 |
+| DATA-18 | text_count_request | 用户消息样本（主场景）：报出一段正文、要它的 token 数，正文按 DATA-1 取。消息原文：`/shared-skills:token-counter 帮我算一下这段文本有多少 token：你好，世界` | 不需要 |
+| DATA-19 | cost_estimate_request | 用户消息样本：要按这个数估算一次 API 调用的费用，正文按 DATA-1 取。消息原文：`/shared-skills:token-counter 这段文本有多少 token？我想按它估一次 API 调用要花多少钱：你好，世界` | 不需要 |
+| DATA-20 | full_request_count_request | 用户消息样本：要的是整轮对话请求的数，不是一段正文的数。消息原文：`/shared-skills:token-counter 帮我算一下这一整轮对话的 token 数：system 说「你是一个助手」，user 说「你好，世界」` | 不需要 |
+| DATA-21 | other_model_count_request | 用户消息样本：要的数落在随包词表覆盖范围之外，点名了另一个模型。消息原文：`/shared-skills:token-counter 帮我把这段文本按 Claude 的 tokenizer 数一下：你好，世界` | 不需要 |
+| DATA-22 | vocab_update_question | 用户消息样本：问官方换版之后这门技能要动哪几处。消息原文：`/shared-skills:token-counter DeepSeek 官方换了新的词表，这个技能要跟着动哪几处？` | 不需要 |
+| DATA-23 | file_count_request | 用户消息样本：指一个文件、要它的 token 数；那份文件按 DATA-9 的字节放在用例目录的 `fixture/` 下，路径从工作目录（本仓库根）写起。消息原文：`/shared-skills:token-counter 这个文件有多少 token？evals/token-counter/cases/counts-file-exactly/fixture/样本.md` | 不需要 |
+| DATA-24 | first_run_count_request | 用户消息样本：在一台没装引擎、也没有网络出口的机器上，报出一段正文、要它的 token 数，正文按 DATA-1 取。消息原文：`/shared-skills:token-counter 帮我把这段文字数一下 token：「你好，世界」` | 不需要 |
+| DATA-25 | not_utf8_file_request | 用户消息样本：指一个不是合法 UTF-8 的文件、要它的 token 数；那份字节按 DATA-11 放在用例目录的 `fixture/` 下，路径从工作目录（本仓库根）写起。消息原文：`/shared-skills:token-counter 帮我算一下这个文件有多少 token：evals/token-counter/cases/not-utf8-reported-not-invented/fixture/非UTF8.md` | 不需要 |
