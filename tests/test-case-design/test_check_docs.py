@@ -102,6 +102,12 @@ PROC_TEXT = """# 测试规程规格说明
 **与其他规程的关系**：无。
 
 **停止与结束**：无。
+
+## 各批落到哪
+
+| 批次 | 规程 | 执行器 | 落到哪 | 说明 |
+|:---|:---|:---|:---|:---|
+| 脚本批 | TP-1 | 脚本 | `tests/demo/test_demo.py` | 判据落在命令与盘上的文件上 |
 """
 
 DATA_TEXT = """# 测试数据需求
@@ -315,6 +321,23 @@ CASES = [
 | 与其他规程的关系 | 无。 |
 | 停止与结束 | 无。 |"""),
      (), 0, "机械项全过"),
+
+    # 文末「各批落到哪」：无条件要写；表里要把全部规程列到。
+    ("没有「各批落到哪」这一块",
+     (PROC, "\n## 各批落到哪\n\n| 批次 | 规程 | 执行器 | 落到哪 | 说明 |\n"
+      "|:---|:---|:---|:---|:---|\n"
+      "| 脚本批 | TP-1 | 脚本 | `tests/demo/test_demo.py` | 判据落在命令与盘上的文件上 |\n", ""),
+     (), 1, "没有「各批落到哪」这一块"),
+    ("那一块里没有表（标题写了、表没写）",
+     (PROC, "| 批次 | 规程 | 执行器 | 落到哪 | 说明 |\n|:---|:---|:---|:---|:---|\n"
+      "| 脚本批 | TP-1 | 脚本 | `tests/demo/test_demo.py` | 判据落在命令与盘上的文件上 |",
+      "（待补）"), (), 1, "「各批落到哪」里没有那张表"),
+    ("表里把规程栏写成用例编号",
+     (PROC, "| 脚本批 | TP-1 | 脚本 |", "| 脚本批 | TC-1 | 脚本 |"), (), 1,
+     "这些规程没被「各批落到哪」那张表列到：TP-1"),
+    ("表里列了一个不存在的规程",
+     (PROC, "| 脚本批 | TP-1 | 脚本 |", "| 脚本批 | TP-9 | 脚本 |"), (), 1,
+     "那张表里列了不存在的规程：TP-9"),
 ]
 
 
@@ -396,6 +419,34 @@ def check_field_values_forms():
     return problems
 
 
+def check_batches_missing_tp():
+    """两条规程、表里只列了一条：要把漏的那条点名报出来。
+
+    上面那些例的基线只有一条规程，「漏一条」在那边造不出来，所以单起一条：
+    不铺一整套产出，直接把一段规程文档喂给 check_batches，接住它打印的话。
+
+    check_batches 还没写时返回一条毛病而不是抛 AttributeError——这条是「另起
+    一条」，抛出去会把整个脚本打断，前面那些例的结论也跟着看不到。
+    """
+    if not hasattr(check_docs, "check_batches"):
+        return ["check_docs 里还没有 check_batches()"]
+    text = ("# 测试规程规格说明\n\n"
+            "## TP-1 主干\n\n**唯一标识符**：TP-1\n\n**英文名**：main_path\n\n"
+            "**执行器**：脚本。\n\n**改动文件**：只读。\n\n**有序执行测试用例**：1. TC-1\n\n"
+            "## TP-2 收尾\n\n**唯一标识符**：TP-2\n\n**英文名**：tail\n\n"
+            "**执行器**：脚本。\n\n**改动文件**：只读。\n\n**有序执行测试用例**：1. TC-1\n\n"
+            "## 各批落到哪\n\n"
+            "| 批次 | 规程 | 执行器 | 落到哪 | 说明 |\n|:---|:---|:---|:---|:---|\n"
+            "| 脚本批 | TP-1 | 脚本 | `tests/demo/test_demo.py` | 判据落在命令上 |\n")
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        check_docs.check_batches(text, check_docs.Report(), {1, 2})
+    out = buf.getvalue()
+    if "TP-2" not in out:
+        return ["两条规程、表里只列了 TP-1，没报出漏掉的 TP-2；实际输出：%r" % out]
+    return []
+
+
 def main():
     print("跑 %d 例\n" % len(CASES))
     bad = 0
@@ -440,6 +491,17 @@ def main():
     print()
     title = "「执行器」的两种写法都收：加粗字段、两列表行"
     problems = check_field_values_forms()
+    if problems:
+        bad += 1
+        print("[失败] %s" % title)
+        for p in problems:
+            print("       %s" % p)
+    else:
+        print("[通过] %s" % title)
+
+    print()
+    title = "两条规程、表里只列了一条：漏的那条要点名报出来"
+    problems = check_batches_missing_tp()
     if problems:
         bad += 1
         print("[失败] %s" % title)

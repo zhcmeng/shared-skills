@@ -81,6 +81,11 @@ NOT_YET = "还没落成"
 EXECUTORS = ("脚本", "控制器", "子代理")
 CHANGES = ("只读", "会写")
 
+# 文档模板第五节末：测试规程规格说明末尾另起一节，把这套规程按落点分批，
+# 表里把每条规程列到。分得对不对（判据落在哪）是判断，脚本只核列全没有。
+BATCH_HEAD = "各批落到哪"
+BATCH_COLS = ["批次", "规程", "落到哪"]
+
 # SKILL.md 里「产出文档里只写测试内容，不把技能文件里的节号与出处带出去」点名的东西。
 # 禁用词表本身从 SKILL.md 解析，不在这里再抄一份。
 LEAKED = ["references/", "GB/T", "TD1", "TD2", "TD3", "TD4"]
@@ -461,6 +466,61 @@ def place_block(text):
     return rest[:nxt.start()] if nxt else rest
 
 
+def batch_block(text):
+    """切出测试规程规格说明里的「各批落到哪」那一块；没有这一块时返回 None。
+
+    照 place_block 的样子单写一个，不并进去：那一个切的是测试用例规格说明里的
+    「成品落点」，check_landing.py 也在用它，两处认的必须是同一块。
+    """
+    m = re.search(r"^#{2,}\s*[^\n]*" + BATCH_HEAD + r"[^\n]*$", text, re.M)
+    if not m:
+        return None
+    rest = text[m.end():]
+    nxt = re.search(r"^##\s", rest, re.M)
+    return rest[:nxt.start()] if nxt else rest
+
+
+def check_batches(text, rep, tps):
+    """「各批落到哪」那一块：在不在；表里列出的规程是不是全部规程。
+
+    只管机械项——分得对不对（判据落在哪、分界有没有劈开一条规程）是判断，
+    脚本报不了。这里只保证「每条规程都被表列到」与「表里没有不存在的号」，
+    有了这两条，人看那张表时才不至于漏看半套。
+    """
+    block = batch_block(text)
+    if block is None:
+        rep.err(PROC_DOC, "没有「%s」这一块——规程按落点分批，分法与各批落到哪"
+                          "写在这里；只落一类也要写，表里一行" % BATCH_HEAD)
+        return
+    head, body = pick(tables(block), BATCH_COLS)
+    if head is None:
+        rep.err(PROC_DOC, "「%s」里没有那张表（表头至少要有：%s）"
+                % (BATCH_HEAD, " | ".join(BATCH_COLS)))
+        return
+    if not body:
+        rep.err(PROC_DOC, "「%s」表一行都没有——只落一类也要写一行，"
+                          "写明全部规程落同一处" % BATCH_HEAD)
+        return
+    i = head.index("规程")
+    listed = set()
+    for row in body:
+        if len(row) <= i or not row[i]:
+            rep.err(PROC_DOC, "「%s」表有一行的「规程」栏是空的：%s"
+                    % (BATCH_HEAD, " | ".join(row)))
+            continue
+        listed |= {int(n) for n in re.findall(r"TP-(\d+)", row[i])}
+    missing = sorted(set(tps) - listed)
+    if missing:
+        rep.err(PROC_DOC, "这些规程没被「%s」那张表列到：%s"
+                % (BATCH_HEAD, brief(missing, "TP-")))
+    extra = sorted(listed - set(tps))
+    if extra:
+        rep.err(PROC_DOC, "「%s」那张表里列了不存在的规程：%s"
+                % (BATCH_HEAD, brief(extra, "TP-")))
+    if not missing and not extra:
+        rep.ok("「%s」那张表把 %d 条规程都列到了" % (BATCH_HEAD, len(tps)))
+
+
 def check_place(text, rep):
     """成品落点那一块：在不在、表齐不齐。
 
@@ -536,6 +596,9 @@ def check_proc(text, rep, tcs, datas, envs):
     for n in sorted({int(m) for m in re.findall(r"TC-(\d+)", text)}):
         if n not in tcs:
             rep.err(PROC_DOC, "引用了没有定义处的 TC-%d" % n)
+
+    if tps:
+        check_batches(text, rep, set(tps))
 
     if not tps:
         return
