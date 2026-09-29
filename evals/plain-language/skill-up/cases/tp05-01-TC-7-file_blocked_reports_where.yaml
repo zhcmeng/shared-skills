@@ -40,4 +40,3 @@ judge:
   pass_threshold: 0.7
   context:
     profile: standard
-    workspace_diff: file_ref

@@ -13,7 +13,7 @@
 | 通用稿的编号 | 本方案里落在哪 | 说明 |
 |:---|:---|:---|
 | ENV-1 | `skill-up/eval.yaml` 的 `skills[].path` | 指向 `../../plugin/skills/plain-language`，`include` 只装 `SKILL.md` 与 `rules.md` |
-| ENV-2 | `skill-up/eval.yaml` 的 `report.artifacts` 与各条 `judge.context` | 回复看 `final_message`，盘上改动看 `workspace_diff: file_ref` |
+| ENV-2 | `skill-up/eval.yaml` 的 `report.artifacts` 与各条 `judge.context` | 回复看 `final_message`，盘上改动看 `workspace_diff`（standard 档默认 `file_ref`） |
 | ENV-3 | `skill-up/cases/<目录名>.yaml` 的 `judge.criteria` | 各条用例「预期结果」栏的散文压成条目 |
 | ENV-4 | 夹具 `evals/plain-language/fixtures/repos/subject/` | 每条用例各把这个目录的内容铺进自己那份临时工作区；原始夹具全程不动。五份样本就摆在这棵树里，铺进去之后权限跟原始样本一致（TC-7 那份是只读的） |
 | ENV-5 | 两次运行的 `environment.setup_steps`——从绝对路径读 `rules.md` 写进工作区的 `CLAUDE.md`；见 2.1 第 5 小节第 4 条 | 钩子那条道在本方案里走不通：skill-up 起 claude 时带 `--settings '{"disableAllHooks":true}'`，钩子一律不生效 |
@@ -284,7 +284,6 @@ judge:
   pass_threshold: 0.7
   context:
     profile: standard
-    workspace_diff: file_ref
 ```
 
 ```yaml
@@ -328,7 +327,6 @@ judge:
   pass_threshold: 0.7
   context:
     profile: standard
-    workspace_diff: file_ref
 ```
 
 ```yaml
@@ -372,7 +370,6 @@ judge:
   pass_threshold: 0.7
   context:
     profile: standard
-    workspace_diff: file_ref
 ```
 
 ```yaml
@@ -415,7 +412,6 @@ judge:
   pass_threshold: 0.7
   context:
     profile: standard
-    workspace_diff: file_ref
 ```
 
 ```yaml
@@ -461,7 +457,6 @@ judge:
   pass_threshold: 0.7
   context:
     profile: standard
-    workspace_diff: file_ref
 ```
 
 ```yaml
