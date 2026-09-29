@@ -87,6 +87,65 @@ PROC_TEXT = """# 测试规程规格说明
 **有序执行测试用例**：1. TC-1
 """
 
+# 打目录名要英文名，上面那份用例表没有这一栏，另起一份；也不把上面那些例的期望
+# 跟着改。
+CASE_TEXT_NAMED = """# 测试用例规格说明
+
+## 二、测试用例
+
+| 唯一标识符 | 英文名 | 目标 | 风险等级 | 输入 | 预期结果 |
+|:---|:---|:---|:---|:---|:---|
+| TC-1 | first_case | 验证甲 | 高 | 输入甲 | 输出甲 |
+| TC-2 | second_case | 验证乙 | 高 | 输入乙 | 输出乙 |
+| TC-6 | sixth_case | 验证丙 | 高 | 输入丙 | 输出丙 |
+"""
+
+# 栏里排成 TC-6、TC-1、TC-2：位次照这一栏数，不按编号大小。两条规程，
+# 第二条用来试 --case-dirs 只打一条。
+PROC_TEXT_ORDERED = """# 测试规程规格说明
+
+## TP-1 主干
+
+**唯一标识符**：TP-1
+
+**有序执行测试用例**：TC-6、TC-1、TC-2
+
+## TP-2 收尾
+
+**唯一标识符**：TP-2
+
+**有序执行测试用例**：TC-2
+"""
+
+# 产出里那一栏写的就是下面这几条，与打出来的一字不差。
+PROC_TEXT_LANDED = """# 测试规程规格说明
+
+## TP-1 主干
+
+**唯一标识符**：TP-1
+
+**有序执行测试用例**：TC-1、TC-2
+
+## 各批落到哪
+
+| 批次 | 规程 | 执行器 | 落到哪 | 用例目录名 | 说明 |
+|:---|:---|:---|:---|:---|:---|
+| 模型批 | TP-1 | 子代理 | `evals/demo/cases/` | tp01-01-TC-1-first_case、tp01-02-TC-2-second_case | 判据要读一轮模型的行为 |
+"""
+
+# 那条规程还没写「有序执行测试用例」栏
+PROC_TEXT_NO_ORDER = """# 测试规程规格说明
+
+## TP-1 主干
+
+**唯一标识符**：TP-1
+
+**英文名**：main_path
+"""
+
+# 栏里引的用例在用例文档里没有定义处
+PROC_TEXT_STRAY = PROC_TEXT.replace("1. TC-1", "1. TC-9")
+
 DATA_TEXT = """# 测试数据需求
 
 | 唯一标识符 | 描述 | 重置需求 |
@@ -258,6 +317,75 @@ CASES = [
         argv=["<没有的目录>", "TC-"],
         code=2,
         want=["读不到目录"],
+    ),
+
+    # --case-dirs：打评测用例的目录名。位次照「有序执行测试用例」栏数，不靠手数；
+    # 打出来的东西直接抄进「各批落到哪」的「用例目录名」栏，所以对不上就整条不发。
+    dict(
+        name="--case-dirs：位次照「有序执行测试用例」栏的次序走，不按编号大小",
+        docs={CASE: CASE_TEXT_NAMED, PROC: PROC_TEXT_ORDERED},
+        argv=["<目录>", "--case-dirs"],
+        code=0,
+        lines=["TP-1：tp01-01-TC-6-sixth_case、tp01-02-TC-1-first_case、"
+               "tp01-03-TC-2-second_case",
+               "TP-2：tp02-01-TC-2-second_case"],
+    ),
+    dict(
+        name="--case-dirs：打出来的与产出里那一栏逐字相同（两处都写死同一串）",
+        docs={CASE: CASE_TEXT_NAMED, PROC: PROC_TEXT_LANDED},
+        argv=["<目录>", "--case-dirs"],
+        code=0,
+        lines=["TP-1：tp01-01-TC-1-first_case、tp01-02-TC-2-second_case"],
+    ),
+    dict(
+        name="--case-dirs TP-1：只打那一条规程",
+        docs={CASE: CASE_TEXT_NAMED, PROC: PROC_TEXT_ORDERED},
+        argv=["<目录>", "--case-dirs", "TP-1"],
+        code=0,
+        lines=["TP-1：tp01-01-TC-6-sixth_case、tp01-02-TC-1-first_case、"
+               "tp01-03-TC-2-second_case"],
+    ),
+    dict(
+        name="--case-dirs：那条规程还没写「有序执行测试用例」栏",
+        docs={CASE: CASE_TEXT_NAMED, PROC: PROC_TEXT_NO_ORDER},
+        argv=["<目录>", "--case-dirs"],
+        code=2,
+        want=["TP-1", "有序执行测试用例"],
+    ),
+    dict(
+        name="--case-dirs：栏里引的用例没有定义处",
+        docs={CASE: CASE_TEXT_NAMED, PROC: PROC_TEXT_STRAY},
+        argv=["<目录>", "--case-dirs"],
+        code=2,
+        want=["TC-9", "查不到这条"],
+    ),
+    dict(
+        name="--case-dirs：那条用例没有「英文名」栏（基线的用例表就没有这一栏）",
+        docs={CASE: CASE_TEXT, PROC: PROC_TEXT},
+        argv=["<目录>", "--case-dirs"],
+        code=2,
+        want=["TC-1", "没有「英文名」栏"],
+    ),
+    dict(
+        name="--case-dirs：产出目录里没有测试规程规格说明",
+        docs={CASE: CASE_TEXT_NAMED},
+        argv=["<目录>", "--case-dirs"],
+        code=2,
+        want=["读不到", "Test Procedure Specification.md"],
+    ),
+    dict(
+        name="--case-dirs：指了一条不存在的规程",
+        docs={CASE: CASE_TEXT_NAMED, PROC: PROC_TEXT_ORDERED},
+        argv=["<目录>", "--case-dirs", "TP-9"],
+        code=2,
+        want=["盘上没有 TP-9"],
+    ),
+    dict(
+        name="用法：--case-dirs 与 --count 同用",
+        docs={},
+        argv=["<目录>", "--case-dirs", "--count", "2"],
+        code=2,
+        want=["用法"],
     ),
 ]
 

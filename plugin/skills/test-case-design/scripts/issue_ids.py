@@ -6,8 +6,11 @@
 
     python issue_ids.py <产出目录>                     总览：七种编号各用到几号、下一个可用几号
     python issue_ids.py <产出目录> TC- --count 8       发号：打 8 个号，一行一个（不给 --count 就是 1 个）
+    python issue_ids.py <产出目录> --case-dirs [TP-n]  打评测用例的目录名：一条规程一行，
+                                                      照抄进「各批落到哪」的「用例目录名」栏
 
-退出码：0 正常；2 用法不对、读不到目录，或前缀像是漏了分隔符。
+退出码：0 正常；2 用法不对、读不到目录，前缀像是漏了分隔符，或目录名打不全（有的规程
+没写「有序执行测试用例」栏、栏里引的用例查不到定义处或没有英文名）。
 
 编号不另存台账，基准就是产出目录里那六份文档：每次现读一遍，取已经定义过的条目里最大的
 号加一。目录还是空的就从 1 起。号只往后加——删条目腾出来的号不回收。
@@ -55,6 +58,10 @@ USAGE = """用法：
     python issue_ids.py <产出目录> <前缀> [--count N]
         发号：打 N 个号，一行一个（默认 1 个）。前缀照写、含分隔符，如 TC-；
         项目自己的编号惯例照传，如 Lid-
+
+    python issue_ids.py <产出目录> --case-dirs [TP-n]
+        打评测用例的目录名：一条规程一行，照抄进「各批落到哪」的「用例目录名」栏。
+        位次照「有序执行测试用例」栏数，不靠手数；给了 TP-n 就只打那一条规程。
 """
 
 
@@ -122,6 +129,74 @@ def missing_dash_hint(texts, prefix):
             "是不是漏了结尾的 `-`？这次不发号。" % (prefix, prefix, prefix))
 
 
+def case_dirs(texts, only):
+    """打评测用例的目录名：一条规程一行，照抄进「各批落到哪」的「用例目录名」栏。
+
+    位次照「有序执行测试用例」栏数一遍——手数「排第几」是这条链上唯一一处会数错的
+    地方。规程号、用例号、英文名都从盘上那两份文档取。`only` 给了就只打那一条规程。
+
+    脚本只读不写：打出来的东西由模型抄进产出。哪一处对不上就整条不发——只发一半，
+    照抄的人多半会把那一半当成全部。
+
+    切规程块、认英文名都调 check_docs 的那两份判定，不在这里另立一套：两边一旦分叉，
+    打出来的名字就会与自检认的不是同一批。
+    """
+    proc = texts.get(check_docs.PROC_DOC)
+    if proc is None:
+        print("读不到 %s——先确认文件名对不对、目录对不对。" % check_docs.PROC_DOC)
+        return 2
+    order, _, bad_head = check_docs.proc_cases(proc)
+    if bad_head:
+        print("这些规程的标题没以编号起头，认不出规程的边界：%s——标题写成「TP-N 目标」"
+              "的样子（编号紧跟 # 之后，前头不加序号），再跑一次。"
+              % "、".join("「%s」" % s for s in bad_head))
+        return 2
+    if only is not None and only not in order:
+        print("盘上没有 TP-%d 这条规程——先看它写出来了没有。" % only)
+        return 2
+    picking = [only] if only is not None else sorted(order)
+    if not picking:
+        print("测试规程规格说明里一条规程都没有——先写规程，再跑这一条。")
+        return 2
+
+    names = check_docs.case_names(check_docs.tables(texts.get(check_docs.CASE_DOC, "")))
+    lines, problems = [], []
+    for n in picking:
+        seq = order[n]
+        if not seq:
+            problems.append("TP-%d 还没写「有序执行测试用例」栏——先写这一栏，再跑这一条。"
+                            % n)
+            continue
+        if n > 99:
+            problems.append("规程号 TP-%d 到了三位数——目录名里规程号那段两位装不下，"
+                            "整套一起改成三位（见 references/文档模板.md 第五节）。" % n)
+            continue
+        if len(seq) > 99:
+            problems.append("TP-%d 排了 %d 条用例，位次两位装不下——整套一起改成三位"
+                            "（见 references/文档模板.md 第五节）。" % (n, len(seq)))
+            continue
+        got = []
+        for k, tc in enumerate(seq, 1):
+            if tc not in names:
+                problems.append("TP-%d 的「有序执行测试用例」栏引了 TC-%d，"
+                                "测试用例规格说明里查不到这条。" % (n, tc))
+                continue
+            if not names[tc]:
+                problems.append("TC-%d 没有「英文名」栏——目录名最后一段要从那一栏取，"
+                                "它是必填的。" % tc)
+                continue
+            got.append("tp%02d-%02d-TC-%d-%s" % (n, k, tc, names[tc]))
+        if len(got) == len(seq):
+            lines.append("TP-%d：%s" % (n, "、".join(got)))
+    if problems:
+        for msg in problems:
+            print(msg)
+        return 2
+    for line in lines:
+        print(line)
+    return 0
+
+
 def overview(root, texts):
     print("产出目录：%s\n" % root)
     if not texts:
@@ -154,8 +229,12 @@ def issue(texts, prefix, count):
 
 
 def parse_args(argv):
-    """返回 (产出目录, 前缀 或 None, 个数)；用法不对返回 None。"""
-    rest, count, count_given = [], DEFAULT_COUNT, False
+    """返回 (产出目录, 要做的事, 前缀, 个数, 规程号)；用法不对返回 None。
+
+    要做的事三种：`overview`（总览）、`issue`（发号）、`case_dirs`（打目录名）。
+    规程号只在那一种里用得上，别的时候是 None。
+    """
+    rest, count, count_given, mode, only = [], DEFAULT_COUNT, False, "overview", None
     i = 0
     while i < len(argv):
         arg = argv[i]
@@ -165,16 +244,36 @@ def parse_args(argv):
             count, count_given = int(argv[i + 1]), True
             i += 2
             continue
+        if arg == "--case-dirs":
+            if mode != "overview":
+                return None
+            mode = "case_dirs"
+            i += 1
+            # 后面紧跟的那一个若不是选项，就是「只打这一条」的规程号
+            if i < len(argv) and not argv[i].startswith("--"):
+                m = re.fullmatch(r"TP-(\d+)", argv[i])
+                if not m:
+                    return None
+                only = int(m.group(1))
+                i += 1
+            continue
         if arg.startswith("--"):
             return None
         rest.append(arg)
         i += 1
+    if mode == "case_dirs":
+        # 这一种只接产出目录：前缀与它不同用，--count 也不搭
+        if len(rest) != 1 or count_given:
+            return None
+        return Path(rest[0]), mode, None, count, only
     if len(rest) not in (1, 2):
         return None
     prefix = rest[1] if len(rest) == 2 else None
     if count_given and prefix is None:
         return None
-    return Path(rest[0]), prefix, count
+    if prefix is None:
+        return Path(rest[0]), "overview", None, count, None
+    return Path(rest[0]), "issue", prefix, count, None
 
 
 def prefer_utf8(stream):
@@ -205,12 +304,14 @@ def main():
     if parsed is None:
         print(USAGE)
         return 2
-    root, prefix, count = parsed
+    root, mode, prefix, count, only = parsed
     if not root.is_dir():
         print("读不到目录：%s" % root)
         return 2
     texts = read_docs(root)
-    if prefix is None:
+    if mode == "case_dirs":
+        return case_dirs(texts, only)
+    if mode == "overview":
         return overview(root, texts)
     return issue(texts, prefix, count)
 
