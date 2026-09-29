@@ -15,14 +15,14 @@
 | ENV-1 | `skill-up/eval.yaml` 的 `skills[].path` | 指向 `../../plugin/skills/plain-language`，`include` 只装 `SKILL.md` 与 `rules.md` |
 | ENV-2 | `skill-up/eval.yaml` 的 `report.artifacts` 与各条 `judge.context` | 回复看 `final_message`，盘上改动看 `workspace_diff: file_ref` |
 | ENV-3 | `skill-up/cases/<目录名>.yaml` 的 `judge.criteria` | 各条用例「预期结果」栏的散文压成条目 |
-| ENV-4 | 工作区副本 `C:\work\plain-language-eval-workspace` | 一份仓库副本，每次运行前整份重建 |
-| ENV-5 | 两次运行的工作区里那份 `CLAUDE.md`——开跑前把 `rules.md` 的内容接在它末尾；见 2.1 第 5 小节 | 钩子那条道在本方案里走不通：skill-up 起 claude 时带 `--settings '{"disableAllHooks":true}'`，钩子一律不生效 |
-| ENV-6 | `--workspace C:\work\plain-language-eval-workspace` | 见 2.1 第 3 小节：一份目录，每次运行前重建 |
-| ENV-7 | 同上那一份目录 | 被测那侧就是这份副本所在的机器（本机 Windows） |
-| DATA-1 | `evals/plain-language/cases/tp01-01-TC-1-fix_only_what_should_change/fixture/样本.md` | 混合文档样本 |
-| DATA-2 | `evals/plain-language/cases/tp02-01-TC-2-quotes_kept_and_glossed/fixture/样本.md` | 引文文档样本 |
-| DATA-3 | `evals/plain-language/cases/tp03-01-TC-3-scope_of_review/fixture/样本.md` | 审的范围文档样本 |
-| DATA-4 | `evals/plain-language/cases/tp04-01-TC-6-file_nothing_to_fix/fixture/样本.md` | 一处问题都没有的文档样本 |
+| ENV-4 | 夹具 `evals/plain-language/fixtures/repos/subject/` | 每条用例各把这个目录的内容铺进自己那份临时工作区；原始夹具全程不动。四份样本就摆在这棵树里 |
+| ENV-5 | 两次运行的 `environment.setup_steps`——从绝对路径读 `rules.md` 写进工作区的 `CLAUDE.md`；见 2.1 第 5 小节第 4 条 | 钩子那条道在本方案里走不通：skill-up 起 claude 时带 `--settings '{"disableAllHooks":true}'`，钩子一律不生效 |
+| ENV-6 | skill-up 每条用例各建一个的临时工作区 | 见 2.1 第 3 小节：跑完就删，重试与迭代各起一个。ENV-6 要的「每跑一条之前清干净」由框架自己保证 |
+| ENV-7 | 同上那一个临时工作区 | 被测那侧就是建这个目录的机器（本机 Windows）；样本副本也在这一处 |
+| DATA-1 | `fixtures/repos/subject/evals/plain-language/cases/tp01-01-TC-1-fix_only_what_should_change/fixture/样本.md` | 混合文档样本；路径的基准见 2.2 开头 |
+| DATA-2 | `fixtures/repos/subject/evals/plain-language/cases/tp02-01-TC-2-quotes_kept_and_glossed/fixture/样本.md` | 引文文档样本；同上 |
+| DATA-3 | `fixtures/repos/subject/evals/plain-language/cases/tp03-01-TC-3-scope_of_review/fixture/样本.md` | 审的范围文档样本；同上 |
+| DATA-4 | `fixtures/repos/subject/evals/plain-language/cases/tp04-01-TC-6-file_nothing_to_fix/fixture/样本.md` | 一处问题都没有的文档样本；同上 |
 | DATA-5 | `skill-up/cases/tp06-01-TC-4-restate_whole_answer.yaml` 的 `input.prompt` 正文 | 接在用户消息前面，见 2.1 第 5 小节第 3 条 |
 | DATA-6 | `skill-up/cases/tp07-01-TC-5-restate_nothing_to_fix.yaml` 的 `input.prompt` 正文 | 同上 |
 | DATA-7 | `skill-up/cases/tp01-01-TC-1-fix_only_what_should_change.yaml` 的 `input.prompt` | 一条对一条 |
@@ -51,13 +51,23 @@
 
 分两次的理由：技能配在 `eval.yaml` 这一层，一条用例一层配不了——skill-up 的用例配置里没有按用例的 `skills` 字段。TC-8 那一档要的正是「`rules.md` 已经在上下文里、但技能没被唤起」，装不装技能是两次运行的分别。
 
-**3. 工作区怎么摆与复位**
+**3. 工作区怎么来**
 
-`--workspace` 指 `C:\work\plain-language-eval-workspace`，一份本仓库的副本。**副本要自带 `.git`**（把仓库目录整份拷过去就有）——skill-up 拿它拍差集；没有它，差集会被静默关掉，屏幕上什么也看不到。
+不用 `--workspace` 了。每条用例开跑前，skill-up 自己在系统临时目录下新建一个空的 `skill-up-<随机数>` 当工作区，跑完删掉；重试与迭代各起一个。ENV-6 要的「能重来、能隔离」由框架自己保证，不靠人记得重建。
 
-**每次运行前把这一份整份重建。** 同一批用例、重试、迭代串行复用这一个目录，配置里的准备动作、夹具、技能安装与 agent 的改动都会传到后面几条，而 skill-up 永远不会删这个目录。重试次数设成 0（`retry_policy.max_retries: 0`），否则失败的那条会在同一个脏目录里重跑。
+这个空目录里只进三样东西，一样都不来自本仓库的工作树：
 
-判「有没有动到不该动的」按**本条用例自己的差集**判，不按整个工作区的差集判：运行一里七条串行跑，前面几条改过的文件会留在盘上。skill-up 在每条用例开跑前，拿工作区当时的状态另行拍一份基线——它在工作区之外建一个临时 git 仓库，把 `GIT_DIR`、`GIT_WORK_TREE` 指过去，用 `git write-tree` 得出一个树对象；`workspace_diff` 是拿这条用例开跑时的状态比的，所以每条用例的 `workspace_diff` 只含它自己改的东西。工作区那份 `.git` 只被用来回答一个问题——这里是不是 git 仓库。TC-1 的判据⑤（那份文档副本之外的任何文件都没被动过）就靠这一条成立。
+1. **常驻注入**：第 5 小节第 4 条那条 `setup_steps`，最先跑。
+2. **技能**：随后装到 `.claude/skills/plain-language/`，照 `include` 只装 `SKILL.md` 与 `rules.md`（运行二不装这一档）。
+3. **夹具**：最后把 `evals/plain-language/fixtures/repos/subject/` 这棵子树的**内容**铺到工作区根上，由 `context.repo_fixture: fixtures/repos/subject` 指定。四份样本摆在这棵树里，位置照 DATA-7 至 DATA-14 那几条消息写的。
+
+顺序是实测的：`setup_steps` 跑在夹具铺进来**之前**。所以夹具里不许有 `CLAUDE.md`——放了会把注入冲掉。
+
+**差集要开 `context.git.init`。** 工作区是新建的空目录，不是 git 仓库。skill-up 拍基线之前先探一下这里是不是 git 仓库，不是就**把差集静默关掉**——不报错、不中断，只在判官材料的清单里留一行 `workspace_diff: omit`，屏幕上什么也看不出来。开了 `git.init: true`，它就在工作区里 `git init`，把当时盘上所有文件 `git add --all` 提交成一条基线；这条基线是在夹具与注入都到位之后拍的，所以差集里只剩被测 agent 改的东西。用到 `workspace_diff` 的五条（TC-1、TC-2、TC-3、TC-6、TC-7）都带这一项；另外三条不带，因为它们的判据不看盘上改动，带了也是白拍。
+
+**判据进不来。** skill-up 装技能时无条件跳过 `evals/` 这棵子树（`internal/agent/skill.go` 里写死的那条），与 `include`、`exclude` 无关；工作区又是个新建的空目录，不是仓库副本。判据、六份设计稿、技能源码一个字节都到不了被测 agent 手里。
+
+**为什么不再拿仓库副本当工作区。** 那时候要副本，是为了让样本路径指得到。现在这个目的由夹具顶上，而夹具只带样本、不带别的，代价小得多——先前那份副本把判据也一并带进了被测 agent 的视野。
 
 **4. 判据两层怎么落**
 
@@ -89,7 +99,7 @@
 
 **第 1 条：技能怎么被唤起。** 消息里的 `/shared-skills:plain-language` 渲染成 `/plain-language`。skill-up 只把技能目录装到 `.claude/skills/<技能名>/`，没有装插件这条道，带插件前缀唤起不来。
 
-**第 2 条：样本路径。** 按工作区里的相对路径原样给（`evals/plain-language/cases/<目录名>/fixture/样本.md`）。工作区就是一份本仓库的副本，这个路径指得到。
+**第 2 条：样本路径。** 按工作区里的相对路径原样给（`evals/plain-language/cases/<目录名>/fixture/样本.md`）。这个路径在新工作区里指得到，靠的是夹具照同一串路径把样本摆进去，不再靠「工作区是本仓库的副本」。
 
 **第 3 条：TC-4、TC-5 的「上一条回答」。** 按甲路径渲染——把 DATA-5、DATA-6 的全文接在用户消息前面，写成「你上一条回答我读不懂：<那段全文>。重讲一遍」。
 
@@ -97,18 +107,21 @@
 
 **备选（丁）**：这两条本方案不跑，等 skill-up 支持注入 assistant 轮次再补。
 
-**第 4 条：ENV-5 的注入怎么摆。** 走「项目根目录的 `CLAUDE.md`」这条道：**两次运行开跑前都**把 `rules.md` 的全文接在工作区那份 `CLAUDE.md` 的末尾（只往后接，原有内容一个字不动）。Claude Code 起会话时会读项目根目录的 `CLAUDE.md`，它与 SessionStart 钩子一样是会话开头的常驻上下文。
+**第 4 条：ENV-5 的注入怎么摆。** 走「项目根目录的 `CLAUDE.md`」这条道，写进两次运行各自的 `environment.setup_steps`——一条 `cat "<绝对路径>" >> CLAUDE.md`。Claude Code 起会话时会读项目根目录的 `CLAUDE.md`，它与 SessionStart 钩子一样，是会话开头的常驻上下文。
 
-两次都接，是因为只给运行二接会让运行一那七条没有常驻注入——与测试环境需求里「其余七条规程跑的时候 `rules.md` 同样已经注入」对不上，也与真实用法对不上（真实使用者那里规则本来就常驻，技能另外也在）。两次都接，八条的差别才回到「用不用 skill」这一件事上。
+**两次运行开跑前都会接**，因为只给运行二接会让运行一那七条没有常驻注入——与测试环境需求里「其余七条规程跑的时候 `rules.md` 同样已经注入」对不上，也与真实用法对不上（真实使用者那里规则本来就常驻，技能另外也在）。两次都接，八条的差别才回到「用不用 skill」这一件事上。
+
+命令里那条路径是**绝对路径，写死在本机**，换机器要改。相对路径在这里用不了：`setup_steps` 在工作区里跑，而那个时刻工作区还是个空目录，没有可作基准的东西。命令由 skill-up 自己找的 Git Bash 跑（`internal/platform/shell_windows.go`）；机器上没有 Git Bash 会退到 cmd.exe，那条命令里的 `cat` 与 `>>` 就不成立了。
 
 - **为什么不用钩子**：skill-up 拼的命令带 `--settings '{"disableAllHooks":true}'`，钩子一律不生效。
 - **为什么不用 `claude -p --append-system-prompt`**：skill-up 没有传额外参数的口子，这条命令行它拼不出来；实测能跑的是钩子那条原路，而钩子被关了。
 - **为什么不用「把 `rules.md` 接在用户消息前面」**：那样它就成了这一条消息里的内容，不再是被测的那个常驻注入，而 TC-8 判的正是常驻注入之下的落笔。
+- **为什么不用「放一份 `rules.md` 在夹具里，命名成 `CLAUDE.md`」**：那一份会跟真仓库那份各自漂移；改了 `rules.md` 忘了同步夹具，跑出来的结论就不作数。从绝对路径读真仓库那份，只有一份源。
 
 **6. 跑不了原样的那几条**
 
 - TC-4、TC-5：第 5 小节第 3 条那处折扣。其余四条（TC-1、TC-2、TC-3、TC-6）与设计稿一致，没有出入。
-- TC-7：数据项里指的路径本来就不存在，不用另摆什么，与设计稿一致。
+- TC-7：数据项里指的路径在夹具里确实没有，不用另摆什么，与设计稿一致。**这一条的判据③「回复里把改好的文本一并给出」还没定口径**：那份文档不存在，也就没有「改好的文本」可给。实测跑了一遍，agent 说清了卡在哪、也说清了它按文件名找过整个工作区，但没有正文可附——判据③必然判不过。等定口径。
 - TC-8：这一档不经 skill，跑法与其余七条不同——不装技能，只靠常驻注入的那份 `rules.md`。这是设计稿里就写着的，不是折扣。
 
 ### 2.2 可跑配置（YAML 原文）
@@ -120,11 +133,14 @@
 ```yaml
 # 运行一：装技能，跑 TP-1 至 TP-7（TC-1 至 TC-7）。
 # 相对路径的基准是 evals/plain-language/。改这一份之前先看实施方案 2.1 第 3 小节。
-# ENV-5 的注入不在这一份里：开跑前把 rules.md 接到工作区那份 CLAUDE.md 末尾，见 2.1 第 5 小节第 4 条。
+# ENV-5 的注入由下面 setup_steps 那条命令做：从绝对路径读真仓库那份 rules.md，写进工作区的
+# CLAUDE.md。那条路径写死在本机，换机器要改。见实施方案 2.1 第 5 小节第 4 条。
 schema_version: v1alpha1
 
 environment:
   type: none
+  setup_steps:
+    - run: cat "C:/work/shared-skills/plugin/skills/plain-language/rules.md" >> CLAUDE.md
 
 mcp:
   servers: []
@@ -165,20 +181,20 @@ report:
   artifacts: [transcript]
 ```
 
-TC-1 排在最前：它的判据⑤是「那份文档副本之外的任何文件都没被动过」，先跑它，后面几条改的文件才不会混进它的差集。
-
-`parallelism: 1` 与 `retry_policy.max_retries: 0` 是 `--workspace` 的硬要求与配套：`--workspace` 只支持 `environment.type: none`、`cases.parallelism: 1`，并且 benchmark 必须关着。
+`parallelism: 1` 与 `retry_policy.max_retries: 0` 不再是硬要求——那两条是 `--workspace` 带出来的，`--workspace` 不用了。留着 1 与 0 是因为八条一跑就是八轮模型调用，先串行跑；每条用例各一个干净工作区，重试在盘上是安全的，要并行、要重试随时可以调。`benchmark` 也留着关：开着是把同一批重复跑若干轮比稳定性，不是这里要的。
 
 **第 2 块：运行二的 `eval-no-skill.yaml`，落到 `evals/plain-language/skill-up/eval-no-skill.yaml`**
 
 ```yaml
 # 运行二：不装技能，只跑 TP-8（TC-8）。
 # 这一档判的是「rules.md 注进上下文之后，落笔时按不按它写」；技能会不会被唤起不在这批用例里判。
-# ENV-5 的注入不落在这一份里：开跑前把 rules.md 接到工作区那份 CLAUDE.md 末尾，见 2.1 第 5 小节第 4 条。
+# ENV-5 的注入由下面 setup_steps 那条命令做，与运行一同一条道；见 2.1 第 5 小节第 4 条。
 schema_version: v1alpha1
 
 environment:
   type: none
+  setup_steps:
+    - run: cat "C:/work/shared-skills/plugin/skills/plain-language/rules.md" >> CLAUDE.md
 
 mcp:
   servers: []
@@ -212,6 +228,8 @@ report:
 
 八块。每块的 `title` 照该条用例的目标写，`input.prompt` 照 DATA-7 至 DATA-14 抄（`/shared-skills:` 换成 `/`），`judge.criteria` 照测试用例规格说明该条「预期结果」栏压成条目。
 
+八块都带 `context.repo_fixture: fixtures/repos/subject`（夹具，见 2.1 第 3 小节）。其中用到 `workspace_diff` 的五块（TC-1、TC-2、TC-3、TC-6、TC-7）还带 `context.git.init: true`——不开这一项，差集会被静默关掉。
+
 TC-4、TC-5 那两块多一段：`input.prompt` 的前头接着 DATA-5、DATA-6 的全文，见 2.1 第 5 小节第 3 条。
 
 ```yaml
@@ -224,6 +242,12 @@ description: 给一份混合文档的路径，逐句审并直接改原文件；�
 input:
   prompt: |
     /plain-language 这份文档读着绕，帮我改一下：evals/plain-language/cases/tp01-01-TC-1-fix_only_what_should_change/fixture/样本.md
+
+context:
+  repo_fixture: fixtures/repos/subject
+  # 差集要它：工作区是新建的空目录，不开这一项 skill-up 会把差集静默关掉。见实施方案 2.1 第 3 小节。
+  git:
+    init: true
 
 constraints:
   timeout_seconds: 600
@@ -245,7 +269,7 @@ judge:
     - "文中已给出定义的术语、代码标识符、路径、命令名、产品名、公认缩写、已经进入中文日常用法的直译词，这七类一个字没动。"
     - "文档里本来就没问题的句子一个字没动。"
     - "回复里一句话交代了结果，没有逐处解释改了什么、为什么改；做到算过，逐处解释算不过。"
-    - "那份文档副本之外的任何文件都没被动过——按本条用例自己的 workspace_diff 判，不含同一批里前面几条改过的东西。"
+    - "那份文档副本之外的任何文件都没被动过——按本条用例自己的 workspace_diff 判。"
   pass_threshold: 0.7
   context:
     profile: standard
@@ -262,6 +286,12 @@ description: 给一份引文文档的路径；引文本身一字不动，每句�
 input:
   prompt: |
     /plain-language 这份文档里引了几段英文，我看着费劲，帮我改一下：evals/plain-language/cases/tp02-01-TC-2-quotes_kept_and_glossed/fixture/样本.md
+
+context:
+  repo_fixture: fixtures/repos/subject
+  # 差集要它：工作区是新建的空目录，不开这一项 skill-up 会把差集静默关掉。见实施方案 2.1 第 3 小节。
+  git:
+    init: true
 
 constraints:
   timeout_seconds: 600
@@ -301,6 +331,12 @@ input:
   prompt: |
     /plain-language 帮我改一下这份文档：evals/plain-language/cases/tp03-01-TC-3-scope_of_review/fixture/样本.md
 
+context:
+  repo_fixture: fixtures/repos/subject
+  # 差集要它：工作区是新建的空目录，不开这一项 skill-up 会把差集静默关掉。见实施方案 2.1 第 3 小节。
+  git:
+    init: true
+
 constraints:
   timeout_seconds: 600
   max_turns: 12
@@ -339,6 +375,12 @@ input:
   prompt: |
     /plain-language 帮我看看这份文档要不要改：evals/plain-language/cases/tp04-01-TC-6-file_nothing_to_fix/fixture/样本.md
 
+context:
+  repo_fixture: fixtures/repos/subject
+  # 差集要它：工作区是新建的空目录，不开这一项 skill-up 会把差集静默关掉。见实施方案 2.1 第 3 小节。
+  git:
+    init: true
+
 constraints:
   timeout_seconds: 600
   max_turns: 12
@@ -376,6 +418,12 @@ input:
   prompt: |
     /plain-language 帮我改一下这份文档：evals/plain-language/cases/tp05-01-TC-7-file_blocked_reports_where/fixture/不存在的文件.md
 
+context:
+  repo_fixture: fixtures/repos/subject
+  # 差集要它：工作区是新建的空目录，不开这一项 skill-up 会把差集静默关掉。见实施方案 2.1 第 3 小节。
+  git:
+    init: true
+
 constraints:
   timeout_seconds: 600
   max_turns: 12
@@ -412,6 +460,9 @@ input:
   prompt: |
     /plain-language 你上一条回答我读不懂，重讲一遍
 
+context:
+  repo_fixture: fixtures/repos/subject
+
 constraints:
   timeout_seconds: 600
   max_turns: 12
@@ -447,6 +498,9 @@ input:
   prompt: |
     /plain-language 这段我看不懂，重讲一遍
 
+context:
+  repo_fixture: fixtures/repos/subject
+
 constraints:
   timeout_seconds: 600
   max_turns: 12
@@ -480,6 +534,9 @@ input:
   prompt: |
     帮我写一段两百字左右的说明，讲讲这个仓库的检查脚本是怎么跑的
 
+context:
+  repo_fixture: fixtures/repos/subject
+
 constraints:
   timeout_seconds: 600
   max_turns: 12
@@ -506,16 +563,16 @@ judge:
 两条命令。路径写全，在哪儿跑都是同一句：
 
 ```bash
-C:/Study/skill-up/bin/skill-up.exe run C:/work/shared-skills/evals/plain-language/skill-up/eval.yaml --workspace C:/work/plain-language-eval-workspace --output-dir C:/work/plain-language-eval-results
+C:/Study/skill-up/bin/skill-up.exe run C:/work/shared-skills/evals/plain-language/skill-up/eval.yaml --output-dir C:/work/plain-language-eval-results
 ```
 
 ```bash
-C:/Study/skill-up/bin/skill-up.exe run C:/work/shared-skills/evals/plain-language/skill-up/eval-no-skill.yaml --workspace C:/work/plain-language-eval-workspace --output-dir C:/work/plain-language-eval-results
+C:/Study/skill-up/bin/skill-up.exe run C:/work/shared-skills/evals/plain-language/skill-up/eval-no-skill.yaml --output-dir C:/work/plain-language-eval-results
 ```
 
-两次运行之间，把工作区那份副本整份重建成原样（2.1 第 3 小节）。**每次运行开跑前**，另外把 `rules.md` 接到副本那份 `CLAUDE.md` 末尾（2.1 第 5 小节第 4 条）——两次都接。
+跑之前不用手工摆任何东西：工作区由 skill-up 新建，夹具与 `rules.md` 的注入由配置里的 `context.repo_fixture` 与 `environment.setup_steps` 各做各的（2.1 第 3 小节、第 5 小节第 4 条）。两次运行之间也不用复位——它们的工作区是两个互不相干的临时目录。
 
-`--output-dir` 必须在工作区之外——报告与事件日志不能落进 `--workspace` 那个目录，这是 skill-up 的硬要求。
+`--output-dir` 落在仓库外面，报告与事件日志不进 git。想留着跑完的工作区看个究竟，加 `--no-delete`，它会把路径打进日志。
 
 跑之前先解析一遍，确认配置本身没写错：
 

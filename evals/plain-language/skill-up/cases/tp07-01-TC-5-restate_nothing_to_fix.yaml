@@ -11,6 +11,9 @@ input:
   prompt: |
     /plain-language 这段我看不懂，重讲一遍
 
+context:
+  repo_fixture: fixtures/repos/subject
+
 constraints:
   timeout_seconds: 600
   max_turns: 12

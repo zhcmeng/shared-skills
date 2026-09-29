@@ -8,6 +8,12 @@ input:
   prompt: |
     /plain-language 这份文档读着绕，帮我改一下：evals/plain-language/cases/tp01-01-TC-1-fix_only_what_should_change/fixture/样本.md
 
+context:
+  repo_fixture: fixtures/repos/subject
+  # 差集要它：工作区是新建的空目录，不开这一项 skill-up 会把差集静默关掉。见实施方案 2.1 第 3 小节。
+  git:
+    init: true
+
 constraints:
   timeout_seconds: 600
   max_turns: 12
@@ -28,7 +34,7 @@ judge:
     - "文中已给出定义的术语、代码标识符、路径、命令名、产品名、公认缩写、已经进入中文日常用法的直译词，这七类一个字没动。"
     - "文档里本来就没问题的句子一个字没动。"
     - "回复里一句话交代了结果，没有逐处解释改了什么、为什么改；做到算过，逐处解释算不过。"
-    - "那份文档副本之外的任何文件都没被动过——按本条用例自己的 workspace_diff 判，不含同一批里前面几条改过的东西。"
+    - "那份文档副本之外的任何文件都没被动过——按本条用例自己的 workspace_diff 判。"
   pass_threshold: 0.7
   context:
     profile: standard

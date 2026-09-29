@@ -9,6 +9,9 @@ input:
   prompt: |
     帮我写一段两百字左右的说明，讲讲这个仓库的检查脚本是怎么跑的
 
+context:
+  repo_fixture: fixtures/repos/subject
+
 constraints:
   timeout_seconds: 600
   max_turns: 12

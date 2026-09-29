@@ -8,6 +8,12 @@ input:
   prompt: |
     /plain-language 帮我改一下这份文档：evals/plain-language/cases/tp05-01-TC-7-file_blocked_reports_where/fixture/不存在的文件.md
 
+context:
+  repo_fixture: fixtures/repos/subject
+  # 差集要它：工作区是新建的空目录，不开这一项 skill-up 会把差集静默关掉。见实施方案 2.1 第 3 小节。
+  git:
+    init: true
+
 constraints:
   timeout_seconds: 600
   max_turns: 12
