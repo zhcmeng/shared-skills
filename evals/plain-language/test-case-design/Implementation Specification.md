@@ -646,16 +646,16 @@ judge:
 两条命令。路径写全，在哪儿跑都是同一句：
 
 ```bash
-C:/Study/skill-up/bin/skill-up.exe run C:/work/shared-skills/evals/plain-language/eval.yaml --output-dir C:/work/plain-language-eval-results
+C:/Study/skill-up/bin/skill-up.exe run C:/work/shared-skills/evals/plain-language/eval.yaml --output-dir C:/work/shared-skills/evals/plain-language/results
 ```
 
 ```bash
-C:/Study/skill-up/bin/skill-up.exe run C:/work/shared-skills/evals/plain-language/eval-no-skill.yaml --output-dir C:/work/plain-language-eval-results
+C:/Study/skill-up/bin/skill-up.exe run C:/work/shared-skills/evals/plain-language/eval-no-skill.yaml --output-dir C:/work/shared-skills/evals/plain-language/results
 ```
 
 跑之前不用手工摆任何东西：工作区由 skill-up 新建，夹具与 `rules.md` 的注入由配置里的 `context.repo_fixture` 与 `environment.setup_steps` 各做各的（2.1 第 3 小节、第 5 小节第 4 条）。两次运行之间也不用复位——它们的工作区是两个互不相干的临时目录。
 
-`--output-dir` 落在仓库外面，报告与事件日志不进 git。想留着跑完的工作区看个究竟，加 `--no-delete`，它会把路径打进日志。
+`--output-dir` 落在 `plugin/` 外面，报告与事件日志不进 git（`.gitignore` 里那条 `evals/*/results/` 管的）。想留着跑完的工作区看个究竟，加 `--no-delete`，它会把路径打进日志。
 
 跑之前先解析一遍，确认配置本身没写错：
 
@@ -667,4 +667,4 @@ C:/Study/skill-up/bin/skill-up.exe validate C:/work/shared-skills/evals/plain-la
 C:/Study/skill-up/bin/skill-up.exe validate C:/work/shared-skills/evals/plain-language/eval-no-skill.yaml
 ```
 
-报告落在 `--output-dir` 里，不进 git。本仓库的 `.gitignore` 有一条 `evals/*/results/`，本方案把报告放在仓库外面，那一条用不上；留着是因为 `evals/` 下还有几套没并到 skill-up 上的评测材料，它们的结果走那一条。
+报告落在 `--output-dir` 里，也就是 `evals/plain-language/results/`，不进 git——`.gitignore` 里那条 `evals/*/results/` 就是管这个的，`evals/` 下另外几套评测材料的结果也走同一条。
