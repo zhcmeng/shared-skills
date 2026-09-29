@@ -1,6 +1,6 @@
 # 测试数据需求
 
-执行三条测试规程所需的数据，逐条列出。DATA-1 至 DATA-6 是样本：前四条是要交给技能改的文档，后两条是重说那一档要放进上下文的上一条回答。DATA-7 至 DATA-14 是八条用户消息，一条对一条用例。
+执行八条测试规程所需的数据，逐条列出。DATA-1 至 DATA-6 是样本：前四条是要交给技能改的文档，后两条是重说那一档要放进上下文的上一条回答。DATA-7 至 DATA-14 是八条用户消息，一条对一条用例。
 
 | 唯一标识符 | 英文名 | 描述 | 重置需求 |
 |:---|:---|:---|:---|
@@ -11,10 +11,10 @@
 | DATA-5 | previous_answer_with_problems | 上一条回答的样本：一段两百字上下的文字，读起来像 agent 刚给出的一条回答；里面要带那几类问题——自造压缩黑话、生造词与直译词、夹英文各至少一处——另有一两处照原样写的那些（代码标识符或命令名）。这段文字按 TC-4 的前置条件作为 agent 的上一条回答放进上下文。 | 不需要（它只在上下文里，不落盘） |
 | DATA-6 | previous_answer_clean | 上一条回答的样本：一段两百字上下的文字，读起来像 agent 刚给出的一条回答，通篇平实的中文，一处那几类问题都没有；里面可以有代码标识符、路径这类照原样写的那些。这段文字按 TC-5 的前置条件作为 agent 的上一条回答放进上下文。 | 不需要（同上） |
 | DATA-7 | fix_request_mixed | 用户消息样本（TC-1）：`/shared-skills:plain-language 这份文档读着绕，帮我改一下：evals/plain-language/cases/tp01-01-TC-1-fix_only_what_should_change/fixture/样本.md` | 不需要 |
-| DATA-8 | fix_request_quotes | 用户消息样本（TC-2）：`/shared-skills:plain-language 这份文档里引了几段英文，我看着费劲，帮我改一下：evals/plain-language/cases/tp01-02-TC-2-quotes_kept_and_glossed/fixture/样本.md` | 不需要 |
-| DATA-9 | fix_request_scope | 用户消息样本（TC-3）：`/shared-skills:plain-language 帮我改一下这份文档：evals/plain-language/cases/tp01-03-TC-3-scope_of_review/fixture/样本.md` | 不需要 |
+| DATA-8 | fix_request_quotes | 用户消息样本（TC-2）：`/shared-skills:plain-language 这份文档里引了几段英文，我看着费劲，帮我改一下：evals/plain-language/cases/tp02-01-TC-2-quotes_kept_and_glossed/fixture/样本.md` | 不需要 |
+| DATA-9 | fix_request_scope | 用户消息样本（TC-3）：`/shared-skills:plain-language 帮我改一下这份文档：evals/plain-language/cases/tp03-01-TC-3-scope_of_review/fixture/样本.md` | 不需要 |
 | DATA-10 | restate_request_with_problems | 用户消息样本（TC-4，不带参数）：`/shared-skills:plain-language 你上一条回答我读不懂，重讲一遍` | 不需要 |
 | DATA-11 | restate_request_clean | 用户消息样本（TC-5，不带参数）：`/shared-skills:plain-language 这段我看不懂，重讲一遍` | 不需要 |
-| DATA-12 | fix_request_clean | 用户消息样本（TC-6）：`/shared-skills:plain-language 帮我看看这份文档要不要改：evals/plain-language/cases/tp01-04-TC-6-file_nothing_to_fix/fixture/样本.md` | 不需要 |
-| DATA-13 | fix_request_blocked | 用户消息样本（TC-7）：`/shared-skills:plain-language 帮我改一下这份文档：evals/plain-language/cases/tp01-05-TC-7-file_blocked_reports_where/fixture/不存在的文件.md`。消息里指的路径本来就不存在，不用另摆 | 不需要 |
+| DATA-12 | fix_request_clean | 用户消息样本（TC-6）：`/shared-skills:plain-language 帮我看看这份文档要不要改：evals/plain-language/cases/tp04-01-TC-6-file_nothing_to_fix/fixture/样本.md` | 不需要 |
+| DATA-13 | fix_request_blocked | 用户消息样本（TC-7）：`/shared-skills:plain-language 帮我改一下这份文档：evals/plain-language/cases/tp05-01-TC-7-file_blocked_reports_where/fixture/不存在的文件.md`。消息里指的路径本来就不存在，不用另摆 | 不需要 |
 | DATA-14 | ambient_writing_request | 用户消息样本（TC-8，不带技能名——这一档不经 skill）：`帮我写一段两百字左右的说明，讲讲这个仓库的检查脚本是怎么跑的` | 不需要 |

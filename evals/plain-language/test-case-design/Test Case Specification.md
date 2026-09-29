@@ -57,23 +57,23 @@ TCOV-1 至 TCOV-22 照 TM-1 导出（判的是一段文字里各类片段怎么�
 
 ### （一）逐处处置：该改的与不该动的
 
-本组各条共用的前置条件：按 ENV-1 把 `plugin/skills/plain-language/` 整套当作使用者机器上装好的这门技能交给 agent，工作目录设在本仓库根；按 ENV-2 取 agent 当轮的回复、它执行的命令，以及被改动的那份文档在跑前跑后的内容；按 ENV-3 读该条自己的判据文件；样本文件按 ENV-4 备一份可写的副本，各条用各的副本，复位要求见各条数据项。整组在 ENV-6 那处（WSL2）里跑，一条一条重来；盘上那份副本与文档落在 ENV-7 那处（本机 Windows）。
+本组各条共用的前置条件：按 ENV-1 把 `plugin/skills/plain-language/` 整套当作使用者机器上装好的这门技能交给 agent，工作目录设在本仓库根；按 ENV-2 取 agent 当轮的回复、它执行的命令，以及被改动的那份文档在跑前跑后的内容；按 ENV-3 读该条自己的判据文件；样本文件按 ENV-4 备一份可写的副本，各条用各的副本，复位要求见各条数据项。整组在 ENV-6 那处里跑，一条一条重来；盘上那份副本与文档落在 ENV-7 那处。这两处具体落在哪种环境上，见实施方案规格说明。
 
 | 唯一标识符 | 英文名 | 目标 | 风险等级 | 前置条件 | 输入 | 预期结果 |
 |:---|:---|:---|:---|:---|:---|:---|
 | TC-1 | fix_only_what_should_change | 一份文档里既有该改的、也有照原样写的，改完之后该改的都被改掉、不该动的一个字没动 | 高 | 见本组共用前置条件；样本按 DATA-1 备一份副本 | 按 DATA-7 发出那条请求（路径指向 DATA-1 那份文档的副本） | ① 属于 F 组六类的那几处都换成了按字面就懂的中文说法，各处的原词都不再出现；② 属于 K 组七类的那几处一个字没动；③ 文档里那几处本来就没问题的句子一个字没动；④ 回复里一句话交代了结果，没有逐处解释改了什么、为什么改；⑤ 那份文档副本之外的任何文件都没被动过。判据在 `cases/tp01-01-TC-1-fix_only_what_should_change/graders/only-problems-touched.md` |
-| TC-2 | quotes_kept_and_glossed | 文档里的引文：引文本身一字不动，后面补中文 | 高 | 见本组共用前置条件；样本按 DATA-2 备一份副本 | 按 DATA-8 发出那条请求（路径指向 DATA-2 那份文档的副本） | ① 成句成段的引文，每一句原句后面紧跟着该句的中文，原句本身一个字没改；② 当标签用的标题或章节名，本身没动，后面有一个中文短语指认它说的是什么；③ 引文里面如果有那几类问题，没有在引文里面改，而是在引文外面补了说明；④ 引文元数据（作者、出处、年份那一类）一个字没动。判据在 `cases/tp01-02-TC-2-quotes_kept_and_glossed/graders/quotes-untouched.md` |
-| TC-3 | scope_of_review | 审到哪：图注、脚注说明、mermaid 图里的文字要审，frontmatter 不审；代码块依据没规定 | 高 | 见本组共用前置条件；样本按 DATA-3 备一份副本 | 按 DATA-9 发出那条请求（路径指向 DATA-3 那份文档的副本） | ① 图注与脚注说明里那几类问题被改掉；② mermaid 图里的文字里那几类问题被改掉；③ YAML frontmatter 一个字没动；④ 代码块那一处依据没有规定——把实际行为记下来（块内的中文注释动没动、动成了什么样），报给用户定口径，不判对错。判据在 `cases/tp01-03-TC-3-scope_of_review/graders/scope-respected.md` 与 `cases/tp01-03-TC-3-scope_of_review/graders/code-block-unspecified.md` |
-| TC-6 | file_nothing_to_fix | 给路径、文件里一处问题都没有时，一个字不动 | 高 | 见本组共用前置条件；样本按 DATA-4 备一份副本 | 按 DATA-12 发出那条请求（路径指向 DATA-4 那份文档的副本） | ① 那份文件跑完与跑前逐字节相同；② 回复里说出了「这段没有需要改的地方」这个意思，没有为了显得干了活而改一处、也没有把原文换一种说法重抄一遍。判据在 `cases/tp01-04-TC-6-file_nothing_to_fix/graders/file-untouched.md` |
-| TC-7 | file_blocked_reports_where | 给路径、那个文件改不动时，说清卡在哪、把改好的文本一并给出 | 中 | 见本组共用前置条件；那个路径按本条的输入摆成读不进来的样子（用一个不存在的路径，或一个没有写权限的位置） | 按 DATA-13 发出那条请求（路径按该条数据项给） | ① 回复里说清了卡在哪（路径不存在、读不进来、没有写权限这一类原因）；② 回复里把改好的文本一并给出；③ 没有凭空说「已经改好了」，也没有报出一个并不存在的成功结果。判据在 `cases/tp01-05-TC-7-file_blocked_reports_where/graders/blocked-reported.md` |
+| TC-2 | quotes_kept_and_glossed | 文档里的引文：引文本身一字不动，后面补中文 | 高 | 见本组共用前置条件；样本按 DATA-2 备一份副本 | 按 DATA-8 发出那条请求（路径指向 DATA-2 那份文档的副本） | ① 成句成段的引文，每一句原句后面紧跟着该句的中文，原句本身一个字没改；② 当标签用的标题或章节名，本身没动，后面有一个中文短语指认它说的是什么；③ 引文里面如果有那几类问题，没有在引文里面改，而是在引文外面补了说明；④ 引文元数据（作者、出处、年份那一类）一个字没动。判据在 `cases/tp02-01-TC-2-quotes_kept_and_glossed/graders/quotes-untouched.md` |
+| TC-3 | scope_of_review | 审到哪：图注、脚注说明、mermaid 图里的文字要审，frontmatter 不审；代码块依据没规定 | 高 | 见本组共用前置条件；样本按 DATA-3 备一份副本 | 按 DATA-9 发出那条请求（路径指向 DATA-3 那份文档的副本） | ① 图注与脚注说明里那几类问题被改掉；② mermaid 图里的文字里那几类问题被改掉；③ YAML frontmatter 一个字没动；④ 代码块那一处依据没有规定——把实际行为记下来（块内的中文注释动没动、动成了什么样），报给用户定口径，不判对错。判据在 `cases/tp03-01-TC-3-scope_of_review/graders/scope-respected.md` 与 `cases/tp03-01-TC-3-scope_of_review/graders/code-block-unspecified.md` |
+| TC-6 | file_nothing_to_fix | 给路径、文件里一处问题都没有时，一个字不动 | 高 | 见本组共用前置条件；样本按 DATA-4 备一份副本 | 按 DATA-12 发出那条请求（路径指向 DATA-4 那份文档的副本） | ① 那份文件跑完与跑前逐字节相同；② 回复里说出了「这段没有需要改的地方」这个意思，没有为了显得干了活而改一处、也没有把原文换一种说法重抄一遍。判据在 `cases/tp04-01-TC-6-file_nothing_to_fix/graders/file-untouched.md` |
+| TC-7 | file_blocked_reports_where | 给路径、那个文件改不动时，说清卡在哪、把改好的文本一并给出 | 中 | 见本组共用前置条件；那个路径按本条的输入摆成读不进来的样子（用一个不存在的路径，或一个没有写权限的位置） | 按 DATA-13 发出那条请求（路径按该条数据项给） | ① 回复里说清了卡在哪（路径不存在、读不进来、没有写权限这一类原因）；② 回复里把改好的文本一并给出；③ 没有凭空说「已经改好了」，也没有报出一个并不存在的成功结果。判据在 `cases/tp05-01-TC-7-file_blocked_reports_where/graders/blocked-reported.md` |
 
 ### （二）产出与交代
 
 | 唯一标识符 | 英文名 | 目标 | 风险等级 | 前置条件 | 输入 | 预期结果 |
 |:---|:---|:---|:---|:---|:---|:---|
-| TC-4 | restate_whole_answer | 无参数时把最近产出的那条回答整条重讲一遍，只给正文 | 高 | 按 ENV-1 把技能整套交给 agent；按 DATA-5 把那段文字作为 agent 的上一条回答放进上下文；其余同上一组共用前置条件 | 按 DATA-10 发出那条请求（不带参数） | ① 重讲的那段正文里，那几类问题都不再出现；② 信息不增不减——没有加原文没有的判断，也没有漏原文有的内容；③ 只给了重讲的那段正文，没有附改动说明、没有列出拿不准的地方。判据在 `cases/tp02-01-TC-4-restate_whole_answer/graders/restated-and-complete.md` |
-| TC-5 | restate_nothing_to_fix | 无参数、上一条回答一处问题都没有时，说出那句话，不硬凑 | 高 | 同 TC-4，上一条回答按 DATA-6 放 | 按 DATA-11 发出那条请求（不带参数） | ① 回复里说出了「这段没有需要改的地方」这个意思；② 没有为了显得干了活而改一处本来没问题的地方，也没有把原文换一种说法重抄一遍当成重讲。判据在 `cases/tp02-02-TC-5-restate_nothing_to_fix/graders/no-forced-changes.md` |
-| TC-8 | ambient_writing_stays_plain | 常驻注入之下直接写东西，产出里那几类形态不出现 | 中 | 按 ENV-5 把 `rules.md` 按 SessionStart hook 的做法注入上下文（这一档不经 skill，调用方式与前面几条不同）；按 ENV-2 取当轮的产出文本 | 按 DATA-14 发出那条请求 | ① 产出里出现的每一个英文词，都在当地给了中文（给中文解释或给译名都算）；② 产出里没有出现自造压缩黑话、生造词与直译词；③ 产出里没有出现夹英文的句子。判据在 `cases/tp03-01-TC-8-ambient_writing_stays_plain/graders/plain-output.md` |
+| TC-4 | restate_whole_answer | 无参数时把最近产出的那条回答整条重讲一遍，只给正文 | 高 | 按 ENV-1 把技能整套交给 agent；按 DATA-5 把那段文字作为 agent 的上一条回答放进上下文；其余同上一组共用前置条件 | 按 DATA-10 发出那条请求（不带参数） | ① 重讲的那段正文里，那几类问题都不再出现；② 信息不增不减——没有加原文没有的判断，也没有漏原文有的内容；③ 只给了重讲的那段正文，没有附改动说明、没有列出拿不准的地方。判据在 `cases/tp06-01-TC-4-restate_whole_answer/graders/restated-and-complete.md` |
+| TC-5 | restate_nothing_to_fix | 无参数、上一条回答一处问题都没有时，说出那句话，不硬凑 | 高 | 同 TC-4，上一条回答按 DATA-6 放 | 按 DATA-11 发出那条请求（不带参数） | ① 回复里说出了「这段没有需要改的地方」这个意思；② 没有为了显得干了活而改一处本来没问题的地方，也没有把原文换一种说法重抄一遍当成重讲。判据在 `cases/tp07-01-TC-5-restate_nothing_to_fix/graders/no-forced-changes.md` |
+| TC-8 | ambient_writing_stays_plain | 常驻注入之下直接写东西，产出里那几类形态不出现 | 中 | 按 ENV-5 把 `rules.md` 按 SessionStart hook 的做法注入上下文（这一档不经 skill，调用方式与前面几条不同）；按 ENV-2 取当轮的产出文本 | 按 DATA-14 发出那条请求 | ① 产出里出现的每一个英文词，都在当地给了中文（给中文解释或给译名都算）；② 产出里没有出现自造压缩黑话、生造词与直译词；③ 产出里没有出现夹英文的句子。判据在 `cases/tp08-01-TC-8-ambient_writing_stays_plain/graders/plain-output.md` |
 
 三条说明：
 
@@ -128,4 +128,4 @@ TCOV-1 至 TCOV-22 照 TM-1 导出（判的是一段文字里各类片段怎么�
 
 | 成品 | 落的是哪些条目 |
 |:---|:---|
-| 还没落成 | 这一批将来按测试规程规格说明的「各批落到哪」落成评测用例，落在 `evals/plain-language/cases/` 下（一条用例一个目录，`prompt.md` 加 `graders/` 里的判据文件）。目录名照测试规程规格说明的「各批落到哪」那一栏，形如 `tp01-01-TC-1-fix_only_what_should_change`；同一套用例落成可跑测试时，这一块改填那些路径。要落的是 TC-1 至 TC-8 与它们的覆盖项 TCOV-1 至 TCOV-36、TM-1 至 TM-4、TP-1 至 TP-3、DATA-1 至 DATA-14、ENV-1 至 ENV-7 |
+| 还没落成 | 这一批将来按测试规程规格说明的「各批落到哪」落成评测用例，落在 `evals/plain-language/cases/` 下（一条用例一个目录，`prompt.md` 加 `graders/` 里的判据文件）。目录名照测试规程规格说明的「各批落到哪」那一栏，形如 `tp01-01-TC-1-fix_only_what_should_change`；同一套用例落成可跑测试时，这一块改填那些路径。要落的是 TC-1 至 TC-8 与它们的覆盖项 TCOV-1 至 TCOV-36、TM-1 至 TM-4、TP-1 至 TP-8、DATA-1 至 DATA-14、ENV-1 至 ENV-7 |
