@@ -1,15 +1,26 @@
 # 落到 evals/plain-language/skill-up/cases/tp07-01-TC-5-restate_nothing_to_fix.yaml
 # TP-7 / TC-5（高风险；覆盖项 TCOV-29）
-# input.prompt 的前头接着 DATA-6 的全文，见实施方案 2.1 第 5 小节第 3 条。
+# DATA-6 的全文接在用户消息里：skill-up 的多轮只收 user 角色，塞不进一条 assistant 消息。
+# 这里有一处保真度折扣，见实施方案 2.1 第 5 小节第 3 条。
 id: tp07-01-TC-5-restate_nothing_to_fix
 title: 上一条回答没毛病时不硬凑
 description: 上一条回答一处问题都没有；说出「这段没有需要改的地方」，不为了显得干了活而改一处
 
 input:
-  # 真要跑的时候，还要在下面这一行前面接上 DATA-6 的全文，见 2.1 第 5 小节第 3 条。
-  # DATA-6 的正文属于下一批产物，现在还没有。
   prompt: |
-    /plain-language 这段我看不懂，重讲一遍
+    /plain-language 这段我看不懂：
+
+    这次改动我梳理了一下。
+
+    现在这套检查有个盲区：文档里的表格没人管。链接对不对、标题层级顺不顺，`10-links.sh` 与 `20-headings.sh` 各管一样，但表格的行列数对不上，整套检查跑完也不会报。
+
+    补的办法是在 `checks/verify.d/` 下面加一个模块，名字叫 `30-tables.sh`，文件名的数字决定它排在最后跑。这个模块只做一件事：把每张表的行列数数一遍，对不上的报出来。
+
+    新模块的边界也说清楚：它只管表格。链接和标题层级仍旧由原来那两个模块管，不要重复检查。
+
+    写完跑一次 `bash checks/verify.sh`，输出的最后一行会列出这次一共跑了几个模块。看到三个，就说明新模块被认出来了。
+
+    重讲一遍
 
 context:
   repo_fixture: fixtures/repos/subject

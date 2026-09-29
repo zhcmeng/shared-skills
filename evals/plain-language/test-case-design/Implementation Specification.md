@@ -365,7 +365,7 @@ judge:
     - "图注与脚注说明里那几类问题被改掉。"
     - "mermaid 图里的文字里那几类问题被改掉。"
     - "YAML frontmatter 一个字没动。"
-    - "代码块那一处——块内的中文注释或字符串——依据没有规定审不审：把实际行为记下来（动没动、动成了什么样），报给用户定口径，不判对错。改了算过、没改也算过，唯独不许不记这一处。"
+    - "代码块那一处——块内的中文注释或字符串——依据没有规定审不审：这条只看回复里有没有说清 agent 对那一处做了什么（动了还是没动、动成了什么样），好让用户定口径。改了算过、没改也算过，唯独回复里对这一处一个字不提、用户看不出它现在是什么状态，算不过。动了没动以盘上改动为准。"
     - "那份文档副本之外的任何文件都没被动过。"
   pass_threshold: 0.7
   context:
@@ -462,16 +462,23 @@ judge:
 ```yaml
 # 落到 evals/plain-language/skill-up/cases/tp06-01-TC-4-restate_whole_answer.yaml
 # TP-6 / TC-4（高风险；覆盖项 TCOV-28、TCOV-34）
-# input.prompt 的前头接着 DATA-5 的全文，见实施方案 2.1 第 5 小节第 3 条。
+# DATA-5 的全文接在用户消息里：skill-up 的多轮只收 user 角色，塞不进一条 assistant 消息。
+# 这里有一处保真度折扣，见实施方案 2.1 第 5 小节第 3 条。
 id: tp06-01-TC-4-restate_whole_answer
 title: 无参数时把上一条回答整条重讲
 description: 上一条回答里有那几类问题；重讲的那段正文里不再出现，信息不增不减，只给正文
 
 input:
-  # 真要跑的时候，还要在下面这一行前面接上 DATA-5 的全文，写成
-  # 「你上一条回答我读不懂：<那段全文>。重讲一遍」。DATA-5 的正文属于下一批产物，现在还没有。
   prompt: |
-    /plain-language 你上一条回答我读不懂，重讲一遍
+    /plain-language 你上一条回答我读不懂：
+
+    我把这次改动梳理了一下。整件事的思路是上层认知扩口、下层收割：先让读者知道现在这套检查有个盲区，再给出补上的办法。
+
+    具体做法是在 `checks/verify.d/` 下面加一个模块，名字叫 `30-tables.sh`。这个模块的心智物理很简单：把文档里所有表格的行列数对一遍，对不上的就报出来。这样整条链路的 decision journey 会更顺一些。
+
+    另外我们 align 一下这个 approach 的边界：新模块只管表格，链接和标题层级还是原来的 `10-links.sh` 与 `20-headings.sh` 管。跑的时候用 `bash checks/verify.sh`，一次全跑。
+
+    重讲一遍
 
 context:
   repo_fixture: fixtures/repos/subject
@@ -500,16 +507,27 @@ judge:
 ```yaml
 # 落到 evals/plain-language/skill-up/cases/tp07-01-TC-5-restate_nothing_to_fix.yaml
 # TP-7 / TC-5（高风险；覆盖项 TCOV-29）
-# input.prompt 的前头接着 DATA-6 的全文，见实施方案 2.1 第 5 小节第 3 条。
+# DATA-6 的全文接在用户消息里：skill-up 的多轮只收 user 角色，塞不进一条 assistant 消息。
+# 这里有一处保真度折扣，见实施方案 2.1 第 5 小节第 3 条。
 id: tp07-01-TC-5-restate_nothing_to_fix
 title: 上一条回答没毛病时不硬凑
 description: 上一条回答一处问题都没有；说出「这段没有需要改的地方」，不为了显得干了活而改一处
 
 input:
-  # 真要跑的时候，还要在下面这一行前面接上 DATA-6 的全文，见 2.1 第 5 小节第 3 条。
-  # DATA-6 的正文属于下一批产物，现在还没有。
   prompt: |
-    /plain-language 这段我看不懂，重讲一遍
+    /plain-language 这段我看不懂：
+
+    这次改动我梳理了一下。
+
+    现在这套检查有个盲区：文档里的表格没人管。链接对不对、标题层级顺不顺，`10-links.sh` 与 `20-headings.sh` 各管一样，但表格的行列数对不上，整套检查跑完也不会报。
+
+    补的办法是在 `checks/verify.d/` 下面加一个模块，名字叫 `30-tables.sh`，文件名的数字决定它排在最后跑。这个模块只做一件事：把每张表的行列数数一遍，对不上的报出来。
+
+    新模块的边界也说清楚：它只管表格。链接和标题层级仍旧由原来那两个模块管，不要重复检查。
+
+    写完跑一次 `bash checks/verify.sh`，输出的最后一行会列出这次一共跑了几个模块。看到三个，就说明新模块被认出来了。
+
+    重讲一遍
 
 context:
   repo_fixture: fixtures/repos/subject

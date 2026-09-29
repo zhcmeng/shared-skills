@@ -1,15 +1,22 @@
 # 落到 evals/plain-language/skill-up/cases/tp06-01-TC-4-restate_whole_answer.yaml
 # TP-6 / TC-4（高风险；覆盖项 TCOV-28、TCOV-34）
-# input.prompt 的前头接着 DATA-5 的全文，见实施方案 2.1 第 5 小节第 3 条。
+# DATA-5 的全文接在用户消息里：skill-up 的多轮只收 user 角色，塞不进一条 assistant 消息。
+# 这里有一处保真度折扣，见实施方案 2.1 第 5 小节第 3 条。
 id: tp06-01-TC-4-restate_whole_answer
 title: 无参数时把上一条回答整条重讲
 description: 上一条回答里有那几类问题；重讲的那段正文里不再出现，信息不增不减，只给正文
 
 input:
-  # 真要跑的时候，还要在下面这一行前面接上 DATA-5 的全文，写成
-  # 「你上一条回答我读不懂：<那段全文>。重讲一遍」。DATA-5 的正文属于下一批产物，现在还没有。
   prompt: |
-    /plain-language 你上一条回答我读不懂，重讲一遍
+    /plain-language 你上一条回答我读不懂：
+
+    我把这次改动梳理了一下。整件事的思路是上层认知扩口、下层收割：先让读者知道现在这套检查有个盲区，再给出补上的办法。
+
+    具体做法是在 `checks/verify.d/` 下面加一个模块，名字叫 `30-tables.sh`。这个模块的心智物理很简单：把文档里所有表格的行列数对一遍，对不上的就报出来。这样整条链路的 decision journey 会更顺一些。
+
+    另外我们 align 一下这个 approach 的边界：新模块只管表格，链接和标题层级还是原来的 `10-links.sh` 与 `20-headings.sh` 管。跑的时候用 `bash checks/verify.sh`，一次全跑。
+
+    重讲一遍
 
 context:
   repo_fixture: fixtures/repos/subject
