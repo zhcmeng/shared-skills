@@ -1,12 +1,18 @@
 # 落到 evals/plain-language/skill-up/cases/tp05-01-TC-7-file_blocked_reports_where.yaml
-# TP-5 / TC-7（中风险；覆盖项 TCOV-31、TCOV-35）
+# TP-5 / TC-7（中风险；覆盖项 TCOV-30、TCOV-33、TCOV-37）
+# 两轮一条用例：第一轮那个路径本来就不存在，第二轮那份没有写权限（见 DATA-15）。
 id: tp05-01-TC-7-file_blocked_reports_where
-title: 改不动的文件：说清卡在哪
-description: 给一个本来就不存在的路径；回复里说清卡在哪，把改好的文本一并给出
+title: 改不动的文件：读不到的说清路径，写不进去的说清卡在哪
+description: 两轮：第一轮给一个本来就不存在的路径，回复里说清是哪个路径读不到；第二轮给一份没有写权限的样本，说清卡在哪、把改好的文本一并给出
 
 input:
-  prompt: |
-    /plain-language 帮我改一下这份文档：evals/plain-language/cases/tp05-01-TC-7-file_blocked_reports_where/fixture/不存在的文件.md
+  turns:
+    - role: user
+      content: |
+        /plain-language 帮我改一下这份文档：evals/plain-language/cases/tp05-01-TC-7-file_blocked_reports_where/fixture/不存在的文件.md
+    - role: user
+      content: |
+        /plain-language 那这份呢：evals/plain-language/cases/tp05-01-TC-7-file_blocked_reports_where/fixture/只读样本.md
 
 context:
   repo_fixture: fixtures/repos/subject
@@ -25,11 +31,12 @@ judge:
   type: agent_judge
   model: anthropic/claude-sonnet-4-6
   criteria:
-    - "只看这一轮的产出与盘上的改动；不替 agent 补话，也不替它解释。"
-    - "回复里说清了卡在哪——路径不存在、读不进来、没有写权限这一类原因，说出一个就行，措辞不限。"
-    - "回复里把改好的文本一并给出。"
-    - "没有凭空说「已经改好了」，也没有报出一个并不存在的成功结果。"
-    - "这一条不要求盘上有任何改动：那个路径本来就不存在。"
+    - "两轮分开判：第一轮按 transcript 里第一轮的那条回复判，第二轮按最后一条回复判。只看这两轮的产出与盘上的改动；不替 agent 补话，也不替它解释。"
+    - "第一轮：回复里说清了是哪个路径读不到、为什么，措辞不限。"
+    - "第二轮：回复里说清了卡在哪——那份文件没有写权限这一类原因，说出一个就行，措辞不限。"
+    - "第二轮：回复里把改好的文本一并给出；那段正文是从那份文件改出来的，不是凭空造的。"
+    - "两轮都没有凭空说「已经改好了」，也没有把改不动的文件说成改好了、报出一个并不存在的成功结果。"
+    - "盘上那份没有写权限的样本跑完与跑前逐字节相同，别的文件也没被动过——按 workspace_diff 判。"
   pass_threshold: 0.7
   context:
     profile: standard

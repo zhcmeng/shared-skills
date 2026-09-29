@@ -1,5 +1,5 @@
 # 落到 evals/plain-language/skill-up/cases/tp06-01-TC-4-restate_whole_answer.yaml
-# TP-6 / TC-4（高风险；覆盖项 TCOV-28、TCOV-32）
+# TP-6 / TC-4（高风险；覆盖项 TCOV-28、TCOV-34）
 # input.prompt 的前头接着 DATA-5 的全文，见实施方案 2.1 第 5 小节第 3 条。
 id: tp06-01-TC-4-restate_whole_answer
 title: 无参数时把上一条回答整条重讲

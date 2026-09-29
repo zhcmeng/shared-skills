@@ -15,7 +15,7 @@
 | ENV-1 | `skill-up/eval.yaml` 的 `skills[].path` | 指向 `../../plugin/skills/plain-language`，`include` 只装 `SKILL.md` 与 `rules.md` |
 | ENV-2 | `skill-up/eval.yaml` 的 `report.artifacts` 与各条 `judge.context` | 回复看 `final_message`，盘上改动看 `workspace_diff: file_ref` |
 | ENV-3 | `skill-up/cases/<目录名>.yaml` 的 `judge.criteria` | 各条用例「预期结果」栏的散文压成条目 |
-| ENV-4 | 夹具 `evals/plain-language/fixtures/repos/subject/` | 每条用例各把这个目录的内容铺进自己那份临时工作区；原始夹具全程不动。四份样本就摆在这棵树里 |
+| ENV-4 | 夹具 `evals/plain-language/fixtures/repos/subject/` | 每条用例各把这个目录的内容铺进自己那份临时工作区；原始夹具全程不动。五份样本就摆在这棵树里，铺进去之后权限跟原始样本一致（TC-7 那份是只读的） |
 | ENV-5 | 两次运行的 `environment.setup_steps`——从绝对路径读 `rules.md` 写进工作区的 `CLAUDE.md`；见 2.1 第 5 小节第 4 条 | 钩子那条道在本方案里走不通：skill-up 起 claude 时带 `--settings '{"disableAllHooks":true}'`，钩子一律不生效 |
 | ENV-6 | skill-up 每条用例各建一个的临时工作区 | 见 2.1 第 3 小节：跑完就删，重试与迭代各起一个。ENV-6 要的「每跑一条之前清干净」由框架自己保证 |
 | ENV-7 | 同上那一个临时工作区 | 被测那侧就是建这个目录的机器（本机 Windows）；样本副本也在这一处 |
@@ -31,8 +31,9 @@
 | DATA-10 | `skill-up/cases/tp06-01-TC-4-restate_whole_answer.yaml` 的 `input.prompt` | 同上（同一条 YAML 里另有 DATA-5） |
 | DATA-11 | `skill-up/cases/tp07-01-TC-5-restate_nothing_to_fix.yaml` 的 `input.prompt` | 同上（同一条 YAML 里另有 DATA-6） |
 | DATA-12 | `skill-up/cases/tp04-01-TC-6-file_nothing_to_fix.yaml` 的 `input.prompt` | 同上 |
-| DATA-13 | `skill-up/cases/tp05-01-TC-7-file_blocked_reports_where.yaml` 的 `input.prompt` | 同上 |
+| DATA-13 | `skill-up/cases/tp05-01-TC-7-file_blocked_reports_where.yaml` 的 `input.turns` | 同上；这一条装的是两条消息，一轮一条 |
 | DATA-14 | `skill-up/cases/tp08-01-TC-8-ambient_writing_stays_plain.yaml` 的 `input.prompt` | 同上 |
+| DATA-15 | `fixtures/repos/subject/evals/plain-language/cases/tp05-01-TC-7-file_blocked_reports_where/fixture/只读样本.md` | 没有写权限的文档样本；权限靠工作树带过去，**git 不存这个属性**，重新克隆之后要在工作树里重设一次（`chmod 444`），见 2.1 第 3 小节 |
 
 ## 二、方案：skill-up
 
@@ -59,9 +60,17 @@
 
 1. **常驻注入**：第 5 小节第 4 条那条 `setup_steps`，最先跑。
 2. **技能**：随后装到 `.claude/skills/plain-language/`，照 `include` 只装 `SKILL.md` 与 `rules.md`（运行二不装这一档）。
-3. **夹具**：最后把 `evals/plain-language/fixtures/repos/subject/` 这棵子树的**内容**铺到工作区根上，由 `context.repo_fixture: fixtures/repos/subject` 指定。四份样本摆在这棵树里，位置照 DATA-7 至 DATA-14 那几条消息写的。
+3. **夹具**：最后把 `evals/plain-language/fixtures/repos/subject/` 这棵子树的**内容**铺到工作区根上，由 `context.repo_fixture: fixtures/repos/subject` 指定。五份样本摆在这棵树里，位置照 DATA-7 至 DATA-14 那几条消息写的。
 
 顺序是实测的：`setup_steps` 跑在夹具铺进来**之前**。所以夹具里不许有 `CLAUDE.md`——放了会把注入冲掉。
+
+**只读那份样本的权限靠工作树带过去。** skill-up 铺夹具是逐字节写文件、连原文件的权限一起带上（`none` 这一档的 `UploadDir` 保留源文件的模式位），所以 DATA-15 在工作树里设成只读，铺进工作区之后还是只读——TC-7 判据⑤要的「写不进去」这个前提才成立。**git 不存这个属性**（它只存执行位），重新克隆仓库之后那份文件又变回可写的，跑之前要在工作树里重设一次：
+
+```bash
+chmod 444 "C:/work/shared-skills/evals/plain-language/fixtures/repos/subject/evals/plain-language/cases/tp05-01-TC-7-file_blocked_reports_where/fixture/只读样本.md"
+```
+
+没设成只读就跑，agent 会把它改掉，判据⑤判不过，屏幕上看不出是环境没摆对——所以这条要在跑之前自己核一眼。
 
 **差集要开 `context.git.init`。** 工作区是新建的空目录，不是 git 仓库。skill-up 拍基线之前先探一下这里是不是 git 仓库，不是就**把差集静默关掉**——不报错、不中断，只在判官材料的清单里留一行 `workspace_diff: omit`，屏幕上什么也看不出来。开了 `git.init: true`，它就在工作区里 `git init`，把当时盘上所有文件 `git add --all` 提交成一条基线；这条基线是在夹具与注入都到位之后拍的，所以差集里只剩被测 agent 改的东西。用到 `workspace_diff` 的五条（TC-1、TC-2、TC-3、TC-6、TC-7）都带这一项；另外三条不带，因为它们的判据不看盘上改动，带了也是白拍。
 
@@ -85,8 +94,8 @@
 | TC-1 | 退出码 0；回复里不出现「我无法」「我没有权限」「路径不存在」 | 该改的六类都改了、K 组七类一个字没动、本来没问题的句子没动、回复只一句话交代、副本之外没动过 |
 | TC-2 | 退出码 0；同上三个词 | 引文逐句对照、标签式标题后面有中文指认、引文里的问题在引文外面说明、引文元数据没动 |
 | TC-3 | 退出码 0；同上三个词 | 图注与脚注说明改了、mermaid 里的文字改了、frontmatter 没动、代码块那一处只记实际行为不判对错 |
-| TC-6 | 退出码 0；同上三个词 | 那份文件逐字节没变、回复说出了「这段没有需要改的地方」这个意思、没有硬凑 |
-| TC-7 | 退出码 0 | 说清卡在哪、把改好的文本一并给出、没有凭空说已经改好了 |
+| TC-6 | 退出码 0；同上三个词 | 那份文件逐字节没变、回复说出了「这份没有需要改的地方」这个意思、没有硬凑 |
+| TC-7 | 退出码 0 | 第一轮说清是哪个路径读不到、为什么；第二轮说清卡在哪、把改好的文本一并给出；两轮都没有凭空说已经改好了；盘上那份只读样本逐字节没变 |
 | TC-4 | 退出码 0 | 重讲的正文里那几类问题不再出现、信息不增不减、只给正文 |
 | TC-5 | 退出码 0 | 说出了「这段没有需要改的地方」这个意思、没有硬凑 |
 | TC-8 | 退出码 0 | 英文词都就地给了中文、没有自造压缩黑话与生造词、没有夹英文的句子 |
@@ -118,10 +127,12 @@
 - **为什么不用「把 `rules.md` 接在用户消息前面」**：那样它就成了这一条消息里的内容，不再是被测的那个常驻注入，而 TC-8 判的正是常驻注入之下的落笔。
 - **为什么不用「放一份 `rules.md` 在夹具里，命名成 `CLAUDE.md`」**：那一份会跟真仓库那份各自漂移；改了 `rules.md` 忘了同步夹具，跑出来的结论就不作数。从绝对路径读真仓库那份，只有一份源。
 
+**第 5 条：TC-7 的两轮怎么发。** 这一条用 `input.turns` 发两条用户消息，一轮一条（其余七条用 `input.prompt` 发一条）。skill-up 接着同一个会话跑第二轮（`claude_code` 这一档支持按会话 ID 接着跑），所以第二轮里 agent 还记得第一轮给过什么。判据按轮分开写：判官拿到的材料是完整 transcript 加上最后一条回复，第一轮那条回复要从 transcript 里取——判据第一条明写了这件事。
+
 **6. 跑不了原样的那几条**
 
 - TC-4、TC-5：第 5 小节第 3 条那处折扣。其余四条（TC-1、TC-2、TC-3、TC-6）与设计稿一致，没有出入。
-- TC-7：数据项里指的路径在夹具里确实没有，不用另摆什么，与设计稿一致。**这一条的判据③「回复里把改好的文本一并给出」还没定口径**：那份文档不存在，也就没有「改好的文本」可给。实测跑了一遍，agent 说清了卡在哪、也说清了它按文件名找过整个工作区，但没有正文可附——判据③必然判不过。等定口径。
+- TC-7：**这一条走两轮**，其余七条一轮。第一轮那个路径本来就不存在（与设计稿一致，不用另摆什么）；第二轮那份只读样本按 DATA-15 摆在工作树里，权限靠工作树带过去（见第 3 小节）。两轮合在一条用例里，是因为两路的触发方式与失败形状相同，分开只是把同一条链再走一遍。这条用例的前身在实测里暴露过一次口径问题：那一轮给的是不存在的路径，判据却要求「回复里把改好的文本一并给出」——那份文档不存在，没有正文可附，判据必然判不过。拆成两轮正是为了把这个口径钉死：读不到那一档只判「说清是哪个路径」，给正文那一档才判「把改好的文本一并给出」。
 - TC-8：这一档不经 skill，跑法与其余七条不同——不装技能，只靠常驻注入的那份 `rules.md`。这是设计稿里就写着的，不是折扣。
 
 ### 2.2 可跑配置（YAML 原文）
@@ -234,7 +245,7 @@ TC-4、TC-5 那两块多一段：`input.prompt` 的前头接着 DATA-5、DATA-6 
 
 ```yaml
 # 落到 evals/plain-language/skill-up/cases/tp01-01-TC-1-fix_only_what_should_change.yaml
-# TP-1 / TC-1（高风险；覆盖项 TCOV-1 至 TCOV-13、TCOV-21、TCOV-22、TCOV-25 至 TCOV-27、TCOV-30、TCOV-33）
+# TP-1 / TC-1（高风险；覆盖项 TCOV-1 至 TCOV-13、TCOV-21、TCOV-22、TCOV-25 至 TCOV-27、TCOV-32、TCOV-35）
 id: tp01-01-TC-1-fix_only_what_should_change
 title: 该改的改掉、不该动的一个字没动
 description: 给一份混合文档的路径，逐句审并直接改原文件；改完该改的都改了、照原样写的那些一个字没动
@@ -366,7 +377,7 @@ judge:
 
 ```yaml
 # 落到 evals/plain-language/skill-up/cases/tp04-01-TC-6-file_nothing_to_fix.yaml
-# TP-4 / TC-6（高风险；覆盖项 TCOV-34）
+# TP-4 / TC-6（高风险；覆盖项 TCOV-31、TCOV-36）
 id: tp04-01-TC-6-file_nothing_to_fix
 title: 一处问题都没有的文件，一个字不动
 description: 给一份通篇平实中文的文档的路径；跑完那份文件逐字节没变，回复里说「这段没有需要改的地方」
@@ -409,14 +420,20 @@ judge:
 
 ```yaml
 # 落到 evals/plain-language/skill-up/cases/tp05-01-TC-7-file_blocked_reports_where.yaml
-# TP-5 / TC-7（中风险；覆盖项 TCOV-31、TCOV-35）
+# TP-5 / TC-7（中风险；覆盖项 TCOV-30、TCOV-33、TCOV-37）
+# 两轮一条用例：第一轮那个路径本来就不存在，第二轮那份没有写权限（见 DATA-15）。
 id: tp05-01-TC-7-file_blocked_reports_where
-title: 改不动的文件：说清卡在哪
-description: 给一个本来就不存在的路径；回复里说清卡在哪，把改好的文本一并给出
+title: 改不动的文件：读不到的说清路径，写不进去的说清卡在哪
+description: 两轮：第一轮给一个本来就不存在的路径，回复里说清是哪个路径读不到；第二轮给一份没有写权限的样本，说清卡在哪、把改好的文本一并给出
 
 input:
-  prompt: |
-    /plain-language 帮我改一下这份文档：evals/plain-language/cases/tp05-01-TC-7-file_blocked_reports_where/fixture/不存在的文件.md
+  turns:
+    - role: user
+      content: |
+        /plain-language 帮我改一下这份文档：evals/plain-language/cases/tp05-01-TC-7-file_blocked_reports_where/fixture/不存在的文件.md
+    - role: user
+      content: |
+        /plain-language 那这份呢：evals/plain-language/cases/tp05-01-TC-7-file_blocked_reports_where/fixture/只读样本.md
 
 context:
   repo_fixture: fixtures/repos/subject
@@ -435,11 +452,12 @@ judge:
   type: agent_judge
   model: anthropic/claude-sonnet-4-6
   criteria:
-    - "只看这一轮的产出与盘上的改动；不替 agent 补话，也不替它解释。"
-    - "回复里说清了卡在哪——路径不存在、读不进来、没有写权限这一类原因，说出一个就行，措辞不限。"
-    - "回复里把改好的文本一并给出。"
-    - "没有凭空说「已经改好了」，也没有报出一个并不存在的成功结果。"
-    - "这一条不要求盘上有任何改动：那个路径本来就不存在。"
+    - "两轮分开判：第一轮按 transcript 里第一轮的那条回复判，第二轮按最后一条回复判。只看这两轮的产出与盘上的改动；不替 agent 补话，也不替它解释。"
+    - "第一轮：回复里说清了是哪个路径读不到、为什么，措辞不限。"
+    - "第二轮：回复里说清了卡在哪——那份文件没有写权限这一类原因，说出一个就行，措辞不限。"
+    - "第二轮：回复里把改好的文本一并给出；那段正文是从那份文件改出来的，不是凭空造的。"
+    - "两轮都没有凭空说「已经改好了」，也没有把改不动的文件说成改好了、报出一个并不存在的成功结果。"
+    - "盘上那份没有写权限的样本跑完与跑前逐字节相同，别的文件也没被动过——按 workspace_diff 判。"
   pass_threshold: 0.7
   context:
     profile: standard
@@ -448,7 +466,7 @@ judge:
 
 ```yaml
 # 落到 evals/plain-language/skill-up/cases/tp06-01-TC-4-restate_whole_answer.yaml
-# TP-6 / TC-4（高风险；覆盖项 TCOV-28、TCOV-32）
+# TP-6 / TC-4（高风险；覆盖项 TCOV-28、TCOV-34）
 # input.prompt 的前头接着 DATA-5 的全文，见实施方案 2.1 第 5 小节第 3 条。
 id: tp06-01-TC-4-restate_whole_answer
 title: 无参数时把上一条回答整条重讲
@@ -524,7 +542,7 @@ judge:
 
 ```yaml
 # 落到 evals/plain-language/skill-up/cases/tp08-01-TC-8-ambient_writing_stays_plain.yaml
-# TP-8 / TC-8（中风险；覆盖项 TCOV-36）
+# TP-8 / TC-8（中风险；覆盖项 TCOV-38）
 # 这一条跑在运行二：不装技能，只把 rules.md 注进上下文。
 id: tp08-01-TC-8-ambient_writing_stays_plain
 title: 常驻注入之下直接写东西

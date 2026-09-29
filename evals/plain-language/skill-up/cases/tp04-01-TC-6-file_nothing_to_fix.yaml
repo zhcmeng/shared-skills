@@ -1,5 +1,5 @@
 # 落到 evals/plain-language/skill-up/cases/tp04-01-TC-6-file_nothing_to_fix.yaml
-# TP-4 / TC-6（高风险；覆盖项 TCOV-34）
+# TP-4 / TC-6（高风险；覆盖项 TCOV-31、TCOV-36）
 id: tp04-01-TC-6-file_nothing_to_fix
 title: 一处问题都没有的文件，一个字不动
 description: 给一份通篇平实中文的文档的路径；跑完那份文件逐字节没变，回复里说「这段没有需要改的地方」

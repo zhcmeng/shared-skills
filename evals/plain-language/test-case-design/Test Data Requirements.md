@@ -1,6 +1,6 @@
 # 测试数据需求
 
-执行八条测试规程所需的数据，逐条列出。DATA-1 至 DATA-6 是样本：前四条是要交给技能改的文档，后两条是重说那一档要放进上下文的上一条回答。DATA-7 至 DATA-14 是八条用户消息，一条对一条用例。
+执行八条测试规程所需的数据，逐条列出。DATA-1 至 DATA-6 是样本：前四条是要交给技能改的文档，后两条是重说那一档要放进上下文的上一条回答。DATA-7 至 DATA-14 是八条用户消息，一条对一条用例（TC-7 那条走两轮，DATA-13 装的是两条消息，一轮一条）。DATA-15 也是样本，编号排在最后是为了不动 DATA-1 至 DATA-14 的号：TC-7 第二轮那份没有写权限的文档。
 
 | 唯一标识符 | 英文名 | 描述 | 重置需求 |
 |:---|:---|:---|:---|
@@ -16,5 +16,6 @@
 | DATA-10 | restate_request_with_problems | 用户消息样本（TC-4，不带参数）：`/shared-skills:plain-language 你上一条回答我读不懂，重讲一遍` | 不需要 |
 | DATA-11 | restate_request_clean | 用户消息样本（TC-5，不带参数）：`/shared-skills:plain-language 这段我看不懂，重讲一遍` | 不需要 |
 | DATA-12 | fix_request_clean | 用户消息样本（TC-6）：`/shared-skills:plain-language 帮我看看这份文档要不要改：evals/plain-language/cases/tp04-01-TC-6-file_nothing_to_fix/fixture/样本.md` | 不需要 |
-| DATA-13 | fix_request_blocked | 用户消息样本（TC-7）：`/shared-skills:plain-language 帮我改一下这份文档：evals/plain-language/cases/tp05-01-TC-7-file_blocked_reports_where/fixture/不存在的文件.md`。消息里指的路径本来就不存在，不用另摆 | 不需要 |
+| DATA-13 | fix_request_blocked | 用户消息样本（TC-7，两条一轮一条）：第一条 `/shared-skills:plain-language 帮我改一下这份文档：evals/plain-language/cases/tp05-01-TC-7-file_blocked_reports_where/fixture/不存在的文件.md`——这条路径本来就不存在，不用另摆；第二条 `/shared-skills:plain-language 那这份呢：evals/plain-language/cases/tp05-01-TC-7-file_blocked_reports_where/fixture/只读样本.md`——这份按 DATA-15 摆成没有写权限的样子 | 不需要 |
 | DATA-14 | ambient_writing_request | 用户消息样本（TC-8，不带技能名——这一档不经 skill）：`帮我写一段两百字左右的说明，讲讲这个仓库的检查脚本是怎么跑的` | 不需要 |
+| DATA-15 | readonly_document | 没有写权限的文档样本：一份 Markdown 文档，正文里放进两三处该改的（黑话、生造词、夹英文这一类），其余是平实的中文——用来判「读得到、有该改的、但写不进去」这一档：说清卡在哪、把改好的文本一并给出，两件都要判出来。这份文件的写权限要去掉（本机 Windows 上 `chmod 444` 就是把它设成只读），摆进工作区之后权限要跟原始样本一致；重新克隆仓库不会带上这个属性，跑之前要重新设一次 | 不需要（它没有写权限，改不动；跑完核对它逐字节没变） |

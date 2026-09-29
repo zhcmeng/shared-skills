@@ -1,5 +1,5 @@
 # 落到 evals/plain-language/skill-up/cases/tp01-01-TC-1-fix_only_what_should_change.yaml
-# TP-1 / TC-1（高风险；覆盖项 TCOV-1 至 TCOV-13、TCOV-21、TCOV-22、TCOV-25 至 TCOV-27、TCOV-30、TCOV-33）
+# TP-1 / TC-1（高风险；覆盖项 TCOV-1 至 TCOV-13、TCOV-21、TCOV-22、TCOV-25 至 TCOV-27、TCOV-32、TCOV-35）
 id: tp01-01-TC-1-fix_only_what_should_change
 title: 该改的改掉、不该动的一个字没动
 description: 给一份混合文档的路径，逐句审并直接改原文件；改完该改的都改了、照原样写的那些一个字没动

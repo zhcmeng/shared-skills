@@ -1,5 +1,5 @@
 # 落到 evals/plain-language/skill-up/cases/tp08-01-TC-8-ambient_writing_stays_plain.yaml
-# TP-8 / TC-8（中风险；覆盖项 TCOV-36）
+# TP-8 / TC-8（中风险；覆盖项 TCOV-38）
 # 这一条跑在运行二：不装技能，只把 rules.md 注进上下文。
 id: tp08-01-TC-8-ambient_writing_stays_plain
 title: 常驻注入之下直接写东西
