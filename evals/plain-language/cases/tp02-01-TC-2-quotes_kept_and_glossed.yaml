@@ -1,4 +1,4 @@
-# 落到 evals/plain-language/skill-up/cases/tp02-01-TC-2-quotes_kept_and_glossed.yaml
+# 落到 evals/plain-language/cases/tp02-01-TC-2-quotes_kept_and_glossed.yaml
 # TP-2 / TC-2（高风险；覆盖项 TCOV-14、TCOV-15、TCOV-19、TCOV-24）
 id: tp02-01-TC-2-quotes_kept_and_glossed
 title: 引文原样留着，后面补中文
@@ -9,7 +9,7 @@ input:
     /plain-language 这份文档里引了几段英文，我看着费劲，帮我改一下：evals/plain-language/cases/tp02-01-TC-2-quotes_kept_and_glossed/fixture/样本.md
 
 context:
-  repo_fixture: fixtures/repos/subject
+  repo_fixture: plain-language/fixtures/repos/subject
   # 差集要它：工作区是新建的空目录，不开这一项 skill-up 会把差集静默关掉。见实施方案 2.1 第 3 小节。
   git:
     init: true
@@ -35,6 +35,12 @@ judge:
     - "引文里面如果有那几类问题，没有在引文里面改，而是在引文外面补了说明。"
     - "引文元数据（作者、出处、年份那一类）一个字没动。"
     - "那份文档副本之外的任何文件都没被动过。"
+    - "「补说明」补在哪都行：紧跟引用块后面另起一段最自然，写在引用块上一段也认，只要求读者看得出这一段是在解释上面引用块里的说法。"
+    - "引文的中文可以照抄样本里已有的，原样留着算对；把中文润色一遍但意思不变也算对——不许的是把原句动了。"
+    - "当标签用的标题，后面那个中文指认写成什么样不限：标题本身没动、后面有一个中文短语指认它说的是什么，就算过。"
+    - "这条只管引文与元数据那几处：引文之外的正文如果有那几类问题，改掉才对，不算动多了。"
+    - "取不到前后差别时（差集为空、或被判成省略了），不要因此判不通过：工作区是个 git 仓库，跑前的状态已提交成一条基线，用 git status --porcelain -uall 与 git diff 就能看出改了什么，对不上的地方再读一遍文件本身。"
+    - "工作区里 .claude/skills/plain-language/ 那两条删除是框架的动作，不是 agent 干的，不要算到「样本之外的文件被动过」头上。"
   pass_threshold: 0.7
   context:
     profile: standard

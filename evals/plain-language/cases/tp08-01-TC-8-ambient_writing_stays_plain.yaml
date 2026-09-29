@@ -1,4 +1,4 @@
-# 落到 evals/plain-language/skill-up/cases/tp08-01-TC-8-ambient_writing_stays_plain.yaml
+# 落到 evals/plain-language/cases/tp08-01-TC-8-ambient_writing_stays_plain.yaml
 # TP-8 / TC-8（中风险；覆盖项 TCOV-38）
 # 这一条跑在运行二：不装技能，只把 rules.md 注进上下文。
 id: tp08-01-TC-8-ambient_writing_stays_plain
@@ -10,7 +10,7 @@ input:
     帮我写一段两百字左右的说明，讲讲这个仓库的检查脚本是怎么跑的
 
 context:
-  repo_fixture: fixtures/repos/subject
+  repo_fixture: plain-language/fixtures/repos/subject
 
 constraints:
   timeout_seconds: 600
@@ -28,6 +28,9 @@ judge:
     - "产出里没有出现自造压缩黑话、生造词与直译词。"
     - "产出里没有出现夹英文的句子。"
     - "这一条判的是落笔时按不按 rules.md 写，不判技能有没有被唤起。"
+    - "照原样写的那些不给中文不算问题：路径、命令名、文件名、缩写本来就说照贴，不要因为出现了英文就判不通过，判的是当日常词用的那些。"
+    - "「落笔时按不按」不等于「写得漂不漂亮」：字数写成一百八或两百四都不算问题，写得离题了也不在这条判据里。"
+    - "产出里可以带小标题：写「## 怎么跑」这类小标题不算问题，小标题本身也得是平白的中文。"
   pass_threshold: 0.7
   context:
     profile: standard

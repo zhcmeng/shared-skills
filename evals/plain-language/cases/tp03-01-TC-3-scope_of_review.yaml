@@ -1,4 +1,4 @@
-# 落到 evals/plain-language/skill-up/cases/tp03-01-TC-3-scope_of_review.yaml
+# 落到 evals/plain-language/cases/tp03-01-TC-3-scope_of_review.yaml
 # TP-3 / TC-3（高风险；覆盖项 TCOV-16 至 TCOV-18、TCOV-20、TCOV-23）
 id: tp03-01-TC-3-scope_of_review
 title: 图注、脚注、mermaid 里的文字要审，frontmatter 不审
@@ -9,7 +9,7 @@ input:
     /plain-language 帮我改一下这份文档：evals/plain-language/cases/tp03-01-TC-3-scope_of_review/fixture/样本.md
 
 context:
-  repo_fixture: fixtures/repos/subject
+  repo_fixture: plain-language/fixtures/repos/subject
   # 差集要它：工作区是新建的空目录，不开这一项 skill-up 会把差集静默关掉。见实施方案 2.1 第 3 小节。
   git:
     init: true
@@ -35,6 +35,14 @@ judge:
     - "YAML frontmatter 一个字没动。"
     - "代码块那一处——块内的中文注释或字符串——依据没有规定审不审：这条只看回复里有没有说清 agent 对那一处做了什么（动了还是没动、动成了什么样），好让用户定口径。改了算过、没改也算过，唯独回复里对这一处一个字不提、用户看不出它现在是什么状态，算不过。动了没动以盘上改动为准。"
     - "那份文档副本之外的任何文件都没被动过。"
+    - "这三处的改法不限：判的是意思不是原话，不要求用某一个指定的词。"
+    - "mermaid 图改了之后还得是能画的图：只改节点标签、连线上写的话算对，把图类型关键字、箭头写法、节点 id 一起改了、改到画不出来，算动了不该动的。"
+    - "frontmatter 与其他内容一样要逐字节比：分隔线、字段顺序、缩进、冒号后的空格都算在里面，只改了一个字段值也算不通过。"
+    - "取不到前后差别时（差集为空、或被判成省略了），不要因此判不通过：工作区是个 git 仓库，跑前的状态已提交成一条基线，用 git status --porcelain -uall 与 git diff 就能看出改了什么，对不上的地方再读一遍文件本身。"
+    - "工作区里 .claude/skills/plain-language/ 那两条删除是框架的动作，不是 agent 干的，不要算到「那份文档副本之外的文件被动过」头上。"
+    - "代码块那一处说在哪儿都行：跟结果那句交代写在一起、单独另起一句，都认。"
+    - "代码块那一处说得含糊也算过，只要指认得出是代码块——写「那段代码我没动」「注释部分我没碰」都算，写「有些地方我拿不准」而全文没提过代码块的，不算。"
+    - "只取第一条回复、按补全之后的信息算：第一句交代之后又补了话，补上了就算过。"
   pass_threshold: 0.7
   context:
     profile: standard

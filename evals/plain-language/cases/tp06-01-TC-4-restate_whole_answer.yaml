@@ -1,4 +1,4 @@
-# 落到 evals/plain-language/skill-up/cases/tp06-01-TC-4-restate_whole_answer.yaml
+# 落到 evals/plain-language/cases/tp06-01-TC-4-restate_whole_answer.yaml
 # TP-6 / TC-4（高风险；覆盖项 TCOV-28、TCOV-34）
 # DATA-5 的全文接在用户消息里：skill-up 的多轮只收 user 角色，塞不进一条 assistant 消息。
 # 这里有一处保真度折扣，见实施方案 2.1 第 5 小节第 3 条。
@@ -19,7 +19,7 @@ input:
     重讲一遍
 
 context:
-  repo_fixture: fixtures/repos/subject
+  repo_fixture: plain-language/fixtures/repos/subject
 
 constraints:
   timeout_seconds: 600
@@ -37,6 +37,11 @@ judge:
     - "信息不增不减——没有加原文没有的判断，也没有漏原文有的内容。"
     - "只给了重讲的那段正文，没有附改动说明、没有列出拿不准的地方。"
     - "不判「上一条回答在哪」这件事：它的摆法带一处保真度折扣，见实施方案 2.1 第 5 小节第 3 条。"
+    - "黑话换成什么意思都行，判的是意思不是原话：只要按字面就懂、原来那个词不再出现，不要求用某一个词。"
+    - "照原样写的那些重讲时照旧：代码标识符、路径、命令名照贴才对，把它们译成中文、或者加一句解释，算改了不该动的。"
+    - "「信息不增不减」按意思判、不按字数判：重讲的句子长一点短一点都行，原文那几层意思在不在才是判的；原文里那个比喻保留这层意思算对，把整个比喻删掉写成平实说法也算对，完全不提这层按减了算。"
+    - "「只给正文」不要求一个字都不多：正文前后有一句「重讲如下」这类引导，按没多说算、不扣；真正不通过的是改动说明与拿不准的清单。"
+    - "原文没毛病的地方照旧保留：这段原文里本来就平实的中文，重讲时照旧留着。"
   pass_threshold: 0.7
   context:
     profile: standard

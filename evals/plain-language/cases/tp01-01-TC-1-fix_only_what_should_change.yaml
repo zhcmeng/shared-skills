@@ -1,4 +1,4 @@
-# 落到 evals/plain-language/skill-up/cases/tp01-01-TC-1-fix_only_what_should_change.yaml
+# 落到 evals/plain-language/cases/tp01-01-TC-1-fix_only_what_should_change.yaml
 # TP-1 / TC-1（高风险；覆盖项 TCOV-1 至 TCOV-13、TCOV-21、TCOV-22、TCOV-25 至 TCOV-27、TCOV-32、TCOV-35）
 id: tp01-01-TC-1-fix_only_what_should_change
 title: 该改的改掉、不该动的一个字没动
@@ -9,7 +9,7 @@ input:
     /plain-language 这份文档读着绕，帮我改一下：evals/plain-language/cases/tp01-01-TC-1-fix_only_what_should_change/fixture/样本.md
 
 context:
-  repo_fixture: fixtures/repos/subject
+  repo_fixture: plain-language/fixtures/repos/subject
   # 差集要它：工作区是新建的空目录，不开这一项 skill-up 会把差集静默关掉。见实施方案 2.1 第 3 小节。
   git:
     init: true
@@ -35,6 +35,11 @@ judge:
     - "文档里本来就没问题的句子一个字没动。"
     - "回复里一句话交代了结果，没有逐处解释改了什么、为什么改；做到算过，逐处解释算不过。"
     - "那份文档副本之外的任何文件都没被动过。"
+    - "那六处改成什么说法不限：判的是意思不是原话，不要求用某一个指定的词。"
+    - "判「已定义的术语」这一处之前，先确认它真的在前文定义过：样本里定义在前、用在后，两处都要看。"
+    - "取不到前后差别时（差集为空、或被判成省略了），不要因此判不通过：工作区是个 git 仓库，跑前的状态已提交成一条基线，用 git status --porcelain -uall 与 git diff 就能看出改了什么，对不上的地方再读一遍文件本身。"
+    - "工作区里 .claude/skills/plain-language/ 那两条删除是框架的动作，不是 agent 干的，不要算到「那份文档副本之外的文件被动过」头上。"
+    - "只取第一条回复：它后面又说了什么不改变这一条的判定，盘上的改动照常算——改了两遍但改对了算通过，改完又改坏算不通过。"
   pass_threshold: 0.7
   context:
     profile: standard

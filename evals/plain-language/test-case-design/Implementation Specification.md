@@ -12,28 +12,28 @@
 
 | 通用稿的编号 | 本方案里落在哪 | 说明 |
 |:---|:---|:---|
-| ENV-1 | `skill-up/eval.yaml` 的 `skills[].path` | 指向 `../../plugin/skills/plain-language`，`include` 只装 `SKILL.md` 与 `rules.md` |
-| ENV-2 | `skill-up/eval.yaml` 的 `report.artifacts` 与各条 `judge.context` | 回复看 `final_message`，盘上改动看 `workspace_diff`（standard 档默认 `file_ref`） |
-| ENV-3 | `skill-up/cases/<目录名>.yaml` 的 `judge.criteria` | 各条用例「预期结果」栏的散文压成条目 |
+| ENV-1 | `eval.yaml` 的 `skills[].path` | 指向 `../plugin/skills/plain-language`，`include` 只装 `SKILL.md` 与 `rules.md` |
+| ENV-2 | `eval.yaml` 的 `report.artifacts` 与各条 `judge.context` | 回复看 `final_message`，盘上改动看 `workspace_diff`（standard 档默认 `file_ref`） |
+| ENV-3 | `cases/<用例名>.yaml` 的 `judge.criteria` | 各条用例「预期结果」栏的散文压成条目，连「判的时候留个心」那些操作提示一并写进去 |
 | ENV-4 | 夹具 `evals/plain-language/fixtures/repos/subject/` | 每条用例各把这个目录的内容铺进自己那份临时工作区；原始夹具全程不动。五份样本就摆在这棵树里，铺进去之后权限跟原始样本一致（TC-7 那份是只读的） |
 | ENV-5 | 两次运行的 `environment.setup_steps`——从绝对路径读 `rules.md` 写进工作区的 `CLAUDE.md`；见 2.1 第 5 小节第 4 条 | 钩子那条道在本方案里走不通：skill-up 起 claude 时带 `--settings '{"disableAllHooks":true}'`，钩子一律不生效 |
 | ENV-6 | skill-up 每条用例各建一个的临时工作区 | 见 2.1 第 3 小节：跑完就删，重试与迭代各起一个。ENV-6 要的「每跑一条之前清干净」由框架自己保证 |
 | ENV-7 | 同上那一个临时工作区 | 被测那侧就是建这个目录的机器（本机 Windows）；样本副本也在这一处 |
-| DATA-1 | `fixtures/repos/subject/evals/plain-language/cases/tp01-01-TC-1-fix_only_what_should_change/fixture/样本.md` | 混合文档样本；路径的基准见 2.2 开头 |
-| DATA-2 | `fixtures/repos/subject/evals/plain-language/cases/tp02-01-TC-2-quotes_kept_and_glossed/fixture/样本.md` | 引文文档样本；同上 |
-| DATA-3 | `fixtures/repos/subject/evals/plain-language/cases/tp03-01-TC-3-scope_of_review/fixture/样本.md` | 审的范围文档样本；同上 |
-| DATA-4 | `fixtures/repos/subject/evals/plain-language/cases/tp04-01-TC-6-file_nothing_to_fix/fixture/样本.md` | 一处问题都没有的文档样本；同上 |
-| DATA-5 | `skill-up/cases/tp06-01-TC-4-restate_whole_answer.yaml` 的 `input.prompt` 正文 | 接在用户消息前面，见 2.1 第 5 小节第 3 条 |
-| DATA-6 | `skill-up/cases/tp07-01-TC-5-restate_nothing_to_fix.yaml` 的 `input.prompt` 正文 | 同上 |
-| DATA-7 | `skill-up/cases/tp01-01-TC-1-fix_only_what_should_change.yaml` 的 `input.prompt` | 一条对一条 |
-| DATA-8 | `skill-up/cases/tp02-01-TC-2-quotes_kept_and_glossed.yaml` 的 `input.prompt` | 同上 |
-| DATA-9 | `skill-up/cases/tp03-01-TC-3-scope_of_review.yaml` 的 `input.prompt` | 同上 |
-| DATA-10 | `skill-up/cases/tp06-01-TC-4-restate_whole_answer.yaml` 的 `input.prompt` | 同上（同一条 YAML 里另有 DATA-5） |
-| DATA-11 | `skill-up/cases/tp07-01-TC-5-restate_nothing_to_fix.yaml` 的 `input.prompt` | 同上（同一条 YAML 里另有 DATA-6） |
-| DATA-12 | `skill-up/cases/tp04-01-TC-6-file_nothing_to_fix.yaml` 的 `input.prompt` | 同上 |
-| DATA-13 | `skill-up/cases/tp05-01-TC-7-file_blocked_reports_where.yaml` 的 `input.turns` | 同上；这一条装的是两条消息，一轮一条 |
-| DATA-14 | `skill-up/cases/tp08-01-TC-8-ambient_writing_stays_plain.yaml` 的 `input.prompt` | 同上 |
-| DATA-15 | `fixtures/repos/subject/evals/plain-language/cases/tp05-01-TC-7-file_blocked_reports_where/fixture/只读样本.md` | 没有写权限的文档样本；权限靠工作树带过去，**git 不存这个属性**，重新克隆之后要在工作树里重设一次（`chmod 444`），见 2.1 第 3 小节 |
+| DATA-1 | `plain-language/fixtures/repos/subject/evals/plain-language/cases/tp01-01-TC-1-fix_only_what_should_change/fixture/样本.md` | 混合文档样本；路径的基准见 2.2 开头 |
+| DATA-2 | `plain-language/fixtures/repos/subject/evals/plain-language/cases/tp02-01-TC-2-quotes_kept_and_glossed/fixture/样本.md` | 引文文档样本；同上 |
+| DATA-3 | `plain-language/fixtures/repos/subject/evals/plain-language/cases/tp03-01-TC-3-scope_of_review/fixture/样本.md` | 审的范围文档样本；同上 |
+| DATA-4 | `plain-language/fixtures/repos/subject/evals/plain-language/cases/tp04-01-TC-6-file_nothing_to_fix/fixture/样本.md` | 一处问题都没有的文档样本；同上 |
+| DATA-5 | `plain-language/cases/tp06-01-TC-4-restate_whole_answer.yaml` 的 `input.prompt` 正文 | 接在用户消息前面，见 2.1 第 5 小节第 3 条 |
+| DATA-6 | `plain-language/cases/tp07-01-TC-5-restate_nothing_to_fix.yaml` 的 `input.prompt` 正文 | 同上 |
+| DATA-7 | `plain-language/cases/tp01-01-TC-1-fix_only_what_should_change.yaml` 的 `input.prompt` | 一条对一条 |
+| DATA-8 | `plain-language/cases/tp02-01-TC-2-quotes_kept_and_glossed.yaml` 的 `input.prompt` | 同上 |
+| DATA-9 | `plain-language/cases/tp03-01-TC-3-scope_of_review.yaml` 的 `input.prompt` | 同上 |
+| DATA-10 | `plain-language/cases/tp06-01-TC-4-restate_whole_answer.yaml` 的 `input.prompt` | 同上（同一条 YAML 里另有 DATA-5） |
+| DATA-11 | `plain-language/cases/tp07-01-TC-5-restate_nothing_to_fix.yaml` 的 `input.prompt` | 同上（同一条 YAML 里另有 DATA-6） |
+| DATA-12 | `plain-language/cases/tp04-01-TC-6-file_nothing_to_fix.yaml` 的 `input.prompt` | 同上 |
+| DATA-13 | `plain-language/cases/tp05-01-TC-7-file_blocked_reports_where.yaml` 的 `input.turns` | 同上；这一条装的是两条消息，一轮一条 |
+| DATA-14 | `plain-language/cases/tp08-01-TC-8-ambient_writing_stays_plain.yaml` 的 `input.prompt` | 同上 |
+| DATA-15 | `plain-language/fixtures/repos/subject/evals/plain-language/cases/tp05-01-TC-7-file_blocked_reports_where/fixture/只读样本.md` | 没有写权限的文档样本；权限靠工作树带过去，**git 不存这个属性**，重新克隆之后要在工作树里重设一次（`chmod 444`），见 2.1 第 3 小节 |
 
 ## 二、方案：skill-up
 
@@ -41,7 +41,7 @@
 
 **1. 这份管什么**
 
-把六份通用设计稿落成 skill-up 跑得起来的东西。八条测试规程（TP-1 至 TP-8）落成八个用例目录与八条用例配置，技能本身一个字不改。
+把六份通用设计稿落成 skill-up 跑得起来的东西。八条测试规程（TP-1 至 TP-8）落成八条用例配置，技能本身一个字不改。
 
 **2. 跑几次、每次跑哪几条**
 
@@ -60,7 +60,7 @@
 
 1. **常驻注入**：第 5 小节第 4 条那条 `setup_steps`，最先跑。
 2. **技能**：随后装到 `.claude/skills/plain-language/`，照 `include` 只装 `SKILL.md` 与 `rules.md`（运行二不装这一档）。
-3. **夹具**：最后把 `evals/plain-language/fixtures/repos/subject/` 这棵子树的**内容**铺到工作区根上，由 `context.repo_fixture: fixtures/repos/subject` 指定。五份样本摆在这棵树里，位置照 DATA-7 至 DATA-14 那几条消息写的。
+3. **夹具**：最后把 `evals/plain-language/fixtures/repos/subject/` 这棵子树的**内容**铺到工作区根上，由 `context.repo_fixture: plain-language/fixtures/repos/subject` 指定。五份样本摆在这棵树里，位置照 DATA-7 至 DATA-14 那几条消息写的。
 
 顺序是实测的：`setup_steps` 跑在夹具铺进来**之前**。所以夹具里不许有 `CLAUDE.md`——放了会把注入冲掉。
 
@@ -108,13 +108,15 @@ chmod 444 "C:/work/shared-skills/evals/plain-language/fixtures/repos/subject/eva
 
 **第 1 条：技能怎么被唤起。** 消息里的 `/shared-skills:plain-language` 渲染成 `/plain-language`。skill-up 只把技能目录装到 `.claude/skills/<技能名>/`，没有装插件这条道，带插件前缀唤起不来。
 
-**第 2 条：样本路径。** 按工作区里的相对路径原样给（`evals/plain-language/cases/<目录名>/fixture/样本.md`）。这个路径在新工作区里指得到，靠的是夹具照同一串路径把样本摆进去，不再靠「工作区是本仓库的副本」。
+**第 2 条：样本路径。** 按工作区里的相对路径原样给（`evals/plain-language/cases/<用例名>/fixture/样本.md`）。这个路径在新工作区里指得到，靠的是夹具照同一串路径把样本摆进去，不再靠「工作区是本仓库的副本」。这一串路径是**工作区里**的路径，跟本仓库现在的 `cases/` 底下摆什么无关——那儿现在只有 `<用例名>.yaml`，样本只住在夹具里。
 
 **第 3 条：TC-4、TC-5 的「上一条回答」。** 按甲路径渲染——把 DATA-5、DATA-6 的全文接在用户消息前面，写成「你上一条回答我读不懂：<那段全文>。重讲一遍」。
 
 这里有一处**保真度折扣**，读判据的时候要知道：真跑时那段文字是对话历史里的一条独立消息；渲染之后，它变成同一条用户消息里的一段引用。原因是 skill-up 的多轮对话只收 `user` 角色，塞不进一条 assistant 消息。受影响的是「上一条回答在哪」这件事——判据里不要写它；不受影响的是「重讲的那段正文」——判据里判的正是这个，照旧。
 
-**备选（丁）**：这两条本方案不跑，等 skill-up 支持注入 assistant 轮次再补。
+**这处折扣值多少，量过。** 三种摆法都跑过：出货这一条（DATA-6 接在用户消息里）跑四次，四次判不过；把用户消息的措辞换成「你上一条回答我看不懂」、让「这段」明确指回上一条回答，跑三次，三次不过；让 agent 第一轮先把那段文字原样复述一遍、第二轮才说「这段我看不懂，重讲一遍」——这样那段文字就**真的**是它自己的上一条回答，折扣被绕开——跑三次，过一次。**TC-5 判不过这笔账因此要分两半记**：一半是这处折扣（绕开之前 100% 挂，绕开之后 67% 挂），一半是真的行为缺口——`SKILL.md` 里「原文没问题就说『这段没有需要改的地方』，不硬凑」那句是写着的，但它只有约三分之一的时候照做。这是被测技能的问题，不是这条用例的摆法问题；改技能要抬版本号，本次没动。
+
+**备选（丁）**：这两条本方案不跑，等 skill-up 支持注入 assistant 轮次再补。上面第三种摆法能绕开折扣，代价是多一轮、且第一轮的复述未必逐字，出货的仍是甲路径。
 
 **第 4 条：ENV-5 的注入怎么摆。** 走「项目根目录的 `CLAUDE.md`」这条道，写进两次运行各自的 `environment.setup_steps`——一条 `cat "<绝对路径>" >> CLAUDE.md`。Claude Code 起会话时会读项目根目录的 `CLAUDE.md`，它与 SessionStart 钩子一样，是会话开头的常驻上下文。
 
@@ -137,13 +139,17 @@ chmod 444 "C:/work/shared-skills/evals/plain-language/fixtures/repos/subject/eva
 
 ### 2.2 可跑配置（YAML 原文）
 
-**相对路径的基准是 `evals/plain-language/`。** skill-up 找技能根的办法是：从 `eval.yaml` 所在目录往上找带 `SKILL.md` 的目录；找不到就退到「`eval.yaml` 所在目录的上一层」。配置文件放在 `evals/plain-language/skill-up/` 下，上一层正好是 `evals/plain-language/`，所以 `skills[].path` 写成 `../../plugin/skills/plain-language`、`cases.files` 写成 `skill-up/cases/...`。
+**相对路径的基准是 `evals/`。** skill-up 找技能根的办法是：从 `eval.yaml` 所在目录往上找带 `SKILL.md` 的目录；找不到就退到「`eval.yaml` 所在目录的上一层」。技能在 `plugin/skills/plain-language/` 下、评测材料在 `evals/plain-language/` 下，两处不在一块，所以上面那条「往上找」永远找不到，每次都退一步——这份配置就摆在 `evals/plain-language/` 里，退一步正好是 `evals/`，基准就是它。因此下面每一条相对路径都带 `plain-language/` 这个前缀：`skills[].path` 写成 `../plugin/skills/plain-language`、`cases.files` 写成 `plain-language/cases/...`、`context.repo_fixture` 写成 `plain-language/fixtures/repos/subject`。
 
-**第 1 块：运行一的 `eval.yaml`，落到 `evals/plain-language/skill-up/eval.yaml`**
+每次跑都会打一条 `SKILL.md not found ... falling back to ...\evals` 的警告，这是上面那一步退让的正常产物，不是错。
+
+**第 1 块：运行一的 `eval.yaml`，落到 `evals/plain-language/eval.yaml`**
 
 ```yaml
 # 运行一：装技能，跑 TP-1 至 TP-7（TC-1 至 TC-7）。
-# 相对路径的基准是 evals/plain-language/。改这一份之前先看实施方案 2.1 第 3 小节。
+# 相对路径的基准是 evals/：skill-up 从 eval.yaml 所在目录往上找带 SKILL.md 的目录，找不到就退到
+# 「eval.yaml 所在目录的上一层」。这份配置就在 evals/plain-language/ 下，所以基准是 evals/，
+# 下面每一条相对路径都带 plain-language/ 这个前缀。改这一份之前先看实施方案 2.1 第 3 小节。
 # ENV-5 的注入由下面 setup_steps 那条命令做：从绝对路径读真仓库那份 rules.md，写进工作区的
 # CLAUDE.md。那条路径写死在本机，换机器要改。见实施方案 2.1 第 5 小节第 4 条。
 schema_version: v1alpha1
@@ -158,7 +164,7 @@ mcp:
 
 skills:
   - source: local_path
-    path: ../../plugin/skills/plain-language
+    path: ../plugin/skills/plain-language
     include:
       - SKILL.md
       - rules.md
@@ -168,13 +174,13 @@ engine:
 
 cases:
   files:
-    - skill-up/cases/tp01-01-TC-1-fix_only_what_should_change.yaml
-    - skill-up/cases/tp02-01-TC-2-quotes_kept_and_glossed.yaml
-    - skill-up/cases/tp03-01-TC-3-scope_of_review.yaml
-    - skill-up/cases/tp04-01-TC-6-file_nothing_to_fix.yaml
-    - skill-up/cases/tp05-01-TC-7-file_blocked_reports_where.yaml
-    - skill-up/cases/tp06-01-TC-4-restate_whole_answer.yaml
-    - skill-up/cases/tp07-01-TC-5-restate_nothing_to_fix.yaml
+    - plain-language/cases/tp01-01-TC-1-fix_only_what_should_change.yaml
+    - plain-language/cases/tp02-01-TC-2-quotes_kept_and_glossed.yaml
+    - plain-language/cases/tp03-01-TC-3-scope_of_review.yaml
+    - plain-language/cases/tp04-01-TC-6-file_nothing_to_fix.yaml
+    - plain-language/cases/tp05-01-TC-7-file_blocked_reports_where.yaml
+    - plain-language/cases/tp06-01-TC-4-restate_whole_answer.yaml
+    - plain-language/cases/tp07-01-TC-5-restate_nothing_to_fix.yaml
   defaults:
     timeout_seconds: 600
     max_turns: 12
@@ -194,11 +200,12 @@ report:
 
 `parallelism: 1` 与 `retry_policy.max_retries: 0` 不再是硬要求——那两条是 `--workspace` 带出来的，`--workspace` 不用了。留着 1 与 0 是因为八条一跑就是八轮模型调用，先串行跑；每条用例各一个干净工作区，重试在盘上是安全的，要并行、要重试随时可以调。`benchmark` 也留着关：开着是把同一批重复跑若干轮比稳定性，不是这里要的。
 
-**第 2 块：运行二的 `eval-no-skill.yaml`，落到 `evals/plain-language/skill-up/eval-no-skill.yaml`**
+**第 2 块：运行二的 `eval-no-skill.yaml`，落到 `evals/plain-language/eval-no-skill.yaml`**
 
 ```yaml
 # 运行二：不装技能，只跑 TP-8（TC-8）。
 # 这一档判的是「rules.md 注进上下文之后，落笔时按不按它写」；技能会不会被唤起不在这批用例里判。
+# 相对路径的基准是 evals/，见 eval.yaml 开头那段说明。
 # ENV-5 的注入由下面 setup_steps 那条命令做，与运行一同一条道；见 2.1 第 5 小节第 4 条。
 schema_version: v1alpha1
 
@@ -215,7 +222,7 @@ engine:
 
 cases:
   files:
-    - skill-up/cases/tp08-01-TC-8-ambient_writing_stays_plain.yaml
+    - plain-language/cases/tp08-01-TC-8-ambient_writing_stays_plain.yaml
   defaults:
     timeout_seconds: 600
     max_turns: 12
@@ -235,7 +242,7 @@ report:
 
 **这里没有 `skills:` 段**——这正是分两次跑的理由。
 
-**第 3 块：八条用例配置，落到 `evals/plain-language/skill-up/cases/<目录名>.yaml`**
+**第 3 块：八条用例配置，落到 `evals/plain-language/cases/<用例名>.yaml`**
 
 八块。每块的 `title` 照该条用例的目标写，`input.prompt` 照 DATA-7 至 DATA-14 抄（`/shared-skills:` 换成 `/`），`judge.criteria` 照测试用例规格说明该条「预期结果」栏压成条目。
 
@@ -244,7 +251,7 @@ report:
 TC-4、TC-5 那两块多一段：`input.prompt` 的前头接着 DATA-5、DATA-6 的全文，见 2.1 第 5 小节第 3 条。
 
 ```yaml
-# 落到 evals/plain-language/skill-up/cases/tp01-01-TC-1-fix_only_what_should_change.yaml
+# 落到 evals/plain-language/cases/tp01-01-TC-1-fix_only_what_should_change.yaml
 # TP-1 / TC-1（高风险；覆盖项 TCOV-1 至 TCOV-13、TCOV-21、TCOV-22、TCOV-25 至 TCOV-27、TCOV-32、TCOV-35）
 id: tp01-01-TC-1-fix_only_what_should_change
 title: 该改的改掉、不该动的一个字没动
@@ -255,7 +262,7 @@ input:
     /plain-language 这份文档读着绕，帮我改一下：evals/plain-language/cases/tp01-01-TC-1-fix_only_what_should_change/fixture/样本.md
 
 context:
-  repo_fixture: fixtures/repos/subject
+  repo_fixture: plain-language/fixtures/repos/subject
   # 差集要它：工作区是新建的空目录，不开这一项 skill-up 会把差集静默关掉。见实施方案 2.1 第 3 小节。
   git:
     init: true
@@ -281,13 +288,18 @@ judge:
     - "文档里本来就没问题的句子一个字没动。"
     - "回复里一句话交代了结果，没有逐处解释改了什么、为什么改；做到算过，逐处解释算不过。"
     - "那份文档副本之外的任何文件都没被动过。"
+    - "那六处改成什么说法不限：判的是意思不是原话，不要求用某一个指定的词。"
+    - "判「已定义的术语」这一处之前，先确认它真的在前文定义过：样本里定义在前、用在后，两处都要看。"
+    - "取不到前后差别时（差集为空、或被判成省略了），不要因此判不通过：工作区是个 git 仓库，跑前的状态已提交成一条基线，用 git status --porcelain -uall 与 git diff 就能看出改了什么，对不上的地方再读一遍文件本身。"
+    - "工作区里 .claude/skills/plain-language/ 那两条删除是框架的动作，不是 agent 干的，不要算到「那份文档副本之外的文件被动过」头上。"
+    - "只取第一条回复：它后面又说了什么不改变这一条的判定，盘上的改动照常算——改了两遍但改对了算通过，改完又改坏算不通过。"
   pass_threshold: 0.7
   context:
     profile: standard
 ```
 
 ```yaml
-# 落到 evals/plain-language/skill-up/cases/tp02-01-TC-2-quotes_kept_and_glossed.yaml
+# 落到 evals/plain-language/cases/tp02-01-TC-2-quotes_kept_and_glossed.yaml
 # TP-2 / TC-2（高风险；覆盖项 TCOV-14、TCOV-15、TCOV-19、TCOV-24）
 id: tp02-01-TC-2-quotes_kept_and_glossed
 title: 引文原样留着，后面补中文
@@ -298,7 +310,7 @@ input:
     /plain-language 这份文档里引了几段英文，我看着费劲，帮我改一下：evals/plain-language/cases/tp02-01-TC-2-quotes_kept_and_glossed/fixture/样本.md
 
 context:
-  repo_fixture: fixtures/repos/subject
+  repo_fixture: plain-language/fixtures/repos/subject
   # 差集要它：工作区是新建的空目录，不开这一项 skill-up 会把差集静默关掉。见实施方案 2.1 第 3 小节。
   git:
     init: true
@@ -324,13 +336,19 @@ judge:
     - "引文里面如果有那几类问题，没有在引文里面改，而是在引文外面补了说明。"
     - "引文元数据（作者、出处、年份那一类）一个字没动。"
     - "那份文档副本之外的任何文件都没被动过。"
+    - "「补说明」补在哪都行：紧跟引用块后面另起一段最自然，写在引用块上一段也认，只要求读者看得出这一段是在解释上面引用块里的说法。"
+    - "引文的中文可以照抄样本里已有的，原样留着算对；把中文润色一遍但意思不变也算对——不许的是把原句动了。"
+    - "当标签用的标题，后面那个中文指认写成什么样不限：标题本身没动、后面有一个中文短语指认它说的是什么，就算过。"
+    - "这条只管引文与元数据那几处：引文之外的正文如果有那几类问题，改掉才对，不算动多了。"
+    - "取不到前后差别时（差集为空、或被判成省略了），不要因此判不通过：工作区是个 git 仓库，跑前的状态已提交成一条基线，用 git status --porcelain -uall 与 git diff 就能看出改了什么，对不上的地方再读一遍文件本身。"
+    - "工作区里 .claude/skills/plain-language/ 那两条删除是框架的动作，不是 agent 干的，不要算到「样本之外的文件被动过」头上。"
   pass_threshold: 0.7
   context:
     profile: standard
 ```
 
 ```yaml
-# 落到 evals/plain-language/skill-up/cases/tp03-01-TC-3-scope_of_review.yaml
+# 落到 evals/plain-language/cases/tp03-01-TC-3-scope_of_review.yaml
 # TP-3 / TC-3（高风险；覆盖项 TCOV-16 至 TCOV-18、TCOV-20、TCOV-23）
 id: tp03-01-TC-3-scope_of_review
 title: 图注、脚注、mermaid 里的文字要审，frontmatter 不审
@@ -341,7 +359,7 @@ input:
     /plain-language 帮我改一下这份文档：evals/plain-language/cases/tp03-01-TC-3-scope_of_review/fixture/样本.md
 
 context:
-  repo_fixture: fixtures/repos/subject
+  repo_fixture: plain-language/fixtures/repos/subject
   # 差集要它：工作区是新建的空目录，不开这一项 skill-up 会把差集静默关掉。见实施方案 2.1 第 3 小节。
   git:
     init: true
@@ -367,13 +385,21 @@ judge:
     - "YAML frontmatter 一个字没动。"
     - "代码块那一处——块内的中文注释或字符串——依据没有规定审不审：这条只看回复里有没有说清 agent 对那一处做了什么（动了还是没动、动成了什么样），好让用户定口径。改了算过、没改也算过，唯独回复里对这一处一个字不提、用户看不出它现在是什么状态，算不过。动了没动以盘上改动为准。"
     - "那份文档副本之外的任何文件都没被动过。"
+    - "这三处的改法不限：判的是意思不是原话，不要求用某一个指定的词。"
+    - "mermaid 图改了之后还得是能画的图：只改节点标签、连线上写的话算对，把图类型关键字、箭头写法、节点 id 一起改了、改到画不出来，算动了不该动的。"
+    - "frontmatter 与其他内容一样要逐字节比：分隔线、字段顺序、缩进、冒号后的空格都算在里面，只改了一个字段值也算不通过。"
+    - "取不到前后差别时（差集为空、或被判成省略了），不要因此判不通过：工作区是个 git 仓库，跑前的状态已提交成一条基线，用 git status --porcelain -uall 与 git diff 就能看出改了什么，对不上的地方再读一遍文件本身。"
+    - "工作区里 .claude/skills/plain-language/ 那两条删除是框架的动作，不是 agent 干的，不要算到「那份文档副本之外的文件被动过」头上。"
+    - "代码块那一处说在哪儿都行：跟结果那句交代写在一起、单独另起一句，都认。"
+    - "代码块那一处说得含糊也算过，只要指认得出是代码块——写「那段代码我没动」「注释部分我没碰」都算，写「有些地方我拿不准」而全文没提过代码块的，不算。"
+    - "只取第一条回复、按补全之后的信息算：第一句交代之后又补了话，补上了就算过。"
   pass_threshold: 0.7
   context:
     profile: standard
 ```
 
 ```yaml
-# 落到 evals/plain-language/skill-up/cases/tp04-01-TC-6-file_nothing_to_fix.yaml
+# 落到 evals/plain-language/cases/tp04-01-TC-6-file_nothing_to_fix.yaml
 # TP-4 / TC-6（高风险；覆盖项 TCOV-31、TCOV-36）
 id: tp04-01-TC-6-file_nothing_to_fix
 title: 一处问题都没有的文件，一个字不动
@@ -384,7 +410,7 @@ input:
     /plain-language 帮我看看这份文档要不要改：evals/plain-language/cases/tp04-01-TC-6-file_nothing_to_fix/fixture/样本.md
 
 context:
-  repo_fixture: fixtures/repos/subject
+  repo_fixture: plain-language/fixtures/repos/subject
   # 差集要它：工作区是新建的空目录，不开这一项 skill-up 会把差集静默关掉。见实施方案 2.1 第 3 小节。
   git:
     init: true
@@ -409,13 +435,20 @@ judge:
     - "回复里说出了「这段没有需要改的地方」这个意思，措辞不限：说出了一个意思就行，不要求原话。"
     - "没有为了显得干了活而改一处本来没问题的地方，也没有把原文换一种说法重抄一遍。"
     - "那份文档副本之外的任何文件都没被动过。"
+    - "「逐字节相同」按盘上改动差别判：取不到前后差别时（差集为空、或被判成省略了）不要因此判不通过，改用 git 基线看——工作区是个 git 仓库，跑前的状态已提交成一条基线，git status --porcelain -uall 与 git diff 就能看出改了什么，对不上的地方再读一遍文件本身。"
+    - "回复里可以顺带说别的：说了一句「文档里那几处代码和路径我照原样留着」不影响通过，只要「没有需要改的地方」这个意思在，就不算漏说。"
+    - "「改了又改回来」也算没改：只要最终盘上那份与跑前逐字节相同，中间动过不算。"
+    - "不许把原文重抄一遍当成产出：回复里贴一遍全文、或贴一遍「润色后」的全文，都不算说出了「不用改」，按不通过算。"
+    - "说了「没有需要改的地方」之后又加一句「要不要我再看别的文档」，照旧算通过。"
+    - "工作区里 .claude/skills/plain-language/ 那两条删除是框架的动作，不是 agent 干的，不要算到「样本之外的文件被动过」头上。"
+    - "只取第一条回复：它后面又说了什么不改变这一条的判定，盘上的改动照常算。"
   pass_threshold: 0.7
   context:
     profile: standard
 ```
 
 ```yaml
-# 落到 evals/plain-language/skill-up/cases/tp05-01-TC-7-file_blocked_reports_where.yaml
+# 落到 evals/plain-language/cases/tp05-01-TC-7-file_blocked_reports_where.yaml
 # TP-5 / TC-7（中风险；覆盖项 TCOV-30、TCOV-33、TCOV-37）
 # 两轮一条用例：第一轮那个路径本来就不存在，第二轮那份没有写权限（见 DATA-15）。
 id: tp05-01-TC-7-file_blocked_reports_where
@@ -432,7 +465,7 @@ input:
         /plain-language 那这份呢：evals/plain-language/cases/tp05-01-TC-7-file_blocked_reports_where/fixture/只读样本.md
 
 context:
-  repo_fixture: fixtures/repos/subject
+  repo_fixture: plain-language/fixtures/repos/subject
   # 差集要它：工作区是新建的空目录，不开这一项 skill-up 会把差集静默关掉。见实施方案 2.1 第 3 小节。
   git:
     init: true
@@ -454,13 +487,19 @@ judge:
     - "第二轮：回复里把改好的文本一并给出；那段正文是从那份文件改出来的，不是凭空造的。"
     - "两轮都没有凭空说「已经改好了」，也没有把改不动的文件说成改好了、报出一个并不存在的成功结果。"
     - "盘上那份没有写权限的样本跑完与跑前逐字节相同，别的文件也没被动过。"
+    - "第二轮那段正文改得对不对不在这一条：这里只判给没给、是不是从那份文件改出来的，改出来的文风好不好不在这条判据里。"
+    - "「一并给出」的形式不限：贴在回复里、放在代码块里、写成「改后应该是这样」再跟一段，都算，只要用户从这条回复里就能拿到改好的那版。"
+    - "第二轮说清卡在哪时，指的得是用户第二条消息给的那份文件；指成第一轮那个不存在的路径，按没说出卡在哪算。"
+    - "自己动手去掉只读属性再改算不通过：看到权限被改过、或者文件被删掉重建，都按不通过算。"
+    - "取不到前后差别时（差集为空、或被判成省略了），不要因此判不通过：工作区是个 git 仓库，跑前的状态已提交成一条基线，用 git status --porcelain -uall 与 git diff 就能看出改了什么，对不上的地方再读一遍文件本身。"
+    - "工作区里 .claude/skills/plain-language/ 那两条删除是框架的动作，不是 agent 干的，不要算到「别的文件被动过」头上。"
   pass_threshold: 0.7
   context:
     profile: standard
 ```
 
 ```yaml
-# 落到 evals/plain-language/skill-up/cases/tp06-01-TC-4-restate_whole_answer.yaml
+# 落到 evals/plain-language/cases/tp06-01-TC-4-restate_whole_answer.yaml
 # TP-6 / TC-4（高风险；覆盖项 TCOV-28、TCOV-34）
 # DATA-5 的全文接在用户消息里：skill-up 的多轮只收 user 角色，塞不进一条 assistant 消息。
 # 这里有一处保真度折扣，见实施方案 2.1 第 5 小节第 3 条。
@@ -481,7 +520,7 @@ input:
     重讲一遍
 
 context:
-  repo_fixture: fixtures/repos/subject
+  repo_fixture: plain-language/fixtures/repos/subject
 
 constraints:
   timeout_seconds: 600
@@ -499,13 +538,18 @@ judge:
     - "信息不增不减——没有加原文没有的判断，也没有漏原文有的内容。"
     - "只给了重讲的那段正文，没有附改动说明、没有列出拿不准的地方。"
     - "不判「上一条回答在哪」这件事：它的摆法带一处保真度折扣，见实施方案 2.1 第 5 小节第 3 条。"
+    - "黑话换成什么意思都行，判的是意思不是原话：只要按字面就懂、原来那个词不再出现，不要求用某一个词。"
+    - "照原样写的那些重讲时照旧：代码标识符、路径、命令名照贴才对，把它们译成中文、或者加一句解释，算改了不该动的。"
+    - "「信息不增不减」按意思判、不按字数判：重讲的句子长一点短一点都行，原文那几层意思在不在才是判的；原文里那个比喻保留这层意思算对，把整个比喻删掉写成平实说法也算对，完全不提这层按减了算。"
+    - "「只给正文」不要求一个字都不多：正文前后有一句「重讲如下」这类引导，按没多说算、不扣；真正不通过的是改动说明与拿不准的清单。"
+    - "原文没毛病的地方照旧保留：这段原文里本来就平实的中文，重讲时照旧留着。"
   pass_threshold: 0.7
   context:
     profile: standard
 ```
 
 ```yaml
-# 落到 evals/plain-language/skill-up/cases/tp07-01-TC-5-restate_nothing_to_fix.yaml
+# 落到 evals/plain-language/cases/tp07-01-TC-5-restate_nothing_to_fix.yaml
 # TP-7 / TC-5（高风险；覆盖项 TCOV-29）
 # DATA-6 的全文接在用户消息里：skill-up 的多轮只收 user 角色，塞不进一条 assistant 消息。
 # 这里有一处保真度折扣，见实施方案 2.1 第 5 小节第 3 条。
@@ -530,7 +574,7 @@ input:
     重讲一遍
 
 context:
-  repo_fixture: fixtures/repos/subject
+  repo_fixture: plain-language/fixtures/repos/subject
 
 constraints:
   timeout_seconds: 600
@@ -548,13 +592,18 @@ judge:
     - "没有为了显得干了活而改一处本来没问题的地方。"
     - "没有把原文换一种说法重抄一遍当成重讲。"
     - "不判「上一条回答在哪」这件事：它的摆法带一处保真度折扣，见实施方案 2.1 第 5 小节第 3 条。"
+    - "只说不改、不说理由也算过，说了一大段解释为什么不用改也照旧算过：这条不管说多长，只管那个意思在不在。"
+    - "只复述一遍原文不算说出了：把那段文字贴回来、或者贴回来再说一句「就是上面这样」，用户看不出到底改没改，按不通过算。"
+    - "说了「不用改」之后又加一句「还有别的段落要我看吗」，不影响通过。"
+    - "这一条真正的分界在有没有硬凑：重新产出了一版文字——哪怕只动一个词、一处标点、一个换行——都按硬凑算；唯一例外是原文逐字节照抄贴回来再加一句「没改」，那时算过。"
+    - "照原样写的那些不许动：代码标识符、路径、命令名（10-links.sh、20-headings.sh、30-tables.sh、checks/verify.d/、bash checks/verify.sh）照贴才对，把它们译成中文、加一句解释或者改写成别的写法，都按改了不该动的算。"
   pass_threshold: 0.7
   context:
     profile: standard
 ```
 
 ```yaml
-# 落到 evals/plain-language/skill-up/cases/tp08-01-TC-8-ambient_writing_stays_plain.yaml
+# 落到 evals/plain-language/cases/tp08-01-TC-8-ambient_writing_stays_plain.yaml
 # TP-8 / TC-8（中风险；覆盖项 TCOV-38）
 # 这一条跑在运行二：不装技能，只把 rules.md 注进上下文。
 id: tp08-01-TC-8-ambient_writing_stays_plain
@@ -566,7 +615,7 @@ input:
     帮我写一段两百字左右的说明，讲讲这个仓库的检查脚本是怎么跑的
 
 context:
-  repo_fixture: fixtures/repos/subject
+  repo_fixture: plain-language/fixtures/repos/subject
 
 constraints:
   timeout_seconds: 600
@@ -584,6 +633,9 @@ judge:
     - "产出里没有出现自造压缩黑话、生造词与直译词。"
     - "产出里没有出现夹英文的句子。"
     - "这一条判的是落笔时按不按 rules.md 写，不判技能有没有被唤起。"
+    - "照原样写的那些不给中文不算问题：路径、命令名、文件名、缩写本来就说照贴，不要因为出现了英文就判不通过，判的是当日常词用的那些。"
+    - "「落笔时按不按」不等于「写得漂不漂亮」：字数写成一百八或两百四都不算问题，写得离题了也不在这条判据里。"
+    - "产出里可以带小标题：写「## 怎么跑」这类小标题不算问题，小标题本身也得是平白的中文。"
   pass_threshold: 0.7
   context:
     profile: standard
@@ -594,11 +646,11 @@ judge:
 两条命令。路径写全，在哪儿跑都是同一句：
 
 ```bash
-C:/Study/skill-up/bin/skill-up.exe run C:/work/shared-skills/evals/plain-language/skill-up/eval.yaml --output-dir C:/work/plain-language-eval-results
+C:/Study/skill-up/bin/skill-up.exe run C:/work/shared-skills/evals/plain-language/eval.yaml --output-dir C:/work/plain-language-eval-results
 ```
 
 ```bash
-C:/Study/skill-up/bin/skill-up.exe run C:/work/shared-skills/evals/plain-language/skill-up/eval-no-skill.yaml --output-dir C:/work/plain-language-eval-results
+C:/Study/skill-up/bin/skill-up.exe run C:/work/shared-skills/evals/plain-language/eval-no-skill.yaml --output-dir C:/work/plain-language-eval-results
 ```
 
 跑之前不用手工摆任何东西：工作区由 skill-up 新建，夹具与 `rules.md` 的注入由配置里的 `context.repo_fixture` 与 `environment.setup_steps` 各做各的（2.1 第 3 小节、第 5 小节第 4 条）。两次运行之间也不用复位——它们的工作区是两个互不相干的临时目录。
@@ -608,11 +660,11 @@ C:/Study/skill-up/bin/skill-up.exe run C:/work/shared-skills/evals/plain-languag
 跑之前先解析一遍，确认配置本身没写错：
 
 ```bash
-C:/Study/skill-up/bin/skill-up.exe validate C:/work/shared-skills/evals/plain-language/skill-up/eval.yaml
+C:/Study/skill-up/bin/skill-up.exe validate C:/work/shared-skills/evals/plain-language/eval.yaml
 ```
 
 ```bash
-C:/Study/skill-up/bin/skill-up.exe validate C:/work/shared-skills/evals/plain-language/skill-up/eval-no-skill.yaml
+C:/Study/skill-up/bin/skill-up.exe validate C:/work/shared-skills/evals/plain-language/eval-no-skill.yaml
 ```
 
-报告落在 `--output-dir` 里，不进 git。本仓库的 `.gitignore` 有一条 `evals/*/results/`，本方案把报告放在仓库外面，那一条用不上，留着不管。
+报告落在 `--output-dir` 里，不进 git。本仓库的 `.gitignore` 有一条 `evals/*/results/`，本方案把报告放在仓库外面，那一条用不上；留着是因为 `evals/` 下还有几套没并到 skill-up 上的评测材料，它们的结果走那一条。

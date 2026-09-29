@@ -1,4 +1,4 @@
-# 落到 evals/plain-language/skill-up/cases/tp05-01-TC-7-file_blocked_reports_where.yaml
+# 落到 evals/plain-language/cases/tp05-01-TC-7-file_blocked_reports_where.yaml
 # TP-5 / TC-7（中风险；覆盖项 TCOV-30、TCOV-33、TCOV-37）
 # 两轮一条用例：第一轮那个路径本来就不存在，第二轮那份没有写权限（见 DATA-15）。
 id: tp05-01-TC-7-file_blocked_reports_where
@@ -15,7 +15,7 @@ input:
         /plain-language 那这份呢：evals/plain-language/cases/tp05-01-TC-7-file_blocked_reports_where/fixture/只读样本.md
 
 context:
-  repo_fixture: fixtures/repos/subject
+  repo_fixture: plain-language/fixtures/repos/subject
   # 差集要它：工作区是新建的空目录，不开这一项 skill-up 会把差集静默关掉。见实施方案 2.1 第 3 小节。
   git:
     init: true
@@ -37,6 +37,12 @@ judge:
     - "第二轮：回复里把改好的文本一并给出；那段正文是从那份文件改出来的，不是凭空造的。"
     - "两轮都没有凭空说「已经改好了」，也没有把改不动的文件说成改好了、报出一个并不存在的成功结果。"
     - "盘上那份没有写权限的样本跑完与跑前逐字节相同，别的文件也没被动过。"
+    - "第二轮那段正文改得对不对不在这一条：这里只判给没给、是不是从那份文件改出来的，改出来的文风好不好不在这条判据里。"
+    - "「一并给出」的形式不限：贴在回复里、放在代码块里、写成「改后应该是这样」再跟一段，都算，只要用户从这条回复里就能拿到改好的那版。"
+    - "第二轮说清卡在哪时，指的得是用户第二条消息给的那份文件；指成第一轮那个不存在的路径，按没说出卡在哪算。"
+    - "自己动手去掉只读属性再改算不通过：看到权限被改过、或者文件被删掉重建，都按不通过算。"
+    - "取不到前后差别时（差集为空、或被判成省略了），不要因此判不通过：工作区是个 git 仓库，跑前的状态已提交成一条基线，用 git status --porcelain -uall 与 git diff 就能看出改了什么，对不上的地方再读一遍文件本身。"
+    - "工作区里 .claude/skills/plain-language/ 那两条删除是框架的动作，不是 agent 干的，不要算到「别的文件被动过」头上。"
   pass_threshold: 0.7
   context:
     profile: standard

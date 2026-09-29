@@ -1,4 +1,4 @@
-# 落到 evals/plain-language/skill-up/cases/tp04-01-TC-6-file_nothing_to_fix.yaml
+# 落到 evals/plain-language/cases/tp04-01-TC-6-file_nothing_to_fix.yaml
 # TP-4 / TC-6（高风险；覆盖项 TCOV-31、TCOV-36）
 id: tp04-01-TC-6-file_nothing_to_fix
 title: 一处问题都没有的文件，一个字不动
@@ -9,7 +9,7 @@ input:
     /plain-language 帮我看看这份文档要不要改：evals/plain-language/cases/tp04-01-TC-6-file_nothing_to_fix/fixture/样本.md
 
 context:
-  repo_fixture: fixtures/repos/subject
+  repo_fixture: plain-language/fixtures/repos/subject
   # 差集要它：工作区是新建的空目录，不开这一项 skill-up 会把差集静默关掉。见实施方案 2.1 第 3 小节。
   git:
     init: true
@@ -34,6 +34,13 @@ judge:
     - "回复里说出了「这段没有需要改的地方」这个意思，措辞不限：说出了一个意思就行，不要求原话。"
     - "没有为了显得干了活而改一处本来没问题的地方，也没有把原文换一种说法重抄一遍。"
     - "那份文档副本之外的任何文件都没被动过。"
+    - "「逐字节相同」按盘上改动差别判：取不到前后差别时（差集为空、或被判成省略了）不要因此判不通过，改用 git 基线看——工作区是个 git 仓库，跑前的状态已提交成一条基线，git status --porcelain -uall 与 git diff 就能看出改了什么，对不上的地方再读一遍文件本身。"
+    - "回复里可以顺带说别的：说了一句「文档里那几处代码和路径我照原样留着」不影响通过，只要「没有需要改的地方」这个意思在，就不算漏说。"
+    - "「改了又改回来」也算没改：只要最终盘上那份与跑前逐字节相同，中间动过不算。"
+    - "不许把原文重抄一遍当成产出：回复里贴一遍全文、或贴一遍「润色后」的全文，都不算说出了「不用改」，按不通过算。"
+    - "说了「没有需要改的地方」之后又加一句「要不要我再看别的文档」，照旧算通过。"
+    - "工作区里 .claude/skills/plain-language/ 那两条删除是框架的动作，不是 agent 干的，不要算到「样本之外的文件被动过」头上。"
+    - "只取第一条回复：它后面又说了什么不改变这一条的判定，盘上的改动照常算。"
   pass_threshold: 0.7
   context:
     profile: standard

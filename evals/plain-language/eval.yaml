@@ -1,0 +1,50 @@
+# 运行一：装技能，跑 TP-1 至 TP-7（TC-1 至 TC-7）。
+# 相对路径的基准是 evals/：skill-up 从 eval.yaml 所在目录往上找带 SKILL.md 的目录，找不到就退到
+# 「eval.yaml 所在目录的上一层」。这份配置就在 evals/plain-language/ 下，所以基准是 evals/，
+# 下面每一条相对路径都带 plain-language/ 这个前缀。改这一份之前先看实施方案 2.1 第 3 小节。
+# ENV-5 的注入由下面 setup_steps 那条命令做：从绝对路径读真仓库那份 rules.md，写进工作区的
+# CLAUDE.md。那条路径写死在本机，换机器要改。见实施方案 2.1 第 5 小节第 4 条。
+schema_version: v1alpha1
+
+environment:
+  type: none
+  setup_steps:
+    - run: cat "C:/work/shared-skills/plugin/skills/plain-language/rules.md" >> CLAUDE.md
+
+mcp:
+  servers: []
+
+skills:
+  - source: local_path
+    path: ../plugin/skills/plain-language
+    include:
+      - SKILL.md
+      - rules.md
+
+engine:
+  name: claude_code
+
+cases:
+  files:
+    - plain-language/cases/tp01-01-TC-1-fix_only_what_should_change.yaml
+    - plain-language/cases/tp02-01-TC-2-quotes_kept_and_glossed.yaml
+    - plain-language/cases/tp03-01-TC-3-scope_of_review.yaml
+    - plain-language/cases/tp04-01-TC-6-file_nothing_to_fix.yaml
+    - plain-language/cases/tp05-01-TC-7-file_blocked_reports_where.yaml
+    - plain-language/cases/tp06-01-TC-4-restate_whole_answer.yaml
+    - plain-language/cases/tp07-01-TC-5-restate_nothing_to_fix.yaml
+  defaults:
+    timeout_seconds: 600
+    max_turns: 12
+    expect:
+      exit_code: 0
+  parallelism: 1
+  retry_policy:
+    max_retries: 0
+
+benchmark:
+  enabled: false
+
+report:
+  formats: [json, html]
+  artifacts: [transcript]

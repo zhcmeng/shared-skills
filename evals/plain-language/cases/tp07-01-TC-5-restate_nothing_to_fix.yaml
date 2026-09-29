@@ -1,4 +1,4 @@
-# 落到 evals/plain-language/skill-up/cases/tp07-01-TC-5-restate_nothing_to_fix.yaml
+# 落到 evals/plain-language/cases/tp07-01-TC-5-restate_nothing_to_fix.yaml
 # TP-7 / TC-5（高风险；覆盖项 TCOV-29）
 # DATA-6 的全文接在用户消息里：skill-up 的多轮只收 user 角色，塞不进一条 assistant 消息。
 # 这里有一处保真度折扣，见实施方案 2.1 第 5 小节第 3 条。
@@ -23,7 +23,7 @@ input:
     重讲一遍
 
 context:
-  repo_fixture: fixtures/repos/subject
+  repo_fixture: plain-language/fixtures/repos/subject
 
 constraints:
   timeout_seconds: 600
@@ -41,6 +41,11 @@ judge:
     - "没有为了显得干了活而改一处本来没问题的地方。"
     - "没有把原文换一种说法重抄一遍当成重讲。"
     - "不判「上一条回答在哪」这件事：它的摆法带一处保真度折扣，见实施方案 2.1 第 5 小节第 3 条。"
+    - "只说不改、不说理由也算过，说了一大段解释为什么不用改也照旧算过：这条不管说多长，只管那个意思在不在。"
+    - "只复述一遍原文不算说出了：把那段文字贴回来、或者贴回来再说一句「就是上面这样」，用户看不出到底改没改，按不通过算。"
+    - "说了「不用改」之后又加一句「还有别的段落要我看吗」，不影响通过。"
+    - "这一条真正的分界在有没有硬凑：重新产出了一版文字——哪怕只动一个词、一处标点、一个换行——都按硬凑算；唯一例外是原文逐字节照抄贴回来再加一句「没改」，那时算过。"
+    - "照原样写的那些不许动：代码标识符、路径、命令名（10-links.sh、20-headings.sh、30-tables.sh、checks/verify.d/、bash checks/verify.sh）照贴才对，把它们译成中文、加一句解释或者改写成别的写法，都按改了不该动的算。"
   pass_threshold: 0.7
   context:
     profile: standard
