@@ -549,7 +549,7 @@ def check_case_dirs(head, body, rep, order, names):
             if not m:
                 rep.err(PROC_DOC, "这条目录名不合形制：%s——应写成 tp<规程号两位>-"
                                   "<规程内执行位次两位>-TC-<用例编号>-<英文名>，如 "
-                                  "tp01-01-TC-1-fix-only-what-should-change" % token)
+                                  "tp01-01-TC-1-fix_only_what_should_change" % token)
                 continue
             tp, pos, tc, en = (int(m.group(1)), int(m.group(2)),
                                int(m.group(3)), m.group(4))

@@ -126,6 +126,10 @@ def check_id_example():
     if not check_landing.id_pattern("TC-").search(example):
         return ["模板给的例子 %s 里，check_landing.py 认不出用例编号——照它写的编号，"
                 "落成之后会被报成「成品里一处也没出现」" % example]
+    if not check_docs.CASE_DIR_RE.fullmatch(example):
+        return ["模板给的例子 %s 不合评测用例目录名的形制——照它写成的目录名会被"
+                "check_docs.py 报「不合形制」。最后那一段是「英文名」栏里的名字，"
+                "而英文名只收小写字母、数字与下划线（不含连字符）" % example]
     return []
 
 
