@@ -127,13 +127,14 @@ tests/<技能名>/test_<脚本名>.py         # 技能里带的脚本，它自�
 
 ## 常驻规则
 
-插件带三条常驻规则，走的不是同一条路：
+插件带四条常驻规则，走的不是同一条路：
 
 | 规则 | 怎么进上下文 |
 |:---|:---|
 | 说人话（`plugin/skills/plain-language/rules.md`） | SessionStart hook 以 `additionalContext` 注入 |
 | 改文件走专用工具（`plugin/rules/file-edits.md`） | 同步到配置目录的 `rules/` 下，由 Claude Code 自动加载 |
 | 跑命令写全路径（`plugin/rules/shell-commands.md`） | 同上 |
+| 文件名用英文（`plugin/rules/file-names.md`） | 同上 |
 
 第一条是按**写作时**组织的：`rules.md` 开头是判据（站在读者的角度，能不能一次读懂），接着那张表
 每行三列——正例、反例、原因（读者为什么会卡住），末尾列照原样写、不用动的那些；
@@ -148,6 +149,9 @@ bypass permissions（跳过权限确认）**——那个模式默认会引导模
 `cd` 一次，后面每条命令的起点都跟着变；要指定目录就用工具自带的参数（`git -C <仓库>`、
 `make -C <目录>`、`npm --prefix <目录>`）。这条的措辞是微测出来的，数据与判据见
 `evals/rules/cases/full-paths-no-cd/`。
+
+第四条管的是：脚本、代码、技能目录、测试文件的名字用英文，正文与注释照旧写中文。理由与
+踩过的坑写在规则正文里——中文文件名会让 `git` 转义路径，按路径比对的地方静默失配。
 
 配置目录下的 `rules/` 是 Claude Code 的**用户级常驻规则位置**：里面的 `*.md` 会和
 `CLAUDE.md` 一起自动加载，不需要在 `settings.json` 里配任何东西。
@@ -283,16 +287,17 @@ bypass permissions（跳过权限确认）**——那个模式默认会引导模
   脚本拆在 `checks/verify.d/` 下，一个模块管一件事，入口只负责按序加载和汇总：
   `10-session-start`（注入文本、polyglot 两个分支）、`20-statusline-sync`、`25-rules-sync`、
   `26-adhd-flag`（给上游插件建常驻标记文件）、`30-statusline-smoke`、`40-notify`（判定）、
-  `50-notify-render`、`60-wiring`（hooks.json 接线）、`70-版本号一致`、
-  `80-挑模块`（`--changed` 挑得对不对这件事本身）。
+  `50-notify-render`、`60-wiring`（hooks.json 接线）、`70-version-consistency`、
+  `80-module-picker`（`--changed` 挑得对不对这件事本身）。
   加校验就加模块，别往入口里塞
-- **抬版本号**：改了 `plugin/skills/`、`plugin/rules/`、`plugin/statusline/`、`plugin/hooks/` 里的东西之后，
-  把 `plugin/.claude-plugin/plugin.json` 与 `.claude-plugin/marketplace.json` 里的版本号一起抬上去，两处必须一致。
-  插件按版本号分目录安装、内容一致就不重装——不抬版本号的效果是「仓库改了，别人（包括你自己
-  下一个会话）跑的还是旧的」，全程不报错。抬版本号按批次做（一批内容改完统一抬一次），所以
-  `checks/verify.sh` 对「内容动过、版本号还没抬」只提示不判失败
-- **抬哪一位**：`feat`／`refactor` 抬中间那位，`fix`／`docs`／`chore` 抬最后那位。判不准就看这次改的
-  是「多了一个能力」还是「把已有的改对了」——多一个能力抬中间，只是改对了抬最后
+- **抬版本号**：**交付前抬一次**——要推到远端、要让别人（或你另一个会话）拿到这批内容时，把
+  `plugin/.claude-plugin/plugin.json` 与 `.claude-plugin/marketplace.json` 里的版本号一起抬上去，两处必须一致。
+  插件按版本号分目录安装、内容一致就不重装——不抬版本号的效果是「仓库改了，别人跑的还是旧的」，全程不报错。
+  一批内容共用同一个号，中间的提交不必逐笔抬；`checks/verify.sh` 对「内容动过、版本号还没抬」只提示
+  不判失败，那条提示的意思就是「交付前记得抬」
+- **抬哪一位**：装上去的人**多拿到一个能用的东西**才抬中间那位——新增技能、新增 hook 或状态栏功能、
+  技能的命令行接口或产出文件名变了；其余一律抬最后那位：正文措辞、判据补充、示例、脚本内部修法、文档。
+  判不准抬最后
 - **新增一个 skill**：在 `plugin/skills/` 下建目录，写 `SKILL.md`，并在上方表格补一行
 - **改某个技能自己的东西**（脚本、素材、从上游同步）：细则在那个技能目录下的 `README.md` 里。
   技能自己的说明放技能自己旁边，不堆到这份仓库说明里——`plugin/skills/test-case-design/README.md` 是现成的样子

@@ -76,7 +76,7 @@ fi
 expect_pick "被删掉的 notify" "plugin/hooks/notify" "40-notify.sh"
 
 # 夹具自己被动过：跑全套，不是只跑某一个。夹具的问题会波及所有模块
-expect_pick "改入口自己" "checks/verify.sh" "10-session-start.sh" "40-notify.sh" "60-wiring.sh" "80-挑模块.sh"
+expect_pick "改入口自己" "checks/verify.sh" "10-session-start.sh" "40-notify.sh" "60-wiring.sh" "80-module-picker.sh"
 
 # ── 真 git 那条路径 ────────────────────────────────────────────────
 # 上面那些走的是 VERIFY_CHANGED_FROM，绕开了 git。真实那条路要单独验一次，因为它有

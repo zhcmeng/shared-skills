@@ -3,10 +3,11 @@
 #
 # 1. 两个清单里的版本号必须一样。插件按版本号分目录装，两处不一致时，市场上装出去的
 #    和 plugin.json 声明的是两个数，升级行为不可预期。
-# 2. 改了插件内容却没抬版本号。插件缓存按版本号分目录、内容一致就不再重装，不抬版本
-#    就是「改了仓库、跑的仍是旧的那份」，全程不报错。第二会话读技能时读的正是那份副本。
+# 2. 改了插件内容、交付前忘了抬版本号。插件缓存按版本号分目录、内容一致就不再重装，不抬版本
+#    就是「改了仓库、别人跑的仍是旧的那份」，全程不报错。第二会话读技能时读的正是那份副本。
+#    抬的时机是交付（推远端）前，一批内容共用同一个号，中间的提交不必逐笔抬。
 #
-# 第 2 条只提示不判失败：抬版本号是按批次做的（一批内容改完统一抬一次），中途红是正常的，
+# 第 2 条只提示不判失败：只有交付前才需要抬，中途响是正常的，
 # 判失败只会让人把这个检查当噪声。入口里那条 CR 提示用的是同一个分寸。
 #
 # 用 node 解析 JSON 而不是 grep：换个缩进、换个字段顺序，grep 就会骗人（60 那块同理）。
@@ -81,7 +82,7 @@ if command -v git >/dev/null 2>&1 && [ -d "${ver_root}/.git" ]; then
     if git -C "$ver_root" merge-base --is-ancestor "$ver_bump" "$ver_content" 2>/dev/null; then
       ver_short="$(git -C "$ver_root" log -1 --format=%h "$ver_bump" 2>/dev/null)"
       ver_n="$(git -C "$ver_root" rev-list --count "${ver_bump}..${ver_content}" 2>/dev/null)"
-      echo "提示：插件内容动过、版本号还没抬——最后一次抬版本是 ${ver_short}，之后又有 ${ver_n:-若干} 个提交改了 plugin/ 下的内容。交付前把 plugin.json 与 marketplace.json 两个版本号一起抬上去。"
+      echo "提示：插件内容动过、版本号还没抬——最后一次抬版本是 ${ver_short}，之后又有 ${ver_n:-若干} 个提交改了 plugin/ 下的内容。交付（推远端）前把 plugin.json 与 marketplace.json 两个版本号一起抬上去，一批内容抬一次、中间的提交不必逐笔抬。"
     fi
   fi
 fi
