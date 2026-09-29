@@ -86,6 +86,13 @@ CHANGES = ("只读", "会写")
 BATCH_HEAD = "各批落到哪"
 BATCH_COLS = ["批次", "规程", "落到哪"]
 
+# 同一张表里落成评测用例的那几行，另起一栏按执行顺序列该规程用例的目录名。
+# 评测工具按目录名的字母序跑（`--case` 接的也是目录名），名字排成什么顺序就跑成
+# 什么顺序——两段位次各定两位，字母序才等于「先规程号、再规程内位次」。
+# 落成可跑测试的行（「执行器」栏是「脚本」）这一栏空着。
+CASE_DIR_COL = "用例目录名"
+EVAL_EXECUTORS = ("控制器", "子代理")
+
 # SKILL.md 里「产出文档里只写测试内容，不把技能文件里的节号与出处带出去」点名的东西。
 # 禁用词表本身从 SKILL.md 解析，不在这里再抄一份。
 LEAKED = ["references/", "GB/T", "TD1", "TD2", "TD3", "TD4"]
@@ -101,6 +108,10 @@ NAME_COL = "英文名"
 NAME_RE = re.compile(r"[a-z][a-z0-9_]*")
 # 名字里不许拿编号起头：下游拼标识符时自己会带编号，带了就成 tcov_1_tcov_1_…
 NAME_IS_ID = re.compile(r"(tm|tcov|tc|tp|data|env|dec)_?\d")
+# 评测用例的目录名：tp<规程号两位>-<规程内执行位次两位>-TC-<用例编号>-<英文名>。
+# 用例编号那段照「落成约定」不补零（`[1-9]\d*` 挡掉 `TC-01`），英文名那段与条目上
+# 那一栏合同一个形制。
+CASE_DIR_RE = re.compile(r"^tp(\d{2})-(\d{2})-TC-([1-9]\d*)-(" + NAME_RE.pattern + r")$")
 # 模型与规程不写成宽表：模型用加粗字段，规程写在两列表里。两种写法都认。
 NAME_BOLD = re.compile(r"^\*\*" + NAME_COL + r"\*\*[：:]\s*(.*?)\s*$", re.M)
 NAME_ROW = re.compile(r"^\|\s*" + NAME_COL + r"\s*\|\s*([^|]*?)\s*\|\s*$", re.M)
@@ -232,6 +243,25 @@ def check_name_col(head, body, rep, where, label):
         if not row:
             continue
         check_name(row[i] if i < len(row) else "", rep, where, row[0])
+
+
+def case_names(parsed):
+    """用例表里的 {用例号: 英文名}——评测用例的目录名最后一段要对得上它。
+
+    栏在、值空的记成空串，好与「文档里根本没有这条用例」分开：前者是那一栏没填，
+    后者是引了一条不存在的用例，两处该说的话不一样。
+    """
+    out = {}
+    for head, body in pick_all(parsed, CASE_COLS):
+        i = head.index(NAME_COL) if NAME_COL in head else None
+        for row in body:
+            if not row:
+                continue
+            m = re.fullmatch(r"TC-(\d+)", row[0])
+            if m:
+                out.setdefault(int(m.group(1)),
+                               row[i].strip() if i is not None and i < len(row) else "")
+    return out
 
 
 def name_fields(text):
@@ -480,12 +510,91 @@ def batch_block(text):
     return rest[:nxt.start()] if nxt else rest
 
 
-def check_batches(text, rep, tps):
+def check_case_dirs(head, body, rep, order, names):
+    """「各批落到哪」表里落成评测用例的那几行：「用例目录名」栏与执行顺序对得上。
+
+    判哪一行是评测批，看「执行器」栏（文档模板第五节：那一栏里的「控制器」与
+    「子代理」都归落成评测用例的那一批）。落成可跑测试的行（执行器是「脚本」）
+    这一栏不查；表里一行评测批都没有时不要求有这一栏——缺栏不报错。
+
+    表里没有「执行器」栏时判不出哪几行是评测批，整块跳过，不猜——报一个「查过了」
+    反而更坏。
+    """
+    if "执行器" not in head:
+        return
+    ei, pi = head.index("执行器"), head.index("规程")
+    di = head.index(CASE_DIR_COL) if CASE_DIR_COL in head else None
+    for row in body:
+        if ei >= len(row) or not row[ei].startswith(EVAL_EXECUTORS):
+            continue
+        proc = row[pi] if pi < len(row) else ""
+        tps = sorted({int(n) for n in re.findall(r"TP-(\d+)", proc)})
+        if len(tps) != 1:
+            rep.err(PROC_DOC, "「%s」表里落成评测用例的行要一条规程一行——这一行的"
+                              "「规程」栏写的是「%s」。一条规程一行，才看得出这一串"
+                              "目录名属于哪条规程" % (BATCH_HEAD, proc))
+            continue
+        n = tps[0]
+        cell = row[di] if di is not None and di < len(row) else ""
+        if not cell.strip():
+            rep.err(PROC_DOC, "「%s」表里 TP-%d 那一行的「%s」栏是空的——落成评测用例的"
+                              "行要按执行顺序把该规程全部用例的目录名列全，顿号隔开"
+                    % (BATCH_HEAD, n, CASE_DIR_COL))
+            continue
+        before = rep.errors
+        want = order.get(n, [])
+        seen = []
+        for token in [x.strip() for x in re.split(r"[、,，]", cell) if x.strip()]:
+            m = CASE_DIR_RE.fullmatch(token)
+            if not m:
+                rep.err(PROC_DOC, "这条目录名不合形制：%s——应写成 tp<规程号两位>-"
+                                  "<规程内执行位次两位>-TC-<用例编号>-<英文名>，如 "
+                                  "tp01-01-TC-1-fix-only-what-should-change" % token)
+                continue
+            tp, pos, tc, en = (int(m.group(1)), int(m.group(2)),
+                               int(m.group(3)), m.group(4))
+            if tp != n:
+                rep.err(PROC_DOC, "这一行的「规程」栏写的是 TP-%d，目录名第一段却是 "
+                                  "tp%02d：%s" % (n, tp, token))
+            if tc not in names:
+                rep.err(PROC_DOC, "目录名里的 TC-%d 在测试用例规格说明里没有定义处：%s"
+                        % (tc, token))
+            elif not names[tc]:
+                rep.err(PROC_DOC, "TC-%d 没有「英文名」栏——目录名最后一段要从那一栏取：%s"
+                        % (tc, token))
+            elif names[tc] != en:
+                rep.err(PROC_DOC, "目录名最后一段与用例表里的英文名对不上：写的是 %s，"
+                                  "TC-%d 的英文名是 %s" % (token, tc, names[tc]))
+            if tc in want and want.index(tc) + 1 != pos:
+                rep.err(PROC_DOC, "目录名里的位次写的是 %02d，TC-%d 在 TP-%d 的"
+                                  "「%s」栏里排第 %d：%s"
+                        % (pos, tc, n, PROC_ORDER_FIELD, want.index(tc) + 1, token))
+            seen.append(tc)
+        dup = sorted({x for x in seen if seen.count(x) > 1})
+        if dup:
+            rep.err(PROC_DOC, "目录名清单里重复了：%s" % brief(dup, "TC-"))
+        missing = [x for x in want if x not in seen]
+        if missing:
+            rep.err(PROC_DOC, "TP-%d 的「%s」栏排了这些用例，目录名清单里少：%s"
+                    % (n, PROC_ORDER_FIELD, brief(missing, "TC-")))
+        extra = sorted({x for x in seen if x not in want})
+        if extra:
+            rep.err(PROC_DOC, "目录名清单里多出 TP-%d 没排的用例：%s"
+                    % (n, brief(extra, "TC-")))
+        if rep.errors == before:
+            rep.ok("TP-%d 的目录名清单 %d 条，与「%s」栏逐条对得上"
+                   % (n, len(want), PROC_ORDER_FIELD))
+
+
+def check_batches(text, rep, tps, order, names):
     """「各批落到哪」那一块：在不在；表里列出的规程是不是全部规程。
 
     只管机械项——分得对不对（判据落在哪、分界有没有劈开一条规程）是判断，
     脚本报不了。这里只保证「每条规程都被表列到」与「表里没有不存在的号」，
     有了这两条，人看那张表时才不至于漏看半套。
+
+    order 与 names 从 proc_cases、case_names 取来，「用例目录名」那一栏靠它们对：
+    order 给位次与集合，names 给英文名。
     """
     block = batch_block(text)
     if block is None:
@@ -519,6 +628,7 @@ def check_batches(text, rep, tps):
                 % (BATCH_HEAD, brief(extra, "TP-")))
     if not missing and not extra:
         rep.ok("「%s」那张表把 %d 条规程都列到了" % (BATCH_HEAD, len(tps)))
+    check_case_dirs(head, body, rep, order, names)
 
 
 def check_place(text, rep):
@@ -554,8 +664,49 @@ def check_place(text, rep):
         rep.ok("成品落点表 %d 行" % len(body))
 
 
-def check_proc(text, rep, tcs, datas, envs):
-    """测试规程规格说明：规程编号连续；栏齐；用例排得进去也排得全。"""
+# 规程排用例的那一栏。加粗字段与两列表行两种写法都收（范本用的是后者）。
+PROC_ORDER_FIELD = "有序执行测试用例"
+ORDER_BOLD = re.compile(r"^\*\*" + PROC_ORDER_FIELD + r"\*\*[：:]\s*(.*?)\s*$", re.M)
+ORDER_ROW = re.compile(r"^\|\s*" + PROC_ORDER_FIELD + r"\s*\|\s*([^|]*?)\s*\|\s*$", re.M)
+
+
+def proc_cases(text):
+    """测试规程规格说明：每条规程排了哪些用例。返回 (order, mentioned, bad_head)。
+
+    - `order`：{规程号: [用例号，按「有序执行测试用例」栏里的先后]}。位次按这一栏
+      数，不按编号大小——按前置与后置条件排出来的次序与编号序本来就可以不一样。
+    - `mentioned`：所有规程块里出现过的用例号，含「启动」「停止与结束」那几栏里
+      顺带提到的。「每条用例都被某条规程排到」那条检查用它，判法照旧。
+    - `bad_head`：标题没以编号起头、但标题里带着编号的那几块（「一、TP-1 主干」
+      这种）。这时「一条也没排到」是这个格式问题造成的，得说准是哪一处。
+
+    一条规程从它的标题到下一个标题算一块。标题必须以编号起头：认错了标题，块就切错，
+    用例会算到别的规程头上。
+
+    check_proc 与 issue_ids.py 的 --case-dirs 都用这一份：两边各写一份，迟早一边
+    认得出、一边认不出。
+    """
+    order, mentioned, bad_head = {}, set(), []
+    for block in re.split(r"^#{1,6}\s+", text, flags=re.M)[1:]:
+        first = block.splitlines()[0].strip() if block.strip() else ""
+        m = re.match(r"TP-(\d+)", first)
+        if not m:
+            if re.search(r"TP-\d+", first):
+                bad_head.append(first)
+            continue
+        mentioned |= {int(n) for n in re.findall(r"TC-(\d+)", block)}
+        found = ORDER_BOLD.findall(block) + ORDER_ROW.findall(block)
+        order[int(m.group(1))] = [int(n) for n in
+                                  re.findall(r"TC-(\d+)", found[0] if found else "")]
+    return order, mentioned, bad_head
+
+
+def check_proc(text, rep, tcs, datas, envs, names):
+    """测试规程规格说明：规程编号连续；栏齐；用例排得进去也排得全。
+
+    names：从测试用例规格说明里取的 {用例号: 英文名}，转给 check_batches 对
+    「用例目录名」那一栏的最后一段。
+    """
     parsed = tables(text)
 
     # 规程的「启动」栏该写编号指代，所以要指得到定义处
@@ -573,11 +724,12 @@ def check_proc(text, rep, tcs, datas, envs):
     if missing:
         rep.err(PROC_DOC, "规程缺栏目：%s" % "、".join(missing))
 
-    names = name_fields(text)
-    if names and len(names) != len(tps):
+    # 规程自己的英文名，与上面那个 names 参数（用例的英文名）不是一回事，名字错开
+    proc_names = name_fields(text)
+    if proc_names and len(proc_names) != len(tps):
         rep.err(PROC_DOC, "%d 条规程，英文名写了 %d 个——每条规程都要有一个"
-                % (len(tps), len(names)))
-    for value in names:
+                % (len(tps), len(proc_names)))
+    for value in proc_names:
         check_name(value, rep, PROC_DOC, "规程")
 
     for label, allowed in (("执行器", EXECUTORS), ("改动文件", CHANGES)):
@@ -597,24 +749,12 @@ def check_proc(text, rep, tcs, datas, envs):
         if n not in tcs:
             rep.err(PROC_DOC, "引用了没有定义处的 TC-%d" % n)
 
-    if tps:
-        check_batches(text, rep, set(tps))
-
     if not tps:
         return
-    # 一条规程从它的标题到下一个标题算一块，块里出现过的用例就是这条规程排进去的。
-    # 标题必须以编号起头：认错了标题，块就切错，用例会算到别的规程头上。
-    # 没以编号起头、但标题里带着编号的（「一、TP-1 主干」这种）单独记下来——
-    # 这时「一条也没排到」是这个格式问题造成的，得说准是哪一处，别让人去猜「有序执行
-    # 测试用例」那栏出了什么事。
-    scheduled = set()
-    bad_head = []
-    for block in re.split(r"^#{1,6}\s+", text, flags=re.M)[1:]:
-        first = block.splitlines()[0].strip() if block.strip() else ""
-        if re.match(r"TP-\d+", first):
-            scheduled |= {int(m) for m in re.findall(r"TC-(\d+)", block)}
-        elif re.search(r"TP-\d+", first):
-            bad_head.append(first)
+    # 切块这件事只留一份实现（proc_cases）：issue_ids.py 的 --case-dirs 也数同一栏，
+    # 两边各写一份，迟早一边认得出、一边认不出。
+    order, scheduled, bad_head = proc_cases(text)
+    check_batches(text, rep, set(tps), order, names)
     if bad_head:
         rep.err(PROC_DOC, "这些规程的标题没以编号起头，认不出规程的边界：%s"
                           "——标题写成「TP-N 目标」的样子（编号紧跟 # 之后，前头不加序号）"
@@ -841,6 +981,7 @@ def main():
 
     # 用例与规程要跨文档查引用，所以定义处先都算出来，再逐份检查
     tcs = defined(tables(texts.get(CASE_DOC, "")), texts.get(CASE_DOC, ""), CASE_COLS, "TC-")
+    tc_names = case_names(tables(texts.get(CASE_DOC, "")))
     datas = set(defined(tables(texts.get(DATA_DOC, "")), texts.get(DATA_DOC, ""),
                         DATA_COLS, "DATA-"))
     envs = set(defined(tables(texts.get(ENV_DOC, "")), texts.get(ENV_DOC, ""),
@@ -859,7 +1000,7 @@ def main():
 
     if PROC_DOC in texts:
         print("\n[%s]" % PROC_DOC)
-        check_proc(texts[PROC_DOC], rep, set(tcs), datas, envs)
+        check_proc(texts[PROC_DOC], rep, set(tcs), datas, envs, tc_names)
 
     # 数据项与环境项有没有人用——两份引用文档都在才判。
     # 「成品落点」那一块不算引用：它记的是成品落在哪，里面顺带列到几个编号是常事，

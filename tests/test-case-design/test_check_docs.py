@@ -105,9 +105,9 @@ PROC_TEXT = """# 测试规程规格说明
 
 ## 各批落到哪
 
-| 批次 | 规程 | 执行器 | 落到哪 | 说明 |
-|:---|:---|:---|:---|:---|
-| 脚本批 | TP-1 | 脚本 | `tests/demo/test_demo.py` | 判据落在命令与盘上的文件上 |
+| 批次 | 规程 | 执行器 | 落到哪 | 用例目录名 | 说明 |
+|:---|:---|:---|:---|:---|:---|
+| 脚本批 | TP-1 | 脚本 | `tests/demo/test_demo.py` |  | 判据落在命令与盘上的文件上 |
 """
 
 DATA_TEXT = """# 测试数据需求
@@ -147,6 +147,17 @@ BASE = {
     ENV: ENV_TEXT,
     DECISION: DECISION_TEXT,
 }
+
+# 「各批落到哪」那张表的两版：基线用落成可跑测试的一版（BATCH_SCRIPT，此刻就在
+# PROC_TEXT 里）；下面那些例把它整个换成落成评测用例的一版（BATCH_MODEL），
+# 试「用例目录名」这一栏。两版都带这一栏——基线那一行是脚本批，那一格空着。
+BATCH_SCRIPT = """| 批次 | 规程 | 执行器 | 落到哪 | 用例目录名 | 说明 |
+|:---|:---|:---|:---|:---|:---|
+| 脚本批 | TP-1 | 脚本 | `tests/demo/test_demo.py` |  | 判据落在命令与盘上的文件上 |"""
+
+BATCH_MODEL = """| 批次 | 规程 | 执行器 | 落到哪 | 用例目录名 | 说明 |
+|:---|:---|:---|:---|:---|:---|
+| 模型批 | TP-1 | 子代理 | `evals/demo/cases/` | tp01-01-TC-1-verify_a | 判据要读一轮模型的行为 |"""
 
 # 每一例：说明、改哪儿（文件名, 把什么, 换成什么）、丢掉哪份、期望退出码、输出里该出现的话
 # （这句话以 ! 开头就表示「不该出现」）
@@ -323,22 +334,65 @@ CASES = [
      (), 0, "机械项全过"),
 
     # 文末「各批落到哪」：无条件要写；表里要把全部规程列到。
+    # 查找串用 BATCH_SCRIPT 而不是照抄一遍表：那张表加过一栏，抄第二份迟早对不上。
     ("没有「各批落到哪」这一块",
-     (PROC, "\n## 各批落到哪\n\n| 批次 | 规程 | 执行器 | 落到哪 | 说明 |\n"
-      "|:---|:---|:---|:---|:---|\n"
-      "| 脚本批 | TP-1 | 脚本 | `tests/demo/test_demo.py` | 判据落在命令与盘上的文件上 |\n", ""),
+     (PROC, "\n## 各批落到哪\n\n" + BATCH_SCRIPT + "\n", ""),
      (), 1, "没有「各批落到哪」这一块"),
     ("那一块里没有表（标题写了、表没写）",
-     (PROC, "| 批次 | 规程 | 执行器 | 落到哪 | 说明 |\n|:---|:---|:---|:---|:---|\n"
-      "| 脚本批 | TP-1 | 脚本 | `tests/demo/test_demo.py` | 判据落在命令与盘上的文件上 |",
-      "（待补）"), (), 1, "「各批落到哪」里没有那张表"),
+     (PROC, BATCH_SCRIPT, "（待补）"), (), 1, "「各批落到哪」里没有那张表"),
     ("表里把规程栏写成用例编号",
      (PROC, "| 脚本批 | TP-1 | 脚本 |", "| 脚本批 | TC-1 | 脚本 |"), (), 1,
      "这些规程没被「各批落到哪」那张表列到：TP-1"),
     ("表里列了一个不存在的规程",
      (PROC, "| 脚本批 | TP-1 | 脚本 |", "| 脚本批 | TP-9 | 脚本 |"), (), 1,
      "那张表里列了不存在的规程：TP-9"),
+
+    # 「用例目录名」这一栏：落成评测用例的那几行要按执行顺序列全该规程用例的目录名。
+    # 评测工具按目录名的字母序跑，名字排成什么顺序就跑成什么顺序——两段位次各两位，
+    # 字母序才等于「先规程号、再规程内位次」。
+    ("落成评测用例的行填了「用例目录名」，与执行顺序对得上",
+     (PROC, BATCH_SCRIPT, BATCH_MODEL), (), 0, "与「有序执行测试用例」栏逐条对得上"),
+    ("目录名少一段（没写英文名那段）",
+     (PROC, BATCH_SCRIPT, BATCH_MODEL.replace("tp01-01-TC-1-verify_a", "tp01-01-TC-1")),
+     (), 1, "不合形制"),
+    ("目录名里规程号那段位数不够",
+     (PROC, BATCH_SCRIPT, BATCH_MODEL.replace("tp01-01-", "tp1-01-")), (), 1, "不合形制"),
+    ("位次与「有序执行测试用例」栏对不上",
+     (PROC, BATCH_SCRIPT, BATCH_MODEL.replace("tp01-01-", "tp01-02-")), (), 1, "排第 1"),
+    ("第一段的规程号不是本行「规程」栏那条",
+     (PROC, BATCH_SCRIPT, BATCH_MODEL.replace("tp01-01-", "tp02-01-")),
+     (), 1, "「规程」栏写的是 TP-1"),
+    ("第三段的用例号没有定义处",
+     (PROC, BATCH_SCRIPT, BATCH_MODEL.replace("TC-1-verify_a", "TC-9-verify_a")),
+     (), 1, "目录名里的 TC-9"),
+    ("第四段的英文名与用例表里那一栏不一致",
+     (PROC, BATCH_SCRIPT, BATCH_MODEL.replace("TC-1-verify_a", "TC-1-verify_b")),
+     (), 1, "英文名对不上"),
+    ("落成评测用例的那一行整栏空着",
+     (PROC, BATCH_SCRIPT, BATCH_MODEL.replace("| tp01-01-TC-1-verify_a |", "|  |")),
+     (), 1, "「用例目录名」栏是空的"),
 ]
+
+
+# 打目录名要英文名，基线的用例表没有这一栏；这一份手写的规程文本配下面那份名字表，
+# 用来试「清单漏一条 / 同一条写两遍 / 一条规程一行 / 没有执行器栏」——基线只有一条
+# 规程、一条用例，这几种在那边造不出来。
+PROC_TEXT_TWO = """# 测试规程规格说明
+
+## TP-1 主干
+
+**唯一标识符**：TP-1
+
+**有序执行测试用例**：TC-1、TC-2
+
+## 各批落到哪
+
+| 批次 | 规程 | 执行器 | 落到哪 | 用例目录名 | 说明 |
+|:---|:---|:---|:---|:---|:---|
+| 模型批 | TP-1 | 子代理 | `evals/demo/cases/` | tp01-01-TC-1-verify_a、tp01-02-TC-2-verify_b | 判据要读一轮模型的行为 |
+"""
+
+CASE_NAMES_TWO = {1: "verify_a", 2: "verify_b"}
 
 
 def run_check(root):
@@ -440,11 +494,68 @@ def check_batches_missing_tp():
             "| 脚本批 | TP-1 | 脚本 | `tests/demo/test_demo.py` | 判据落在命令上 |\n")
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
-        check_docs.check_batches(text, check_docs.Report(), {1, 2})
+        check_docs.check_batches(text, check_docs.Report(), {1, 2},
+                                 check_docs.proc_cases(text)[0], {})
     out = buf.getvalue()
     if "TP-2" not in out:
         return ["两条规程、表里只列了 TP-1，没报出漏掉的 TP-2；实际输出：%r" % out]
     return []
+
+
+def check_case_dirs_list():
+    """清单漏一条、同一条写两遍、一条规程一行、没有「执行器」栏：四种都要合规矩。
+
+    上面那些例的基线只有一条规程、一条用例，这几种在那边造不出来，所以单起一条：
+    直接把一段规程文本喂给 check_batches，接住它打印的话。
+
+    check_batches 还没写时返回一条毛病而不是抛 AttributeError——这条是「另起
+    一条」，抛出去会把整个脚本打断，前面那些例的结论也跟着看不到。
+    """
+    if not hasattr(check_docs, "check_batches"):
+        return ["check_docs 里还没有 check_batches()"]
+    # 表里没有「执行器」栏的那一版：判不出哪几行是评测批，整块跳过、不报错。
+    # 「规程」栏跟着列全两条规程，好让 check_batches 自己那部分不报错——这一条
+    # 单独看的就是「跳过时一处错也不报」，不是「报了个假错」。
+    no_executor = (PROC_TEXT_TWO
+                   .replace("| 批次 | 规程 | 执行器 | 落到哪 |",
+                            "| 批次 | 规程 | 落到哪 |")
+                   .replace("|:---|:---|:---|:---|:---|:---|",
+                            "|:---|:---|:---|:---|:---|")
+                   .replace("| 模型批 | TP-1 | 子代理 |", "| 模型批 | TP-1、TP-2 |"))
+    order, _, _ = check_docs.proc_cases(PROC_TEXT_TWO)
+    # 每一例：说明、喂进去的规程文本、喂给 check_batches 的规程集合、期望的报错处数、
+    # 输出里该出现的话（没有就空串）。规程集合逐例给：表里只列 TP-1 的，就传 {1}，
+    # 不然 check_batches 自己那条「漏列了 TP-2」会先报一处，把这一例的期望带偏。
+    variants = [
+        ("对得上时不该报错", PROC_TEXT_TWO, {1}, 0, ""),
+        ("清单漏一条",
+         PROC_TEXT_TWO.replace("tp01-01-TC-1-verify_a、tp01-02-TC-2-verify_b",
+                               "tp01-01-TC-1-verify_a"),
+         {1}, 1, "目录名清单里少"),
+        ("清单里同一条写了两遍",
+         PROC_TEXT_TWO.replace(
+             "tp01-01-TC-1-verify_a、tp01-02-TC-2-verify_b",
+             "tp01-01-TC-1-verify_a、tp01-02-TC-2-verify_b、tp01-02-TC-2-verify_b"),
+         {1}, 1, "重复了"),
+        ("一条规程一行：一格里写了两条规程",
+         PROC_TEXT_TWO.replace("| 模型批 | TP-1 |", "| 模型批 | TP-1、TP-2 |"),
+         {1, 2}, 1, "一条规程一行"),
+        ("表里没有「执行器」栏：判不出哪几行是评测批，整块跳过，一处错也不报",
+         no_executor, {1, 2}, 0, ""),
+    ]
+    problems = []
+    for title, text, tps, want_errors, want in variants:
+        rep = check_docs.Report()
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            check_docs.check_batches(text, rep, tps, order, CASE_NAMES_TWO)
+        out = buf.getvalue()
+        if rep.errors != want_errors:
+            problems.append("%s：报了 %d 处错，期望 %d 处；实际输出：%r"
+                            % (title, rep.errors, want_errors, out))
+        elif want and want not in out:
+            problems.append("%s：输出里没有「%s」；实际输出：%r" % (title, want, out))
+    return problems
 
 
 def main():
@@ -502,6 +613,17 @@ def main():
     print()
     title = "两条规程、表里只列了一条：漏的那条要点名报出来"
     problems = check_batches_missing_tp()
+    if problems:
+        bad += 1
+        print("[失败] %s" % title)
+        for p in problems:
+            print("       %s" % p)
+    else:
+        print("[通过] %s" % title)
+
+    print()
+    title = "目录名清单：漏一条、重复、一条规程一行、没有「执行器」栏，四种都合规矩"
+    problems = check_case_dirs_list()
     if problems:
         bad += 1
         print("[失败] %s" % title)
