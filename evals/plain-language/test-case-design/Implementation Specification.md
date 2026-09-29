@@ -650,8 +650,10 @@ C:/Study/skill-up/bin/skill-up.exe run C:/work/shared-skills/evals/plain-languag
 ```
 
 ```bash
-C:/Study/skill-up/bin/skill-up.exe run C:/work/shared-skills/evals/plain-language/eval-no-skill.yaml --output-dir C:/work/shared-skills/evals/plain-language/results
+C:/Study/skill-up/bin/skill-up.exe run C:/work/shared-skills/evals/plain-language/eval-no-skill.yaml --output-dir C:/work/shared-skills/evals/plain-language/results/no-skill
 ```
+
+两份配置各占一个输出目录。`--iteration` 默认是自动追加 `iteration-N/`，它数的是**这个输出目录下跑过几回**，不看跑的是哪份配置——两份共用一个目录的话，第二份会接到 `iteration-2/`，看着像第一份又跑了一遍。第二轮只有 1 条（`eval-no-skill.yaml` 里就列了 tp08 一条），单放一处才看得明白。
 
 跑之前不用手工摆任何东西：工作区由 skill-up 新建，夹具与 `rules.md` 的注入由配置里的 `context.repo_fixture` 与 `environment.setup_steps` 各做各的（2.1 第 3 小节、第 5 小节第 4 条）。两次运行之间也不用复位——它们的工作区是两个互不相干的临时目录。
 
@@ -667,4 +669,4 @@ C:/Study/skill-up/bin/skill-up.exe validate C:/work/shared-skills/evals/plain-la
 C:/Study/skill-up/bin/skill-up.exe validate C:/work/shared-skills/evals/plain-language/eval-no-skill.yaml
 ```
 
-报告落在 `--output-dir` 里，也就是 `evals/plain-language/results/`，不进 git——`.gitignore` 里那条 `evals/*/results/` 就是管这个的，`evals/` 下另外几套评测材料的结果也走同一条。
+报告落在 `--output-dir` 里——第一份在 `evals/plain-language/results/`，第二份在 `results/no-skill/`——不进 git：`.gitignore` 里那条 `evals/*/results/` 把整个 `results/` 盖住了，`evals/` 下另外几套评测材料的结果也走同一条。
