@@ -1,0 +1,35 @@
+# 落到 evals/plain-language/skill-up/cases/tp02-01-TC-2-quotes_kept_and_glossed.yaml
+# TP-2 / TC-2（高风险；覆盖项 TCOV-14、TCOV-15、TCOV-19、TCOV-24）
+id: tp02-01-TC-2-quotes_kept_and_glossed
+title: 引文原样留着，后面补中文
+description: 给一份引文文档的路径；引文本身一字不动，每句原句后面补该句的中文
+
+input:
+  prompt: |
+    /plain-language 这份文档里引了几段英文，我看着费劲，帮我改一下：evals/plain-language/cases/tp02-01-TC-2-quotes_kept_and_glossed/fixture/样本.md
+
+constraints:
+  timeout_seconds: 600
+  max_turns: 12
+
+expect:
+  exit_code: 0
+  must_not_contain:
+    - "我无法"
+    - "我没有权限"
+    - "路径不存在"
+
+judge:
+  type: agent_judge
+  model: anthropic/claude-sonnet-4-6
+  criteria:
+    - "只看这一轮的产出与盘上的改动；不替 agent 补话，也不替它解释。"
+    - "成句成段的引文，每一句原句后面紧跟着该句的中文，原句本身一个字没改。"
+    - "当标签用的标题或章节名，本身没动，后面有一个中文短语指认它说的是什么。"
+    - "引文里面如果有那几类问题，没有在引文里面改，而是在引文外面补了说明。"
+    - "引文元数据（作者、出处、年份那一类）一个字没动。"
+    - "那份文档副本之外的任何文件都没被动过——按本条用例自己的 workspace_diff 判。"
+  pass_threshold: 0.7
+  context:
+    profile: standard
+    workspace_diff: file_ref

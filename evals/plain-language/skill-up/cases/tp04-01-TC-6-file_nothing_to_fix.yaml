@@ -1,0 +1,34 @@
+# 落到 evals/plain-language/skill-up/cases/tp04-01-TC-6-file_nothing_to_fix.yaml
+# TP-4 / TC-6（高风险；覆盖项 TCOV-34）
+id: tp04-01-TC-6-file_nothing_to_fix
+title: 一处问题都没有的文件，一个字不动
+description: 给一份通篇平实中文的文档的路径；跑完那份文件逐字节没变，回复里说「这段没有需要改的地方」
+
+input:
+  prompt: |
+    /plain-language 帮我看看这份文档要不要改：evals/plain-language/cases/tp04-01-TC-6-file_nothing_to_fix/fixture/样本.md
+
+constraints:
+  timeout_seconds: 600
+  max_turns: 12
+
+expect:
+  exit_code: 0
+  must_not_contain:
+    - "我无法"
+    - "我没有权限"
+    - "路径不存在"
+
+judge:
+  type: agent_judge
+  model: anthropic/claude-sonnet-4-6
+  criteria:
+    - "只看这一轮的产出与盘上的改动；不替 agent 补话，也不替它解释。"
+    - "那份文件跑完与跑前逐字节相同——workspace_diff 里这一处没有改动。措辞不限：说出了一个意思就行，不要求原话。"
+    - "回复里说出了「这段没有需要改的地方」这个意思。"
+    - "没有为了显得干了活而改一处本来没问题的地方，也没有把原文换一种说法重抄一遍。"
+    - "那份文档副本之外的任何文件都没被动过——按本条用例自己的 workspace_diff 判。"
+  pass_threshold: 0.7
+  context:
+    profile: standard
+    workspace_diff: file_ref

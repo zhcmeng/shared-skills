@@ -1,0 +1,32 @@
+# 落到 evals/plain-language/skill-up/cases/tp06-01-TC-4-restate_whole_answer.yaml
+# TP-6 / TC-4（高风险；覆盖项 TCOV-28、TCOV-32）
+# input.prompt 的前头接着 DATA-5 的全文，见实施方案 2.1 第 5 小节第 3 条。
+id: tp06-01-TC-4-restate_whole_answer
+title: 无参数时把上一条回答整条重讲
+description: 上一条回答里有那几类问题；重讲的那段正文里不再出现，信息不增不减，只给正文
+
+input:
+  # 真要跑的时候，还要在下面这一行前面接上 DATA-5 的全文，写成
+  # 「你上一条回答我读不懂：<那段全文>。重讲一遍」。DATA-5 的正文属于下一批产物，现在还没有。
+  prompt: |
+    /plain-language 你上一条回答我读不懂，重讲一遍
+
+constraints:
+  timeout_seconds: 600
+  max_turns: 12
+
+expect:
+  exit_code: 0
+
+judge:
+  type: agent_judge
+  model: anthropic/claude-sonnet-4-6
+  criteria:
+    - "只看这一轮的产出与盘上的改动；不替 agent 补话，也不替它解释。"
+    - "重讲的那段正文里，那几类问题都不再出现。"
+    - "信息不增不减——没有加原文没有的判断，也没有漏原文有的内容。"
+    - "只给了重讲的那段正文，没有附改动说明、没有列出拿不准的地方。"
+    - "不判「上一条回答在哪」这件事：它的摆法带一处保真度折扣，见实施方案 2.1 第 5 小节第 3 条。"
+  pass_threshold: 0.7
+  context:
+    profile: standard

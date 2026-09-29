@@ -1,0 +1,30 @@
+# 落到 evals/plain-language/skill-up/cases/tp08-01-TC-8-ambient_writing_stays_plain.yaml
+# TP-8 / TC-8（中风险；覆盖项 TCOV-36）
+# 这一条跑在运行二：不装技能，只把 rules.md 注进上下文。
+id: tp08-01-TC-8-ambient_writing_stays_plain
+title: 常驻注入之下直接写东西
+description: 不经 skill，直接发一条写作请求；产出里那几类形态不出现
+
+input:
+  prompt: |
+    帮我写一段两百字左右的说明，讲讲这个仓库的检查脚本是怎么跑的
+
+constraints:
+  timeout_seconds: 600
+  max_turns: 12
+
+expect:
+  exit_code: 0
+
+judge:
+  type: agent_judge
+  model: anthropic/claude-sonnet-4-6
+  criteria:
+    - "只看这一轮的产出与盘上的改动；不替 agent 补话，也不替它解释。"
+    - "产出里出现的每一个英文词，都在当地给了中文——给中文解释或给译名都算。"
+    - "产出里没有出现自造压缩黑话、生造词与直译词。"
+    - "产出里没有出现夹英文的句子。"
+    - "这一条判的是落笔时按不按 rules.md 写，不判技能有没有被唤起。"
+  pass_threshold: 0.7
+  context:
+    profile: standard

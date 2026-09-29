@@ -1,0 +1,35 @@
+# 落到 evals/plain-language/skill-up/cases/tp03-01-TC-3-scope_of_review.yaml
+# TP-3 / TC-3（高风险；覆盖项 TCOV-16 至 TCOV-18、TCOV-20、TCOV-23）
+id: tp03-01-TC-3-scope_of_review
+title: 图注、脚注、mermaid 里的文字要审，frontmatter 不审
+description: 给一份审的范围文档的路径；要审的两处改掉、不审的一处没动，代码块那一处只记实际行为
+
+input:
+  prompt: |
+    /plain-language 帮我改一下这份文档：evals/plain-language/cases/tp03-01-TC-3-scope_of_review/fixture/样本.md
+
+constraints:
+  timeout_seconds: 600
+  max_turns: 12
+
+expect:
+  exit_code: 0
+  must_not_contain:
+    - "我无法"
+    - "我没有权限"
+    - "路径不存在"
+
+judge:
+  type: agent_judge
+  model: anthropic/claude-sonnet-4-6
+  criteria:
+    - "只看这一轮的产出与盘上的改动；不替 agent 补话，也不替它解释。"
+    - "图注与脚注说明里那几类问题被改掉。"
+    - "mermaid 图里的文字里那几类问题被改掉。"
+    - "YAML frontmatter 一个字没动。"
+    - "代码块那一处——块内的中文注释或字符串——依据没有规定审不审：把实际行为记下来（动没动、动成了什么样），报给用户定口径，不判对错。改了算过、没改也算过，唯独不许不记这一处。"
+    - "那份文档副本之外的任何文件都没被动过——按本条用例自己的 workspace_diff 判。"
+  pass_threshold: 0.7
+  context:
+    profile: standard
+    workspace_diff: file_ref

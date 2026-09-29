@@ -1,0 +1,32 @@
+# 运行二：不装技能，只跑 TP-8（TC-8）。
+# 这一档判的是「rules.md 注进上下文之后，落笔时按不按它写」；技能会不会被唤起不在这批用例里判。
+# ENV-5 的注入不落在这一份里：开跑前把 rules.md 接到工作区那份 CLAUDE.md 末尾，见 2.1 第 5 小节第 4 条。
+schema_version: v1alpha1
+
+environment:
+  type: none
+
+mcp:
+  servers: []
+
+engine:
+  name: claude_code
+
+cases:
+  files:
+    - skill-up/cases/tp08-01-TC-8-ambient_writing_stays_plain.yaml
+  defaults:
+    timeout_seconds: 600
+    max_turns: 12
+    expect:
+      exit_code: 0
+  parallelism: 1
+  retry_policy:
+    max_retries: 0
+
+benchmark:
+  enabled: false
+
+report:
+  formats: [json, html]
+  artifacts: [transcript]
