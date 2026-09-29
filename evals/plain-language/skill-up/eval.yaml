@@ -1,5 +1,6 @@
 # 运行一：装技能，跑 TP-1 至 TP-7（TC-1 至 TC-7）。
 # 相对路径的基准是 evals/plain-language/。改这一份之前先看实施方案 2.1 第 3 小节。
+# ENV-5 的注入不在这一份里：开跑前把 rules.md 接到工作区那份 CLAUDE.md 末尾，见 2.1 第 5 小节第 4 条。
 schema_version: v1alpha1
 
 environment:

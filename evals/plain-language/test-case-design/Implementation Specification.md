@@ -16,7 +16,7 @@
 | ENV-2 | `skill-up/eval.yaml` 的 `report.artifacts` 与各条 `judge.context` | 回复看 `final_message`，盘上改动看 `workspace_diff: file_ref` |
 | ENV-3 | `skill-up/cases/<目录名>.yaml` 的 `judge.criteria` | 各条用例「预期结果」栏的散文压成条目 |
 | ENV-4 | 工作区副本 `C:\work\plain-language-eval-workspace` | 一份仓库副本，每次运行前整份重建 |
-| ENV-5 | 运行二的工作区里那份 `CLAUDE.md`——把 `rules.md` 的内容接在它末尾；见 2.1 第 5 小节 | 钩子那条道在本方案里走不通：skill-up 起 claude 时带 `--settings '{"disableAllHooks":true}'`，钩子一律不生效 |
+| ENV-5 | 两次运行的工作区里那份 `CLAUDE.md`——开跑前把 `rules.md` 的内容接在它末尾；见 2.1 第 5 小节 | 钩子那条道在本方案里走不通：skill-up 起 claude 时带 `--settings '{"disableAllHooks":true}'`，钩子一律不生效 |
 | ENV-6 | `--workspace C:\work\plain-language-eval-workspace` | 见 2.1 第 3 小节：一份目录，每次运行前重建 |
 | ENV-7 | 同上那一份目录 | 被测那侧就是这份副本所在的机器（本机 Windows） |
 | DATA-1 | `evals/plain-language/cases/tp01-01-TC-1-fix_only_what_should_change/fixture/样本.md` | 混合文档样本 |
@@ -53,11 +53,11 @@
 
 **3. 工作区怎么摆与复位**
 
-`--workspace` 指 `C:\work\plain-language-eval-workspace`，一份本仓库的副本。
+`--workspace` 指 `C:\work\plain-language-eval-workspace`，一份本仓库的副本。**副本要自带 `.git`**（把仓库目录整份拷过去就有）——skill-up 拿它拍差集；没有它，差集会被静默关掉，屏幕上什么也看不到。
 
 **每次运行前把这一份整份重建。** 同一批用例、重试、迭代串行复用这一个目录，配置里的准备动作、夹具、技能安装与 agent 的改动都会传到后面几条，而 skill-up 永远不会删这个目录。重试次数设成 0（`retry_policy.max_retries: 0`），否则失败的那条会在同一个脏目录里重跑。
 
-判「有没有动到不该动的」按**本条用例自己的差集**判，不按整个工作区的差集判：运行一里七条串行跑，前面几条改过的文件会留在盘上。skill-up 跑 `agent_judge` 之前会在工作区的 `.git` 里提交一份基线，`workspace_diff` 是拿这条用例开跑时的状态比的，所以每条用例的 `workspace_diff` 只含它自己改的东西。TC-1 的判据⑤（那份文档副本之外的任何文件都没被动过）就靠这一条成立。
+判「有没有动到不该动的」按**本条用例自己的差集**判，不按整个工作区的差集判：运行一里七条串行跑，前面几条改过的文件会留在盘上。skill-up 在每条用例开跑前，拿工作区当时的状态另行拍一份基线——它在工作区之外建一个临时 git 仓库，把 `GIT_DIR`、`GIT_WORK_TREE` 指过去，用 `git write-tree` 得出一个树对象；`workspace_diff` 是拿这条用例开跑时的状态比的，所以每条用例的 `workspace_diff` 只含它自己改的东西。工作区那份 `.git` 只被用来回答一个问题——这里是不是 git 仓库。TC-1 的判据⑤（那份文档副本之外的任何文件都没被动过）就靠这一条成立。
 
 **4. 判据两层怎么落**
 
@@ -97,7 +97,9 @@
 
 **备选（丁）**：这两条本方案不跑，等 skill-up 支持注入 assistant 轮次再补。
 
-**第 4 条：ENV-5 的注入怎么摆。** 走「项目根目录的 `CLAUDE.md`」这条道：运行二开跑前，把 `rules.md` 的全文接在工作区那份 `CLAUDE.md` 的末尾（只往后接，原有内容一个字不动）。Claude Code 起会话时会读项目根目录的 `CLAUDE.md`，它与 SessionStart 钩子一样是会话开头的常驻上下文。
+**第 4 条：ENV-5 的注入怎么摆。** 走「项目根目录的 `CLAUDE.md`」这条道：**两次运行开跑前都**把 `rules.md` 的全文接在工作区那份 `CLAUDE.md` 的末尾（只往后接，原有内容一个字不动）。Claude Code 起会话时会读项目根目录的 `CLAUDE.md`，它与 SessionStart 钩子一样是会话开头的常驻上下文。
+
+两次都接，是因为只给运行二接会让运行一那七条没有常驻注入——与测试环境需求里「其余七条规程跑的时候 `rules.md` 同样已经注入」对不上，也与真实用法对不上（真实使用者那里规则本来就常驻，技能另外也在）。两次都接，八条的差别才回到「用不用 skill」这一件事上。
 
 - **为什么不用钩子**：skill-up 拼的命令带 `--settings '{"disableAllHooks":true}'`，钩子一律不生效。
 - **为什么不用 `claude -p --append-system-prompt`**：skill-up 没有传额外参数的口子，这条命令行它拼不出来；实测能跑的是钩子那条原路，而钩子被关了。
@@ -105,9 +107,9 @@
 
 **6. 跑不了原样的那几条**
 
-- TC-4、TC-5：第 5 小节第 3 条那处折扣。其余五条与设计稿一致，没有出入。
+- TC-4、TC-5：第 5 小节第 3 条那处折扣。其余四条（TC-1、TC-2、TC-3、TC-6）与设计稿一致，没有出入。
 - TC-7：数据项里指的路径本来就不存在，不用另摆什么，与设计稿一致。
-- TC-8：这一档不经 skill，跑法与其余七条不同——不装技能、只把 `rules.md` 注进去，这是设计稿里就写着的，不是折扣。
+- TC-8：这一档不经 skill，跑法与其余七条不同——不装技能，只靠常驻注入的那份 `rules.md`。这是设计稿里就写着的，不是折扣。
 
 ### 2.2 可跑配置（YAML 原文）
 
@@ -118,6 +120,7 @@
 ```yaml
 # 运行一：装技能，跑 TP-1 至 TP-7（TC-1 至 TC-7）。
 # 相对路径的基准是 evals/plain-language/。改这一份之前先看实施方案 2.1 第 3 小节。
+# ENV-5 的注入不在这一份里：开跑前把 rules.md 接到工作区那份 CLAUDE.md 末尾，见 2.1 第 5 小节第 4 条。
 schema_version: v1alpha1
 
 environment:
@@ -510,7 +513,7 @@ C:/Study/skill-up/bin/skill-up.exe run C:/work/shared-skills/evals/plain-languag
 C:/Study/skill-up/bin/skill-up.exe run C:/work/shared-skills/evals/plain-language/skill-up/eval-no-skill.yaml --workspace C:/work/plain-language-eval-workspace --output-dir C:/work/plain-language-eval-results
 ```
 
-两次运行之间，把工作区那份副本整份重建成原样（2.1 第 3 小节）。运行二开跑前，另外把 `rules.md` 接到工作区那份 `CLAUDE.md` 末尾（2.1 第 5 小节第 4 条）。
+两次运行之间，把工作区那份副本整份重建成原样（2.1 第 3 小节）。**每次运行开跑前**，另外把 `rules.md` 接到副本那份 `CLAUDE.md` 末尾（2.1 第 5 小节第 4 条）——两次都接。
 
 `--output-dir` 必须在工作区之外——报告与事件日志不能落进 `--workspace` 那个目录，这是 skill-up 的硬要求。
 
