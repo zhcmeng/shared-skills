@@ -20,7 +20,7 @@
 
 ——回复里给出 19（自然话或照脚本输出给出 `tokens: 19` 都行）；
 
-——这一轮执行的命令里指得到 `plugin/skills/token-counter/scripts/count_tokens.py`，并把 `evals/token-counter/cases/counts-file-exactly/fixture/样本.md`（或它解析出来的绝对路径）交给了它。
+——这一轮执行的命令里指得到 `plugin/skills/token-counter/scripts/count_tokens.py`，并把 `evals/token-counter/cases/tp05-07-TC-35-file_request_counts_exactly/fixture/样本.md`（或它解析出来的绝对路径）交给了它。
 
 ## 判的时候留个心
 

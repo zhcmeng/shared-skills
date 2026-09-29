@@ -9,13 +9,13 @@
 ## 怎么跑
 
 1. 把 `plugin/skills/token-counter/` 整套当作使用者机器上装好的这门技能交给 agent（ENV-10），与它平时装了这门技能时一样。工作目录设在本仓库根——样本文件的路径从这儿写起。
-2. 发下面这条用户消息。样本文件在 `evals/token-counter/cases/not-utf8-reported-not-invented/fixture/非UTF8.md`，是「中文测试」的 GBK 字节；脚本对它报 `not valid UTF-8: <路径>` 并以退出码 1 结束。
+2. 发下面这条用户消息。样本文件在 `evals/token-counter/cases/tp05-03-TC-37-not_utf8_file_reported/fixture/非UTF8.md`，是「中文测试」的 GBK 字节；脚本对它报 `not valid UTF-8: <路径>` 并以退出码 1 结束。
 3. 只取第一条回复（ENV-11），按 `graders/no-invented-count.md`（ENV-13）判。
 
 用户消息：
 
 ```
-/shared-skills:token-counter 帮我算一下这个文件有多少 token：evals/token-counter/cases/not-utf8-reported-not-invented/fixture/非UTF8.md
+/shared-skills:token-counter 帮我算一下这个文件有多少 token：evals/token-counter/cases/tp05-03-TC-37-not_utf8_file_reported/fixture/非UTF8.md
 ```
 
 ## 基线证据

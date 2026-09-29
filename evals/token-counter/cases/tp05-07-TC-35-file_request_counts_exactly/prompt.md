@@ -9,13 +9,13 @@
 ## 怎么跑
 
 1. 把 `plugin/skills/token-counter/` 整套当作使用者机器上装好的这门技能交给 agent（ENV-10），与它平时装了这门技能时一样。工作目录设在本仓库根——样本文件的路径从这儿写起。
-2. 发下面这条用户消息。样本文件在 `evals/token-counter/cases/counts-file-exactly/fixture/样本.md`，内容是 DATA-9 那段（含中文与英文的 Markdown），脚本对它报 `tokens: 19`、`chars: 61`。
+2. 发下面这条用户消息。样本文件在 `evals/token-counter/cases/tp05-07-TC-35-file_request_counts_exactly/fixture/样本.md`，内容是 DATA-9 那段（含中文与英文的 Markdown），脚本对它报 `tokens: 19`、`chars: 61`。
 3. 只取第一条回复（ENV-11），连同它这一轮执行的命令，按 `graders/file-channel-count.md`（ENV-13）判。
 
 用户消息：
 
 ```
-/shared-skills:token-counter 这个文件有多少 token？evals/token-counter/cases/counts-file-exactly/fixture/样本.md
+/shared-skills:token-counter 这个文件有多少 token？evals/token-counter/cases/tp05-07-TC-35-file_request_counts_exactly/fixture/样本.md
 ```
 
 ## 基线证据

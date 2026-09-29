@@ -26,6 +26,6 @@
 | DATA-20 | full_request_count_request | 用户消息样本：要的是整轮对话请求的数，不是一段正文的数。消息原文：`/shared-skills:token-counter 帮我算一下这一整轮对话的 token 数：system 说「你是一个助手」，user 说「你好，世界」` | 不需要 |
 | DATA-21 | other_model_count_request | 用户消息样本：要的数落在随包词表覆盖范围之外，点名了另一个模型。消息原文：`/shared-skills:token-counter 帮我把这段文本按 Claude 的 tokenizer 数一下：你好，世界` | 不需要 |
 | DATA-22 | vocab_update_question | 用户消息样本：问官方换版之后这门技能要动哪几处。消息原文：`/shared-skills:token-counter DeepSeek 官方换了新的词表，这个技能要跟着动哪几处？` | 不需要 |
-| DATA-23 | file_count_request | 用户消息样本：指一个文件、要它的 token 数；那份文件按 DATA-9 的字节放在用例目录的 `fixture/` 下，路径从工作目录（本仓库根）写起。消息原文：`/shared-skills:token-counter 这个文件有多少 token？evals/token-counter/cases/counts-file-exactly/fixture/样本.md` | 不需要 |
+| DATA-23 | file_count_request | 用户消息样本：指一个文件、要它的 token 数；那份文件按 DATA-9 的字节放在用例目录的 `fixture/` 下，路径从工作目录（本仓库根）写起。消息原文：`/shared-skills:token-counter 这个文件有多少 token？evals/token-counter/cases/tp05-07-TC-35-file_request_counts_exactly/fixture/样本.md` | 不需要 |
 | DATA-24 | first_run_count_request | 用户消息样本：在一台没装引擎、也没有网络出口的机器上，报出一段正文、要它的 token 数，正文按 DATA-1 取。消息原文：`/shared-skills:token-counter 帮我把这段文字数一下 token：「你好，世界」` | 不需要 |
-| DATA-25 | not_utf8_file_request | 用户消息样本：指一个不是合法 UTF-8 的文件、要它的 token 数；那份字节按 DATA-11 放在用例目录的 `fixture/` 下，路径从工作目录（本仓库根）写起。消息原文：`/shared-skills:token-counter 帮我算一下这个文件有多少 token：evals/token-counter/cases/not-utf8-reported-not-invented/fixture/非UTF8.md` | 不需要 |
+| DATA-25 | not_utf8_file_request | 用户消息样本：指一个不是合法 UTF-8 的文件、要它的 token 数；那份字节按 DATA-11 放在用例目录的 `fixture/` 下，路径从工作目录（本仓库根）写起。消息原文：`/shared-skills:token-counter 帮我算一下这个文件有多少 token：evals/token-counter/cases/tp05-03-TC-37-not_utf8_file_reported/fixture/非UTF8.md` | 不需要 |
