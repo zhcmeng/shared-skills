@@ -518,14 +518,24 @@ def check_case_dirs(head, body, rep, order, names):
     这一栏不查；表里一行评测批都没有时不要求有这一栏——缺栏不报错。
 
     表里没有「执行器」栏时判不出哪几行是评测批，整块跳过，不猜——报一个「查过了」
-    反而更坏。
+    反而更坏。但跳过要留一句话：末尾照打「机械项全过」，不吭声的话读的人会以为这
+    一栏查过了。所以跳过时走提示通道说一声，不加错。
     """
     if "执行器" not in head:
+        rep.warn(PROC_DOC, "「%s」表里没有「执行器」栏，看不出哪几行落成评测用例——"
+                           "「%s」这一栏这次没查" % (BATCH_HEAD, CASE_DIR_COL))
         return
     ei, pi = head.index("执行器"), head.index("规程")
     di = head.index(CASE_DIR_COL) if CASE_DIR_COL in head else None
     for row in body:
-        if ei >= len(row) or not row[ei].startswith(EVAL_EXECUTORS):
+        val = row[ei] if ei < len(row) else ""
+        if not val.startswith(EVAL_EXECUTORS):
+            # 取值不在给定的几个里（写错字那种）也查不了，同样留一句话：
+            # 「脚本」是正常的不查，别的都得说一声。
+            if not val.startswith(EXECUTORS):
+                rep.warn(PROC_DOC, "「%s」表里这一行的「执行器」栏是「%s」，不在给定的"
+                                   "几个里——这一行的「%s」栏没查"
+                        % (BATCH_HEAD, val, CASE_DIR_COL))
             continue
         proc = row[pi] if pi < len(row) else ""
         tps = sorted({int(n) for n in re.findall(r"TP-(\d+)", proc)})
