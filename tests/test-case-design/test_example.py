@@ -34,6 +34,20 @@ import check_landing  # noqa: E402
 EXAMPLE = SKILL / "references" / "文档示例.md"
 TEMPLATE = SKILL / "references" / "文档模板.md"
 
+# 这一支里的参考文档。技能自包含，写着「不要去翻本机那份 clone」——那就得真的
+# 有一份在包里，五个文件一个不少。
+VENDOR_DIR = SKILL / "references" / "评测方案" / "skill-up"
+VENDOR_FILES = ("README.md", "capabilities-and-limits.md", "LICENSE",
+                "writing-evals.md", "cli-reference.md")
+# 哪几份是上游原文、哪几份是本技能自己写的。上游那三份一字不改，由
+# `git diff --no-index` 比一遍（见本 Task 的 Step 5）；自己写的那两份顶上要写明，
+# 不然读的人会当成上游原文，上游一改版就不知道该信谁。
+VENDOR_UPSTREAM = ("LICENSE", "writing-evals.md", "cli-reference.md")
+VENDOR_OURS = ("README.md", "capabilities-and-limits.md")
+VENDOR_OURS_MARK = "本技能自己写"
+# 钉住的那一个 commit。逐字节比对比不出来时也不静默放过：至少把出处这一行钉死。
+VENDOR_PIN = "7f1ff9b8e2d7c654728de526867f2f7e7b78ea51"
+
 # 范本里那一节 → 产出里的哪一份文档。顺序照范本，标题照 check_docs.DOCS。
 SECTIONS = [
     ("## 一、测试模型规格说明", "Test Model Specification.md"),
@@ -198,6 +212,32 @@ def check_impl_contract():
     return []
 
 
+def check_vendored():
+    """skill-up 的参考文档五个文件都在；上游那三份一字不改，自己写的那两份标明了。"""
+    if sorted(VENDOR_UPSTREAM + VENDOR_OURS) != sorted(VENDOR_FILES):
+        return ["测试自己写错了：VENDOR_FILES 与「上游／自己写的」那两份名单对不上"
+                "——一边加了文件，另一边没加"]
+    if not VENDOR_DIR.is_dir():
+        return ["没有 %s 这一目录——技能里说「读技能里这一份」，那就得真的有一份"
+                % VENDOR_DIR.relative_to(SKILL).as_posix()]
+    missing = [f for f in VENDOR_FILES if not (VENDOR_DIR / f).is_file()]
+    if missing:
+        return ["%s 下缺这几个文件：%s" % (VENDOR_DIR.relative_to(SKILL).as_posix(),
+                                          "、".join(missing))]
+    readme = (VENDOR_DIR / "README.md").read_text(encoding="utf-8")
+    if VENDOR_PIN not in readme:
+        return ["那目录的 README.md 里没钉住上游的 commit（%s）——上游改版之后，"
+                "读的人只能靠这一行看出它旧了" % VENDOR_PIN]
+    if "Apache" not in (VENDOR_DIR / "LICENSE").read_text(encoding="utf-8"):
+        return ["LICENSE 不是 Apache License 的全文——再分发要随附许可全文"]
+    for name in VENDOR_OURS:
+        text = (VENDOR_DIR / name).read_text(encoding="utf-8")
+        if VENDOR_OURS_MARK not in text:
+            return ["%s 顶上没写明这一份不是上游原文（缺「%s」这句）——读的人会把它"
+                    "当成上游的，上游改版时就不知道该信谁" % (name, VENDOR_OURS_MARK)]
+    return []
+
+
 def main():
     checks = [
         ("范本 `文档示例.md` 拆成七份，喂给 check_docs.py 零错零提示", check_example),
@@ -205,6 +245,7 @@ def main():
         ("技能自己的文字里没有具体环境名（%s）" % "、".join(ENV_WORDS), check_no_env_names),
         ("模板给的评测用例 id 例子，check_landing.py 认得出", check_id_example),
         ("模板第十节与脚本常量对得上：文件名、对账表、方案节、三块", check_impl_contract),
+        ("skill-up 的参考文档随包（五个文件都在，上游三份、自己写的两份各标明）", check_vendored),
     ]
     failed = 0
     for title, fn in checks:
