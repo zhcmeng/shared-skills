@@ -78,6 +78,10 @@ COVER_COLS = ["技术（档位）", "覆盖项编号", "覆盖项总数 T", "已
 # 覆盖项编号栏：`TCOV-3` 是单个，`TCOV-1～TCOV-4` 是范围（全角波浪号与半角都认）。
 COVER_ID = re.compile(r"TCOV-(\d+)")
 COVER_RANGE = re.compile(r"TCOV-(\d+)\s*[～~]\s*TCOV-(\d+)")
+# 一段范围最多展开这么多条。`TCOV-1～TCOV-999999999` 这种少打或多打几位的笔误，
+# 按「认不出」报就行，别真去铺一个十亿长的列表——那会把脚本拖死，一句话也报不出来。
+# 一份产出里的覆盖项数远到不了这个量级，真到了也该拆表写。
+COVER_SPAN_MAX = 10000
 # 覆盖率栏：`8÷8＝100%`——全角除号与等号，一位小数或不带小数。
 COVER_CELL = re.compile(r"(\d+)÷(\d+)＝(\d+(?:\.\d)?)%")
 
@@ -541,7 +545,8 @@ def expand_cover_ids(cell):
     """「覆盖项编号」栏 → ([编号, ...], [认不出的段, ...])。
 
     一段一段分（顿号、半角与全角逗号都认）：`TCOV-3` 是单个，`TCOV-1～TCOV-4` 是
-    范围。范围写反了（起点大于终点）算认不出。认不出的段原样带回去由调用方报错——
+    范围。范围写反了（起点大于终点）算认不出；长过 `COVER_SPAN_MAX` 的也算——
+    那必是笔误，照直展开会把脚本拖死。认不出的段原样带回去由调用方报错——
     这里不静默丢掉，丢掉了 T 就跟着算小。
     """
     nums, bad = [], []
@@ -552,7 +557,7 @@ def expand_cover_ids(cell):
         m = COVER_RANGE.fullmatch(part)
         if m:
             a, b = int(m.group(1)), int(m.group(2))
-            if a > b:
+            if a > b or b - a + 1 > COVER_SPAN_MAX:
                 bad.append(part)
             else:
                 nums.extend(range(a, b + 1))
@@ -751,12 +756,16 @@ def check_coverage(text, rep):
         return
 
     defined_cov = defined(tables(text), text, COV_COLS, "TCOV-")
-    _, map_body = pick(tables(text), MAP_COLS)
+    # 按表头名取栏，与 check_case 同一套。按位次取（row[0]、row[2]）的话，对应表
+    # 前面多一栏——比如加一列「序号」——就会读错栏，报出「只有 0 条非空」这种假错。
+    map_head, map_body = pick(tables(text), MAP_COLS)
     covered = {}
     for row in map_body or []:
-        m = COVER_ID.search(row[0]) if row else None
-        if m and len(row) >= 3:
-            covered[int(m.group(1))] = bool(row[2].strip())
+        if not row or not map_head or len(row) < len(map_head):
+            continue
+        m = COVER_ID.fullmatch(row[map_head.index("覆盖项编号")].strip())
+        if m:
+            covered[int(m.group(1))] = bool(row[map_head.index("覆盖它的用例编号")].strip())
 
     listed, bad_rows = set(), 0
     for row in body:
@@ -770,7 +779,8 @@ def check_coverage(text, rep):
         nums, bad = expand_cover_ids(cells[1])
         if bad:
             rep.err(CASE_DOC, "%s的「覆盖项编号」栏认不出这几段：%s"
-                              "（写成 TCOV-3 或 TCOV-1～TCOV-4）" % (where, "、".join(bad)))
+                              "（写成 TCOV-3 或 TCOV-1～TCOV-4；范围别写反、"
+                              "一段别超过 %d 条）" % (where, "、".join(bad), COVER_SPAN_MAX))
             bad_rows += 1
             continue
         if not nums:
@@ -791,12 +801,14 @@ def check_coverage(text, rep):
             bad_rows += 1
             continue
         t_raw, n_raw = cells[2], cells[3]
-        if not t_raw.isdigit() or int(t_raw) != len(nums):
+        # 用 isdecimal 不用 isdigit：`'²'.isdigit()` 是 True 而 `int('²')` 会抛，
+        # 上标、圈号这类数字字符（从别处粘过来常带）会把整份报告打废。
+        if not t_raw.isdecimal() or int(t_raw) != len(nums):
             rep.err(CASE_DOC, "%s的「覆盖项总数 T」写的是 %s，这一栏列了 %d 条覆盖项"
                     % (where, t_raw, len(nums)))
             bad_rows += 1
             continue
-        if not n_raw.isdigit() or int(n_raw) > int(t_raw):
+        if not n_raw.isdecimal() or int(n_raw) > int(t_raw):
             rep.err(CASE_DOC, "%s的「已被用例覆盖 N」写的是 %s，T 是 %s"
                     % (where, n_raw, t_raw))
             bad_rows += 1
@@ -818,8 +830,12 @@ def check_coverage(text, rep):
                     % (where, n_raw, real))
             bad_rows += 1
 
-    if not bad_rows:
-        rep.ok("覆盖率自检 %d 行" % len(body))
+    if bad_rows:
+        # 有行报了错就先不报「这些编号没进任何一行」：那几行的编号可能压根没解析
+        # 出来，报出去是假话——编号明明写在那一行里，读的人会照着去补重复的行。
+        # 行里那些错改完，这一句自然就对了。
+        return
+    rep.ok("覆盖率自检 %d 行" % len(body))
     left = sorted(n for n in defined_cov if n not in listed)
     if left:
         rep.warn(CASE_DOC, "覆盖项清单里有 %d 条没进「%s」的任何一行：%s"

@@ -419,6 +419,27 @@ CASES = [
     ("清单里有覆盖项没进这一块：报提示，不报错",
      (CASE, COVER_ROW, "| 等价类划分 | TCOV-1 | 1 | 1 | 1÷1＝100% | 100% |"),
      (), 0, "没进「覆盖率自检」的任何一行"),
+
+    # 上面那几条查的是「判得对不对」，这四条查的是「输入刁一点会不会把自己搞坏」：
+    # 崩、误报、误提示、拖死，四种都不该有。
+    ("T 栏写成上标数字：报错，不是崩（'²'.isdigit() 是 True，int('²') 会抛）",
+     (CASE, COVER_ROW, COVER_ROW.replace("| 2 | 2 | 2÷2＝100% |", "| ² | 2 | 2÷2＝100% |")),
+     (), 1, "「覆盖项总数 T」写的是 ²"),
+    ("N 栏写成圈号数字：报错，不是崩",
+     (CASE, COVER_ROW, COVER_ROW.replace("| 2 | 2 | 2÷2＝100% |", "| 2 | ① | 2÷2＝100% |")),
+     (), 1, "「已被用例覆盖 N」写的是 ①"),
+    ("编号栏的范围写成天文数字：报错，不是把脚本拖死",
+     (CASE, COVER_ROW, COVER_ROW.replace("TCOV-1～TCOV-2", "TCOV-1～TCOV-999999999")),
+     (), 1, "认不出这几段"),
+    ("对应表多一栏「序号」：按表头名取栏，不该误报成「没有非空的行」",
+     (CASE, "| 覆盖项编号 | 覆盖项描述 | 覆盖它的用例编号 |\n|:---|:---|:---|\n"
+      "| TCOV-1 | 有效等价类：甲 | TC-1 |\n| TCOV-2 | 有效等价类：乙 | TC-1 |",
+      "| 序号 | 覆盖项编号 | 覆盖项描述 | 覆盖它的用例编号 |\n|:---|:---|:---|:---|\n"
+      "| 1 | TCOV-1 | 有效等价类：甲 | TC-1 |\n| 2 | TCOV-2 | 有效等价类：乙 | TC-1 |"),
+     (), 0, "覆盖率自检 1 行"),
+    ("有一行报了错，就不要再报「这些编号没进任何一行」——它们明明写在那一行里",
+     (CASE, COVER_ROW, COVER_ROW.replace("| 100% |", "|  |")),
+     (), 1, "!没进「覆盖率自检」的任何一行"),
 ]
 
 
@@ -444,13 +465,21 @@ CASE_NAMES_TWO = {1: "verify_a", 2: "verify_b"}
 
 
 def run_check(root):
-    """跑一遍 check_docs，返回（退出码, 输出）。"""
+    """跑一遍 check_docs，返回（退出码, 输出）。
+
+    脚本自己崩了不当场抛出去——抛出去会把整个测试打断，后面那些例的结论也跟着
+    看不到。崩了退出码记成 None，并把异常那句话拼进输出，这一例就照常报
+    「退出码 None，期望 1」加「输出里没有……」，跟别的例一个形状。
+    """
     buf = io.StringIO()
     old = sys.argv
     sys.argv = ["check_docs.py", str(root)]
     try:
         with contextlib.redirect_stdout(buf):
             code = check_docs.main()
+    except Exception as exc:  # noqa: BLE001
+        code = None
+        buf.write("\n脚本自己崩了：%r" % (exc,))
     finally:
         sys.argv = old
     return code, buf.getvalue()
