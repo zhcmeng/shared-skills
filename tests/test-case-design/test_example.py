@@ -6,7 +6,7 @@
 
 `references/` 下那几份是填不准时照抄的东西——范本等于这套栏目的事实定义，模板等于
 各栏的写法定义。它们自己要是跟自己定的规矩对不上，照抄的人就跟着错，而且错在技能
-自己身上。八条：
+自己身上。九条：
 
 1. 范本拆成七份产出，喂给 check_docs.py 要零错零提示；
 2. 技能自己的文字里不许出现它自己列进「容易写成」右列的词；
@@ -20,19 +20,22 @@
 7. 第七份的「跑不了原样的那几条」：模板说了事实从哪来（随包那份《能力与边界》）、
    范本里有这一段——缺哪一份都不成；
 8. skill-up 的参考文档按承诺随包：五个文件都在，上游那三份一字不改、自己写的两份
-   标明了来路。
+   标明了来路；
+9. 第七份里报告落在 `runs/`——模板与范本都这么写，仓库根的 `.gitignore` 也真盖得住。
 """
 
 import contextlib
 import io
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-SKILL = HERE.parent.parent / "plugin" / "skills" / "test-case-design"
+REPO = HERE.parent.parent
+SKILL = REPO / "plugin" / "skills" / "test-case-design"
 sys.path.insert(0, str(SKILL / "scripts"))
 import check_docs  # noqa: E402
 import check_landing  # noqa: E402
@@ -325,6 +328,48 @@ def check_vendored():
     return []
 
 
+# 第七份的 2.3 说报告落在哪。报告不进 git 这件事由仓库根那条 .gitignore 兜着——
+# 两处分叉的后果是静默的：文档说着「不进 git」，报告却跟着提交上去。
+RUNS_DIR = "runs/"
+RUNS_PROBE = "evals/demo/runs/2026-09-30-1430/iteration-1/report.json"
+
+
+def check_runs_dir_ignored():
+    """报告目录这一条：模板与范本都写 `runs/`，`.gitignore` 也真盖得住。
+
+    盖不盖得住拿 git 自己判（`git check-ignore`），不拿子串搜 `.gitignore`——「那条
+    里写着 runs」与「模式盖得住 runs」是两回事。探的是一条造出来的路径，不碰盘上
+    真跑出来的报告。
+    """
+    problems = []
+    tenth = TEMPLATE.read_text(encoding="utf-8").split("## 十、实施方案规格说明", 1)
+    if len(tenth) < 2:
+        return ["文档模板.md 里没有第十节「实施方案规格说明」"]
+    if RUNS_DIR not in tenth[1]:
+        problems.append("文档模板.md 第十节里没写报告落在 `%s`——第七份的 2.3 按这条"
+                        "规则写，模板是它的定义处" % RUNS_DIR)
+    if "results/" in tenth[1]:
+        problems.append("文档模板.md 第十节里还留着旧摆法 `results/`——两处摆法并存，"
+                        "照哪一处写都说得通")
+    seventh = EXAMPLE.read_text(encoding="utf-8").split("## 七、实施方案规格说明", 1)
+    if len(seventh) < 2:
+        problems.append("文档示例.md 里没有第七节「实施方案规格说明」")
+    else:
+        if RUNS_DIR not in seventh[1]:
+            problems.append("文档示例.md 第七节里没写报告落在 `%s`——范本等于这套栏目"
+                            "的事实定义，照它抄的人会写回旧摆法" % RUNS_DIR)
+        if "results/" in seventh[1]:
+            problems.append("文档示例.md 第七节里还留着旧摆法 `results/`")
+    proc = subprocess.run(["git", "-C", str(REPO), "check-ignore", "-q", "--no-index",
+                           RUNS_PROBE],
+                          stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if proc.returncode != 0:
+        problems.append("仓库根的 .gitignore 盖不住 %s（`git check-ignore` 退出码 %d）"
+                        "——文档说报告不进 git，报告却会跟着提交上去"
+                        % (RUNS_PROBE, proc.returncode))
+    return problems
+
+
 def main():
     checks = [
         ("范本 `文档示例.md` 拆成七份，喂给 check_docs.py 零错零提示", check_example),
@@ -336,6 +381,7 @@ def main():
         ("第七份的「跑不了原样的那几条」：模板说了事实从哪来、范本里有这一段",
          check_impl_gap_section),
         ("skill-up 的参考文档随包（五个文件都在，上游三份、自己写的两份各标明）", check_vendored),
+        ("第七份里的报告落在 `runs/`，仓库根的 .gitignore 也盖得住", check_runs_dir_ignored),
     ]
     failed = 0
     for title, fn in checks:

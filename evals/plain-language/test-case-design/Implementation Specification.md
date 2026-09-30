@@ -643,21 +643,21 @@ judge:
 
 ### 2.3 怎么跑、报告落在哪
 
-两条命令。路径写全，在哪儿跑都是同一句：
+运行一与运行二属于同一批，共用一个时间戳目录：先取一次当前时刻，两条命令都拿它当 `--output-dir`。路径写全，在哪儿跑都是同一句：
 
-```bash
-C:/Study/skill-up/bin/skill-up.exe run C:/Study/shared-skills/evals/plain-language/eval.yaml --output-dir C:/Study/shared-skills/evals/plain-language/results
+```powershell
+$ts = Get-Date -Format "yyyy-MM-dd-HHmm"
+C:/Study/skill-up/bin/skill-up.exe run C:/Study/shared-skills/evals/plain-language/eval.yaml --output-dir "C:/Study/shared-skills/evals/plain-language/runs/$ts"
+C:/Study/skill-up/bin/skill-up.exe run C:/Study/shared-skills/evals/plain-language/eval-no-skill.yaml --output-dir "C:/Study/shared-skills/evals/plain-language/runs/$ts"
 ```
 
-```bash
-C:/Study/skill-up/bin/skill-up.exe run C:/Study/shared-skills/evals/plain-language/eval-no-skill.yaml --output-dir C:/Study/shared-skills/evals/plain-language/results/no-skill
-```
+两条命令落进同一个目录，各成一回：运行一先跑，是 `iteration-1/`；运行二接着跑，是 `iteration-2/`。`--iteration` 默认自动追加 `iteration-N/`，它数的是**这个输出目录下跑过几回**，不看跑的是哪份配置。哪一回是哪个，报告里认得出：`result.json` 的 `start_time` 与 `requested_configuration` 记着这一回跑的是哪份配置，每条用例的目录名（`tp01-01-TC-1-fix_only_what_should_change` 这样）本身带着规程号与用例号，而运行二只有 `eval-no-skill.yaml` 里列的那一条 TP-8。
 
-两份配置各占一个输出目录。`--iteration` 默认是自动追加 `iteration-N/`，它数的是**这个输出目录下跑过几回**，不看跑的是哪份配置——两份共用一个目录的话，第二份会接到 `iteration-2/`，看着像第一份又跑了一遍。第二轮只有 1 条（`eval-no-skill.yaml` 里就列了 tp08 一条），单放一处才看得明白。
+**一批一个时间戳，后跑的盖不掉先跑的。**再跑一批（改完配置复跑、隔天再跑）就另取一次当前时刻，落进新的 `runs/<时间戳>/`，前几批的报告原样留着。
 
 跑之前不用手工摆任何东西：工作区由 skill-up 新建，夹具与 `rules.md` 的注入由配置里的 `context.repo_fixture` 与 `environment.setup_steps` 各做各的（2.1 第 3 小节、第 5 小节第 4 条）。两次运行之间也不用复位——它们的工作区是两个互不相干的临时目录。
 
-`--output-dir` 落在 `plugin/` 外面，报告与事件日志不进 git（`.gitignore` 里那条 `evals/*/results/` 管的）。想留着跑完的工作区看个究竟，加 `--no-delete`，它会把路径打进日志。
+`--output-dir` 落在 `plugin/` 外面，报告与事件日志不进 git（`.gitignore` 里那条 `evals/*/runs/` 管的）。想留着跑完的工作区看个究竟，加 `--no-delete`，它会把路径打进日志。
 
 跑之前先解析一遍，确认配置本身没写错：
 
@@ -669,4 +669,4 @@ C:/Study/skill-up/bin/skill-up.exe validate C:/Study/shared-skills/evals/plain-l
 C:/Study/skill-up/bin/skill-up.exe validate C:/Study/shared-skills/evals/plain-language/eval-no-skill.yaml
 ```
 
-报告落在 `--output-dir` 里——第一份在 `evals/plain-language/results/`，第二份在 `results/no-skill/`——不进 git：`.gitignore` 里那条 `evals/*/results/` 把整个 `results/` 盖住了，`evals/` 下另外几套评测材料的结果也走同一条。
+报告落在 `--output-dir` 里——这一批在 `evals/plain-language/runs/<这批的时间戳>/` 下，运行一与运行二各占一个 `iteration-N/`——不进 git：`.gitignore` 里那条 `evals/*/runs/` 把整个 `runs/` 盖住了，`evals/` 下另外几套评测材料的报告也走同一条。

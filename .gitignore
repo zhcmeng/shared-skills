@@ -4,4 +4,6 @@ Thumbs.db
 
 # Python 字节码缓存（仓库里现在有 .py，本机跑测试会生成）
 __pycache__/
-evals/*/results/
+# 评测跑出来的报告：一批跑测一个时间戳目录（runs/<yyyy-MM-dd-HHmm>/iteration-N/），
+# 不进 git。产出目录（evals/<材料>/test-case-design/）在它旁边，照旧提交。
+evals/*/runs/
