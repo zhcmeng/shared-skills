@@ -238,9 +238,9 @@ python scripts/check_docs.py <产出目录>
 
 - `references/评测方案/skill-up/writing-evals.md`——配置怎么写：`eval.yaml` 与用例配置的字段、判官三型、工作区与夹具的摆法
 - `references/评测方案/skill-up/cli-reference.md`——命令怎么用：参数、退出码、报告格式
-- `references/评测方案/skill-up/capabilities-and-limits.md`——这个方案能做到什么、做不到什么：写「说明」那一块里「跑不了原样的那几条」时用它。**那几条的事实从这里取，不靠实测**；这一份里没写到的，标成「待确认」，不写成事实
+- `references/评测方案/skill-up/usage-notes.md`——这个方案实际跑起来是什么样、做不到什么、哪里要挑（判官三型、engine 开关）：写「说明」那一块里「跑不了原样的那几条」时用它。**那几条的事实从这里取，不靠实测**；这一份里没写到的，标成「待确认」，不写成事实
 
-**不要去联网找这个方案的文档，也不要翻本机那份 clone**——读技能里这几份。它们是什么版本、怎么更新，见同目录的 `README.md`；`capabilities-and-limits.md` 是本技能自己写的（不是上游原文），更新时要照上游源码重核，README 里写着怎么核。
+**不要去联网找这个方案的文档，也不要翻本机那份 clone**——读技能里这几份。它们是什么版本、怎么更新，见同目录的 `README.md`；`usage-notes.md` 是本技能自己写的（不是上游原文），更新时要照上游源码与上游那份参考重核，README 里写着怎么核。
 
 第 1 步定完技术方案后，选中的哪几门就读哪几门，没选中的不必读：
 

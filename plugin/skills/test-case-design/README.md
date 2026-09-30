@@ -95,7 +95,7 @@ skills/test-case-design/
 │   ├── 评测方案/
 │   │   └── skill-up/          skill-up 的参考文档（见同目录 README）
 │   │       ├── README.md      哪些来自上游、哪些是本技能自己写的、怎么更新
-│   │       ├── capabilities-and-limits.md  本技能自己写的：能做到什么、做不到什么
+│   │       ├── usage-notes.md  本技能自己写的：实际跑起来是什么样、做不到什么、哪里要挑
 │   │       ├── LICENSE        Apache-2.0 全文
 │   │       ├── writing-evals.md   上游原文，一字不改——配置怎么写
 │   │       └── cli-reference.md   上游原文，一字不改——命令怎么用
@@ -133,7 +133,7 @@ skills/test-case-design/
 | 写条目前的取号 | `scripts/issue_ids.py`，改完跑 `bash tests/run.sh test-case-design`（在仓库根跑）。它认「哪些号已经用过」用的是 `check_docs.py` 里的判定，两边别分叉；`--case-dirs` 另照「有序执行测试用例」栏打出整条目录名，它数的位次与自检认的是同一份判定 |
 | 第七份（实施方案规格说明）什么时候出、走哪条路 | `SKILL.md` 的「只出实施方案那一份」 |
 | 六份里不许出现哪些词 | `SKILL.md` 的「六份里不许出现的东西」＋ `scripts/check_docs.py` 按它查，改完跑 `bash tests/run.sh test-case-design`。档位（哪几个词不查决策依据）写在脚本里，词本身只在 SKILL.md 一处——两处分叉会被测试报出来 |
-| 某个测评方案能做到什么、做不到什么 | `references/评测方案/<方案名>/capabilities-and-limits.md`——本技能自己写的，把上游源码读出来的结论重述了一遍。改完对着上游源码核一遍：它旧了不会报错，只会说错话 |
+| 某个测评方案实际跑起来是什么样、做不到什么、哪里要挑（判官三型、engine 开关） | `references/评测方案/<方案名>/usage-notes.md`——本技能自己写的：前几节把上游源码读出来的结论重述了一遍，最后两节照上游给 agent 看的那份参考写的。改完对着原处核一遍：它旧了不会报错，只会说错话 |
 | 某个测评方案的配置字段、命令参数 | `references/评测方案/<方案名>/` 下的上游文档。原样随包，一个字不改；更新见那一目录的 `README.md` |
 
 文件之间互相引用，写法有两种：多数文件用 Markdown 相对链接，`SKILL.md` 与 `references/文档模板.md` 里是反引号包着的路径（那是给 Claude 照着读的指令，不是给人点的链接）。改文件名时两种都要一起改——稳妥的办法是拿文件名全文搜一遍，只搜 `](` 会漏掉反引号那一类。

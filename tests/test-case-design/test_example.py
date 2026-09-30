@@ -17,7 +17,7 @@
    与 check_docs.py 里认的那几个常量对得上；
 6. 讲落盘的那两处正文不许让「选了哪个方案」进六份——方案名在六份里一律报错，正文
    写着让它进去，模型照做、终检又得删掉；
-7. 第七份的「跑不了原样的那几条」：模板说了事实从哪来（随包那份《能力与边界》）、
+7. 第七份的「跑不了原样的那几条」：模板说了事实从哪来（随包那份《使用要点》）、
    范本里有这一段——缺哪一份都不成；
 8. skill-up 的参考文档按承诺随包：五个文件都在，上游那三份一字不改、自己写的两份
    标明了来路；
@@ -46,13 +46,13 @@ TEMPLATE = SKILL / "references" / "文档模板.md"
 # 这一支里的参考文档。技能自包含，写着「不要去翻本机那份 clone」——那就得真的
 # 有一份在包里，五个文件一个不少。
 VENDOR_DIR = SKILL / "references" / "评测方案" / "skill-up"
-VENDOR_FILES = ("README.md", "capabilities-and-limits.md", "LICENSE",
+VENDOR_FILES = ("README.md", "usage-notes.md", "LICENSE",
                 "writing-evals.md", "cli-reference.md")
 # 哪几份是上游原文、哪几份是本技能自己写的。上游那三份一字不改，由
 # `git diff --no-index` 比一遍（见本 Task 的 Step 5）；自己写的那两份顶上要写明，
 # 不然读的人会当成上游原文，上游一改版就不知道该信谁。
 VENDOR_UPSTREAM = ("LICENSE", "writing-evals.md", "cli-reference.md")
-VENDOR_OURS = ("README.md", "capabilities-and-limits.md")
+VENDOR_OURS = ("README.md", "usage-notes.md")
 VENDOR_OURS_MARK = "本技能自己写"
 # 钉住的那一个 commit。逐字节比对比不出来时也不静默放过：至少把出处这一行钉死。
 VENDOR_PIN = "7f1ff9b8e2d7c654728de526867f2f7e7b78ea51"
@@ -82,7 +82,7 @@ ENV_WORD_SECTION = "## 六份里不许出现的东西"
 
 # references/评测方案/ 这一支不归本技能的用词纪律管：上游文档一字不改，本技能自己
 # 写的那份讲的是那门方案自己的环境（哪台机器、哪个 shell），正该点名。
-# 两份扫描都跳过它——上游 writing-evals.md 里带着 6 处 Docker，《能力与边界》里
+# 两份扫描都跳过它——上游 writing-evals.md 里带着 6 处 Docker，《使用要点》里
 # 写着 WSL2。
 VENDORED = "references/评测方案/"
 
@@ -265,10 +265,10 @@ def check_scheme_not_in_six():
             "「选了哪个方案」记进六份，第 7 步终检又必须把那条删掉："] + hits
 
 
-# 第七份「说明」那一块里最要紧的一段：跑不了原样的那几条。随包的那份《能力与边界》
+# 第七份「说明」那一块里最要紧的一段：跑不了原样的那几条。随包的那份《使用要点》
 # 就是为它准备的——这一段缺了，随包就白随了；事实从哪来没写，写的人只能靠猜或实测。
 IMPL_GAP_HEAD = "跑不了原样的那几条"
-IMPL_FACTS_SRC = "capabilities-and-limits.md"
+IMPL_FACTS_SRC = "usage-notes.md"
 
 
 def check_impl_gap_section():
@@ -276,12 +276,15 @@ def check_impl_gap_section():
 
     两份都得有，缺哪一份都不成：
 
-    - **模板**是写法定义——不写明「事实从同目录的 `capabilities-and-limits.md` 里取、
+    - **模板**是写法定义——不写明「事实从同目录的 `usage-notes.md` 里取、
       不靠实测」，写的人只能自己跑一遍去猜，而那一份随包正是为了让这件事有据可依；
     - **范本**是这套栏目的事实定义——缺了这一小节，照范本抄出来的第七份就没有那一段，
       而它正是拿判据的人分「这条判不过是环境摆法造成的、还是被测的东西真有问题」的地方。
     """
     problems = []
+    if IMPL_FACTS_SRC not in VENDOR_FILES:
+        return ["测试自己写错了：模板要引的那一份（%s）不在随包名单里——改名时漏了一处，"
+                "模板指着一份随包没有的文件" % IMPL_FACTS_SRC]
     body = TEMPLATE.read_text(encoding="utf-8").split("## 十、实施方案规格说明", 1)
     if len(body) < 2:
         return ["文档模板.md 里没有第十节「实施方案规格说明」"]
