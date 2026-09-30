@@ -131,6 +131,39 @@ BASE = {
     DECISION: DECISION_TEXT,
 }
 
+# 第七份（实施方案规格说明）按需产出，不在 DOCS 里。它的对账表按契约要求把通用稿里
+# 定义过的每一条 `ENV-…`／`DATA-…` 都列出来一次——于是它跟那六份一样，是个「什么
+# 编号都有」的文本。它有时也在产出目录里，所以「产出目录不算成品」那份名单里也得有它。
+IMPL_TEXT = """# 实施方案规格说明
+
+这一份把六份通用稿落成能跑的东西。
+
+## 一、通用稿的编号落到哪
+
+| 通用稿的编号 | 本方案里落在哪 | 说明 |
+|:---|:---|:---|
+| ENV-1 | `eval.yaml` 里装技能那一段 | 装技能那一条 |
+| DATA-1 | `cases/tp01-01-TC-1-verify_a.yaml` 的提示词 | 那段文本 |
+
+## 二、方案：skill-up
+
+### 2.1 说明
+
+一条用例一轮，判据交给判官。
+
+### 2.2 可跑配置（YAML 原文）
+
+```yaml
+engine: claude
+```
+
+### 2.3 怎么跑、报告落在哪
+
+```bash
+skill-up run eval.yaml
+```
+"""
+
 # 最小的一份成品：六类编号各出现一次。名字写成真测试的样子，看它认不认得住
 ART_TEXT = """# -*- coding: utf-8 -*-
 \"\"\"假的成品：编号照抄进来的样子。\"\"\"
@@ -316,7 +349,32 @@ def check_root_not_counted():
         shutil.rmtree(root, ignore_errors=True)
     if code != 2:
         return ["退出码 %s，期望 2" % code]
-    for want in ("产出目录里那六份文档没算成品", "成品一份都没读到"):
+    for want in ("产出目录里那几份文档没算成品", "成品一份都没读到"):
+        if want not in out:
+            return ["输出里没有「%s」：%s" % (want, out.strip()[:300])]
+    return []
+
+
+def check_impl_not_counted():
+    """产出目录里那份第七份也不算成品——它对账表里什么编号都有。
+
+    第七份的契约要求「通用稿里定义过的每一条 ENV-…／DATA-… 都要在对账表里出现
+    一次」，所以它跟那六份一样，是个「什么编号都有」的文本。不排掉的话，把产出目录
+    当成品路径传进来，它会把那几类编号全顶过去，报出「对得上」——那种全过比报错还会
+    骗人，而且正是这段防线写出来要挡的那种用法（按契约，成品就摆在产出目录的上一级，
+    传评测材料根是常事）。
+    """
+    root = Path(tempfile.mkdtemp(prefix="check-landing-impl-"))
+    try:
+        art = make(root, None, None)
+        art.unlink()
+        (root / check_docs.IMPL_DOC).write_text(IMPL_TEXT, encoding="utf-8")
+        code, out = run_landing(root, [root])
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+    if code != 2:
+        return ["退出码 %s，期望 2" % code]
+    for want in ("产出目录里那几份文档没算成品", "成品一份都没读到"):
         if want not in out:
             return ["输出里没有「%s」：%s" % (want, out.strip()[:300])]
     return []
@@ -351,7 +409,7 @@ def check_pipe_utf8():
 
 
 def main():
-    print("跑 %d 例，另加 7 条单独走的\n" % len(CASES))
+    print("跑 %d 例，另加 8 条单独走的\n" % len(CASES))
     bad = 0
     for title, tweak, art_tweak, want_code, want_text in CASES:
         problems, out = one(title, tweak, art_tweak, want_code, want_text)
@@ -374,6 +432,7 @@ def main():
         ("产出目录读不到", check_root_missing),
         ("成品目录里不是 UTF-8 的文件跳过并说一声", check_binary_skipped),
         ("把产出目录当成品路径传：文档不算成品，不报假的全过", check_root_not_counted),
+        ("产出目录里那份第七份也不算成品（它对账表里什么编号都有）", check_impl_not_counted),
         ("输出被重定向到管道时按 UTF-8 吐字节（把本机管道默认的 GBK 也设上了）", check_pipe_utf8),
     ]:
         problems = fn()

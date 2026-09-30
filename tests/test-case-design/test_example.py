@@ -6,7 +6,7 @@
 
 `references/` 下那几份是填不准时照抄的东西——范本等于这套栏目的事实定义，模板等于
 各栏的写法定义。它们自己要是跟自己定的规矩对不上，照抄的人就跟着错，而且错在技能
-自己身上。五条：
+自己身上。八条：
 
 1. 范本拆成七份产出，喂给 check_docs.py 要零错零提示；
 2. 技能自己的文字里不许出现它自己列进「容易写成」右列的词；
@@ -14,7 +14,13 @@
    不认任何一种具体环境，技能自己带头写，照抄的人就跟着写进产出；
 4. 模板给出的评测用例 id 例子，check_landing.py 要认得出里面的用例编号；
 5. 模板第十节里写的第七份契约（文件名、对账表标题、方案节标记、三块的名字）
-   与 check_docs.py 里认的那几个常量对得上。
+   与 check_docs.py 里认的那几个常量对得上；
+6. 讲落盘的那两处正文不许让「选了哪个方案」进六份——方案名在六份里一律报错，正文
+   写着让它进去，模型照做、终检又得删掉；
+7. 第七份的「跑不了原样的那几条」：模板说了事实从哪来（随包那份《能力与边界》）、
+   范本里有这一段——缺哪一份都不成；
+8. skill-up 的参考文档按承诺随包：五个文件都在，上游那三份一字不改、自己写的两份
+   标明了来路。
 """
 
 import contextlib
@@ -212,6 +218,80 @@ def check_impl_contract():
     return []
 
 
+# 第 0 步那两处讲「往产出里落什么」的正文。方案的选择不许出现在这两处——方案名在
+# 六份里一律报错（决策依据也不例外，见设计稿 D16），正文写着让它进去，模型照做、
+# 终检又得删掉，丢的正是决策依据存在的理由。
+SCHEME_ROW_ANCHOR = "| 0 | 定开工输入"
+SCHEME_PARA_ANCHOR = "**定完判完都要落进产出**"
+
+
+def check_scheme_not_in_six():
+    """讲落盘的那两处正文里，不许让「选了哪个方案」进六份产出。
+
+    第 0 步确实要问「用哪个测评方案」（那一行的中间几栏正该写这件事），但六份通用稿
+    一个字都不提它：方案名与配置文件名在六份里一律报错，决策依据也不豁免。所以这两处
+    ——第 0 步那一行的**最后一格**（「落盘」栏列的是往六份里落什么）、以及讲落盘的那
+    一段——里不该有「测评方案」。方案的选择落在第七份的节名上（「<节号>、方案：
+    <方案名>」），六份里不记。
+    """
+    lines = (SKILL / "SKILL.md").read_text(encoding="utf-8").splitlines()
+    row = next((l for l in lines if l.startswith(SCHEME_ROW_ANCHOR)), None)
+    if row is None:
+        return ["SKILL.md 的步骤表里找不到第 0 步那一行（找的是以「%s」起头的）"
+                % SCHEME_ROW_ANCHOR]
+    para = next((l for l in lines if l.startswith(SCHEME_PARA_ANCHOR)), None)
+    if para is None:
+        return ["SKILL.md 的「第 0 步」里找不到讲落盘的那一段（找的是以「%s」起头的）"
+                % SCHEME_PARA_ANCHOR]
+    hits = []
+    cell = [c for c in row.split("|") if c.strip()][-1].strip()
+    if "测评方案" in cell:
+        hits.append("第 0 步那一行的「落盘」栏：%s" % cell)
+    if "测评方案" in para:
+        hits.append("「第 0 步」讲落盘的那一段：%s" % para.strip())
+    if not hits:
+        return []
+    return ["这两处列的是往六份产出里落什么，却把测评方案也列了进去——模型照它把"
+            "「选了哪个方案」记进六份，第 7 步终检又必须把那条删掉："] + hits
+
+
+# 第七份「说明」那一块里最要紧的一段：跑不了原样的那几条。随包的那份《能力与边界》
+# 就是为它准备的——这一段缺了，随包就白随了；事实从哪来没写，写的人只能靠猜或实测。
+IMPL_GAP_HEAD = "跑不了原样的那几条"
+IMPL_FACTS_SRC = "capabilities-and-limits.md"
+
+
+def check_impl_gap_section():
+    """第七份的「跑不了原样的那几条」：模板说了事实从哪来，范本里有这一段。
+
+    两份都得有，缺哪一份都不成：
+
+    - **模板**是写法定义——不写明「事实从同目录的 `capabilities-and-limits.md` 里取、
+      不靠实测」，写的人只能自己跑一遍去猜，而那一份随包正是为了让这件事有据可依；
+    - **范本**是这套栏目的事实定义——缺了这一小节，照范本抄出来的第七份就没有那一段，
+      而它正是拿判据的人分「这条判不过是环境摆法造成的、还是被测的东西真有问题」的地方。
+    """
+    problems = []
+    body = TEMPLATE.read_text(encoding="utf-8").split("## 十、实施方案规格说明", 1)
+    if len(body) < 2:
+        return ["文档模板.md 里没有第十节「实施方案规格说明」"]
+    line = next((l for l in body[1].splitlines() if IMPL_GAP_HEAD in l), None)
+    if line is None:
+        problems.append("文档模板.md 第十节里没有讲「%s」的那一条" % IMPL_GAP_HEAD)
+    elif IMPL_FACTS_SRC not in line or "不靠实测" not in line:
+        problems.append("模板第十节讲「%s」的那一条没写清事实从哪来——要写明从同目录的 "
+                        "%s 里取、不靠实测，不然写的人只能自己猜或实测：%s"
+                        % (IMPL_GAP_HEAD, IMPL_FACTS_SRC, line.strip()))
+    example = EXAMPLE.read_text(encoding="utf-8").split("## 七、实施方案规格说明", 1)
+    if len(example) < 2:
+        return problems + ["文档示例.md 里没有第七节「实施方案规格说明」"]
+    if IMPL_GAP_HEAD not in example[1]:
+        problems.append("文档示例.md 第七节的「说明」里没有「%s」这一小节——范本等于"
+                        "这套栏目的事实定义，缺一节，照它抄出来的第七份就没有那一段"
+                        % IMPL_GAP_HEAD)
+    return problems
+
+
 def check_vendored():
     """skill-up 的参考文档五个文件都在；上游那三份一字不改，自己写的那两份标明了。"""
     if sorted(VENDOR_UPSTREAM + VENDOR_OURS) != sorted(VENDOR_FILES):
@@ -245,6 +325,9 @@ def main():
         ("技能自己的文字里没有具体环境名（%s）" % "、".join(ENV_WORDS), check_no_env_names),
         ("模板给的评测用例 id 例子，check_landing.py 认得出", check_id_example),
         ("模板第十节与脚本常量对得上：文件名、对账表、方案节、三块", check_impl_contract),
+        ("讲落盘的正文没让「选了哪个方案」进六份", check_scheme_not_in_six),
+        ("第七份的「跑不了原样的那几条」：模板说了事实从哪来、范本里有这一段",
+         check_impl_gap_section),
         ("skill-up 的参考文档随包（五个文件都在，上游三份、自己写的两份各标明）", check_vendored),
     ]
     failed = 0

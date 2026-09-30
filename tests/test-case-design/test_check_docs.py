@@ -526,6 +526,10 @@ CASES = [
     ("决策依据里照实记下当时定的是哪一种具体环境——这一份豁免，不报",
      (DECISION, "| 用户点名的那一处最怕出错 | 用户给的 |",
       "| 用户点名的那一处最怕出错，当时定的是本机 Windows | 用户给的 |"), (), 0, "机械项全过"),
+    ("决策依据里记下选了哪个方案——方案名六份全查，这一份不豁免，照样报",
+     (DECISION, "| DEC-1 | 第 0 步 | 风险等级：取值分歧那一处判高，其余判中 |",
+      "| DEC-1 | 第 0 步 | 测评方案取 skill-up；风险等级：取值分歧那一处判高，其余判中 |"),
+     (), 1, "不该出现的词：skill-up"),
 ]
 
 
@@ -761,6 +765,60 @@ def check_env_word_scope():
     return []
 
 
+def check_yaml_optional():
+    """缺 PyYAML 时不许连坐：另两个脚本照跑，check_docs.py 报错不崩。
+
+    `check_landing.py` 与 `issue_ids.py` 都 `import check_docs`——脚本顶上写着
+    `import yaml` 的话，这两台根本用不上 YAML 的脚本也跟着起不来：取号（第 0 步起
+    每步都要跑）与落成对账一起死。导入挪进真用它的那一处之后：那两处照跑；第七份
+    真在盘上、机器上又没装 PyYAML 时，报成一条错误（不是 traceback），第 7 步终检
+    也就不会静默放过。
+
+    做法是把一个 import 就抛 ImportError 的假 yaml 放进 PYTHONPATH——顶在真的前面。
+    """
+    scripts = HERE.parent.parent / "plugin" / "skills" / "test-case-design" / "scripts"
+    fake = Path(tempfile.mkdtemp(prefix="no-yaml-"))
+    problems = []
+    try:
+        (fake / "yaml.py").write_text("raise ImportError('这条测试里假装没装 PyYAML')\n",
+                                      encoding="utf-8")
+        env = dict(os.environ, PYTHONPATH=str(fake))
+
+        imp = subprocess.run(
+            [sys.executable, "-X", "utf8", "-c",
+             "import sys; sys.path.insert(0, %r); import check_landing, issue_ids; "
+             "print('导入成功')" % str(scripts)],
+            env=env, capture_output=True)
+        if imp.returncode != 0 or "导入成功" not in imp.stdout.decode("utf-8", "replace"):
+            tail = imp.stderr.decode("utf-8", "replace").strip().splitlines()
+            problems.append("缺 PyYAML 时 check_landing.py 与 issue_ids.py 跟着起不来"
+                            "（它们都 import check_docs）：%s" % (tail[-1] if tail else ""))
+
+        root = Path(tempfile.mkdtemp(prefix="no-yaml-docs-"))
+        try:
+            make(root, None, (), {check_docs.IMPL_DOC: IMPL_TEXT})
+            run = subprocess.run(
+                [sys.executable, "-X", "utf8", str(scripts / "check_docs.py"), str(root)],
+                env=env, capture_output=True)
+            err = run.stderr.decode("utf-8", "replace")
+            body = run.stdout.decode("utf-8", "replace")
+            if "Traceback" in err:
+                tail = err.strip().splitlines()
+                problems.append("第七份在盘上、又缺 PyYAML 时脚本是崩的（traceback），"
+                                "不是报错——第 7 步终检看到的是一堆栈：%s"
+                                % (tail[-1] if tail else ""))
+            elif run.returncode == 0:
+                problems.append("缺 PyYAML、第七份里还贴着 YAML，脚本却退出码 0——"
+                                "那一项被静默跳过了")
+            elif "yaml" not in body.lower():
+                problems.append("缺 PyYAML 时没把缺的是什么说出来：%s" % body.strip()[-200:])
+        finally:
+            shutil.rmtree(root, ignore_errors=True)
+    finally:
+        shutil.rmtree(fake, ignore_errors=True)
+    return problems
+
+
 def main():
     print("跑 %d 例\n" % len(CASES))
     bad = 0
@@ -851,6 +909,17 @@ def main():
     print()
     title = "环境名那三个词都在 SKILL.md 的表里列着（两处别分叉）"
     problems = check_env_word_scope()
+    if problems:
+        bad += 1
+        print("[失败] %s" % title)
+        for p in problems:
+            print("       %s" % p)
+    else:
+        print("[通过] %s" % title)
+
+    print()
+    title = "缺 PyYAML 时不连坐（另两个脚本照跑，第七份那一项报错不崩）"
+    problems = check_yaml_optional()
     if problems:
         bad += 1
         print("[失败] %s" % title)

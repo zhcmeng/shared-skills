@@ -130,11 +130,15 @@ def place_paths(texts):
 def scan(paths, root):
     """把成品读成一段文本。返回 (正文, 读到的份数, 跳过没读的说明, 读不到的路径, 排掉几份产出)。
 
-    产出目录里那六份文档不算成品：不排掉的话，把产出目录整个当成品路径传进来，
-    六份文档里什么编号都有，检查就白过了——那种「全过」比报错还会骗人。
+    产出目录里那几份文档不算成品——六份通用稿，加上按需产出的第七份（实施方案规格
+    说明）。不排掉的话，把产出目录整个当成品路径传进来，文档里什么编号都有，检查就
+    白过了——那种「全过」比报错还会骗人。第七份尤其要排：它的对账表按契约要求把通用稿
+    里定义过的每一条 `ENV-…`／`DATA-…` 都列一次，成品里没有的编号它也有。而按契约，
+    成品就摆在产出目录的上一级，传评测材料根是常事。
     """
     parts, n, skipped, missing, dropped = [], 0, [], [], 0
-    docs = {(root / name).resolve() for name in check_docs.DOCS}
+    docs = {(root / name).resolve()
+            for name in list(check_docs.DOCS) + [check_docs.IMPL_DOC]}
     for raw in paths:
         p = Path(raw)
         if not p.exists():
@@ -229,7 +233,7 @@ def main():
     for raw in missing:
         rep.err("成品路径", "读不到：%s" % raw)
     if dropped:
-        rep.warn("成品路径", "产出目录里那六份文档没算成品，跳过了 %d 份——"
+        rep.warn("成品路径", "产出目录里那几份文档没算成品，跳过了 %d 份——"
                              "成品指落下来的代码与评测用例，文档自己不算" % dropped)
     if n == 0:
         print("成品一份都没读到，先确认路径对不对。")

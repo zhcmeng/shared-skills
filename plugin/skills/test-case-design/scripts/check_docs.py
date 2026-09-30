@@ -33,8 +33,6 @@ import re
 import sys
 from pathlib import Path
 
-import yaml
-
 HERE = Path(__file__).resolve().parent
 SKILL_MD = HERE.parent / "SKILL.md"
 
@@ -1166,6 +1164,20 @@ def impl_scheme_sections(text):
             if h and h.startswith("##") and IMPL_SCHEME_MARK in h]
 
 
+def _yaml():
+    """用到才导入 PyYAML。
+
+    本模块被 `check_landing.py` 与 `issue_ids.py` 一起 import 着——顶上写着
+    `import yaml` 的话，缺这一个库会把取号与落成对账一起拖死，而那两台脚本根本用不
+    上 YAML。拿不到就返回 None，由调用处报成一条错误：宁可报出来，也不静默跳过。
+    """
+    try:
+        import yaml
+    except ImportError:
+        return None
+    return yaml
+
+
 def check_impl(text, rep, envs, datas):
     """实施方案规格说明（第七份，按需产出）：骨架、三块、YAML 解析、编号对账、出处。
 
@@ -1202,9 +1214,13 @@ def check_impl(text, rep, envs, datas):
             rep.ok("%s 里三块都在" % name)
 
     blocks = re.findall(r"^```ya?ml\s*$\n(.*?)^```\s*$", text, re.S | re.M)
+    yaml = _yaml()
     if not blocks:
         rep.err(IMPL_DOC, "一个 yaml 代码块都没有——可跑配置要以 YAML 原文贴出来，"
                           "不是散文化地写「应该配什么」")
+    elif yaml is None:
+        rep.err(IMPL_DOC, "这台机器上没装 PyYAML，这一份里贴的 YAML 没法解析——"
+                          "装上再跑：pip install pyyaml")
     else:
         bad = 0
         for i, b in enumerate(blocks, 1):
