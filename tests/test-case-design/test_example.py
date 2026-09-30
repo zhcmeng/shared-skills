@@ -13,7 +13,7 @@
 3. 技能自己的文字里不许出现具体环境名（WSL2、Docker、本机 Windows）——六份通用稿
    不认任何一种具体环境，技能自己带头写，照抄的人就跟着写进产出；
 4. 模板给出的评测用例 id 例子，check_landing.py 要认得出里面的用例编号；
-5. 模板第十节里写的第七份契约（文件名、对账表标题、方案节标记、三块的名字）
+5. 模板第十节里写的第七份契约（文件名、对账表标题与它的表头、方案节标记、三块的名字）
    与 check_docs.py 里认的那几个常量对得上；
 6. 讲落盘的那两处正文不许让「选了哪个方案」进六份——方案名在六份里一律报错，正文
    写着让它进去，模型照做、终检又得删掉；
@@ -203,8 +203,8 @@ def check_id_example():
 def check_impl_contract():
     """模板第十节把第七份的契约定死，脚本按同一套查——两处不许分叉。
 
-    这一条盯的是名字：文件名、对账表标题、方案节的标记、三块的名字。模板里写的
-    与 check_docs.py 里认的不是同一个，照模板写出来的第七份就会被判错。
+    这一条盯的是名字：文件名、对账表标题与它的表头、方案节的标记、三块的名字。模板里
+    写的与 check_docs.py 里认的不是同一个，照模板写出来的第七份就会被判错。
     """
     text = TEMPLATE.read_text(encoding="utf-8")
     if "## 十、实施方案规格说明" not in text:
@@ -215,6 +215,13 @@ def check_impl_contract():
     missing = [w for w in want if w not in body]
     if missing:
         return ["模板第十节里没写到这几样（脚本按它们查第七份）：%s" % "、".join(missing)]
+    # 对账表的表头另拿脚本自己的认表器过一遍。光看那两列的字在不在第十节里不够——
+    # 它们在下面讲各栏怎么填的条目里也出现，改了表头照样「查得到」，这一条就成了
+    # 空转。认表器不认，照模板抄出来的对账表脚本也就不认。
+    if not check_docs.pick_all(check_docs.tables(body), check_docs.IMPL_MAP_COLS):
+        return ["模板第十节里没有一张对账表，表头恰好含这几格：%s——照它抄出来的"
+                "对账表，check_docs.py 认不出来"
+                % " | ".join(check_docs.IMPL_MAP_COLS)]
     return []
 
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""校验 test-case-design 产出的六份文档是否符合技能定下的契约。
+"""校验 test-case-design 产出的文档是否符合技能定下的契约。
 
 用法：
 
@@ -13,16 +13,29 @@
 覆盖项取全没有、用例导得够不够、引的编号对不对得上内容、英文名取得准不准）
 不在这里管——那是人看的，脚本报不了。
 
+**分两组查。**六份通用稿是一组（`DOCS` 那份名单，缺一份就报错）；第七份《实施方案
+规格说明》（`IMPL_DOC`）按需产出，产出目录里有它时才另起一组——查它的骨架（导语、
+对账表、`方案：`节）、每个方案节里三块齐不齐与次序对不对、贴出来的 YAML 解析不解析
+得过、`ENV-`／`DATA-` 两个方向的编号对账。没有它整组跳过，连提示都不报：分层之前
+留下的那几套产出不该因此多出一条错。
+
+第七份那一组要解析 YAML，所以用到才导入 PyYAML（见 `_yaml()`）。缺这个库时只报
+这一项，不连坐——`check_landing.py` 与 `issue_ids.py` 都 import 着本模块，它们不碰
+YAML，不该跟着一起死。
+
 两条方向相反的引用检查：用例与规程里引了不存在的数据项或环境项，算错误（悬空）；
 测试数据需求与测试环境需求里定义了、却没有任何用例与规程引用的编号，算提示（孤儿）
 ——某条数据或某项环境可能确实没有哪条用例直接引它。
 
 契约不在这份脚本里另立一套，来源是技能自己的两份文件：
 
-  - `references/文档模板.md`：六份文档的栏目、编号方案、两张对应表的格式
-  - `SKILL.md` 的「必须照写的几个词」表：禁用词
+  - `references/文档模板.md`：产出各份的栏目、编号方案、两张对应表的格式，以及
+    第七份的骨架契约（第十节）
+  - `SKILL.md` 的两张词表：「必须照写的几个词」表的右列（最容易顺手写成的那个
+    说法）、「六份里不许出现的东西」表的左列（方案名、配置文件名、具体环境名）
 
-那份表改了，这里跟着变，不用两边各改一遍。
+两张表改了，这里跟着变，不用两边各改一遍；解析不出来时直接报错退出，不拿一份空表
+去判。
 
 一条要紧的区分：**「提到过」不等于「定义过」**。对应表里引用了某条用例，不等于那条用例
 真写出来了。所以每个对象都单独认「定义处」——章节标题、加粗的**唯一标识符**、或表里
@@ -1164,6 +1177,16 @@ def impl_scheme_sections(text):
             if h and h.startswith("##") and IMPL_SCHEME_MARK in h]
 
 
+def impl_block_heads(body):
+    """取方案节里的小标题，先跳掉围栏里的内容。
+
+    围栏里的一行 `### 甲` 是配置或注释，不是标题。不跳掉它，它会顶替掉真正的那一块
+    ——三块的次序按每个词第一次出现的位置算，落在围栏里的那个词就排错了队。
+    """
+    stripped = re.sub(r"^[ \t]*```.*?^[ \t]*```[ \t]*$", "", body, flags=re.S | re.M)
+    return re.findall(r"^#{3,6}\s+(.+)$", stripped, re.M)
+
+
 def _yaml():
     """用到才导入 PyYAML。
 
@@ -1206,14 +1229,26 @@ def check_impl(text, rep, envs, datas):
                           "再起一节" % IMPL_SCHEME_MARK)
     for head, body in schemes:
         name = head.strip("# ").strip()
-        subs = re.findall(r"^#{3,6}\s+(.+)$", body, re.M)
-        missing = [w for w in IMPL_BLOCKS if not any(w in s for s in subs)]
+        subs = impl_block_heads(body)
+        at = [next((i for i, s in enumerate(subs) if w in s), None) for w in IMPL_BLOCKS]
+        missing = [w for w, i in zip(IMPL_BLOCKS, at) if i is None]
         if missing:
             rep.err(IMPL_DOC, "%s 里缺这几块：%s" % (name, "、".join(missing)))
+        elif at != sorted(at):
+            rep.err(IMPL_DOC, "%s 里三块的次序不对——要照「%s」这个先后排（按每个词"
+                              "第一次出现的小标题算）：现在 %s"
+                    % (name, "」→「".join(IMPL_BLOCKS),
+                       "、".join("%s 在第 %d 个" % (w, i + 1)
+                                 for w, i in zip(IMPL_BLOCKS, at))))
         else:
-            rep.ok("%s 里三块都在" % name)
+            rep.ok("%s 里三块都在，次序也对" % name)
 
-    blocks = re.findall(r"^```ya?ml\s*$\n(.*?)^```\s*$", text, re.S | re.M)
+    # 围栏可以缩进（写在列表项里，或者整段引起来）。块里的内容照围栏自己的缩进剥掉
+    # 再解析——整段原样喂进去，「缩进块的合法性」这一项就等于没查。
+    blocks = ["\n".join(l[len(ind):] if ind and l.startswith(ind) else l
+                        for l in b.split("\n"))
+              for ind, b in re.findall(
+                  r"^([ \t]*)```ya?ml[ \t]*$\n(.*?)^[ \t]*```[ \t]*$", text, re.S | re.M)]
     yaml = _yaml()
     if not blocks:
         rep.err(IMPL_DOC, "一个 yaml 代码块都没有——可跑配置要以 YAML 原文贴出来，"
