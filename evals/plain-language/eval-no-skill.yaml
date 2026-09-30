@@ -1,7 +1,7 @@
 # 运行二：不装技能，只跑 TP-8（TC-8）。
 # 这一档判的是「rules.md 注进上下文之后，落笔时按不按它写」；技能会不会被唤起不在这批用例里判。
 # 相对路径的基准是 evals/，见 eval.yaml 开头那段说明。
-# ENV-5 的注入由下面 setup_steps 那条命令做，与运行一同一条道；见 2.1 第 5 小节第 4 条。
+# ENV-5 的注入由下面 setup_steps 那条命令做，与运行一同一条道；见 2.1 第 4 小节第 4 条。
 schema_version: v1alpha1
 
 environment:
