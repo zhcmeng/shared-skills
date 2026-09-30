@@ -18,4 +18,4 @@
 | DATA-12 | fix_request_clean | 用户消息样本（TC-6）：`/shared-skills:plain-language 帮我看看这份文档要不要改：evals/plain-language/cases/tp04-01-TC-6-file_nothing_to_fix/fixture/样本.md` | 不需要 |
 | DATA-13 | fix_request_blocked | 用户消息样本（TC-7，两条一轮一条）：第一条 `/shared-skills:plain-language 帮我改一下这份文档：evals/plain-language/cases/tp05-01-TC-7-file_blocked_reports_where/fixture/不存在的文件.md`——这条路径本来就不存在，不用另摆；第二条 `/shared-skills:plain-language 那这份呢：evals/plain-language/cases/tp05-01-TC-7-file_blocked_reports_where/fixture/只读样本.md`——这份按 DATA-15 摆成没有写权限的样子 | 不需要 |
 | DATA-14 | ambient_writing_request | 用户消息样本（TC-8，不带技能名——这一档不经 skill）：`帮我写一段两百字左右的说明，讲讲这个仓库的检查脚本是怎么跑的` | 不需要 |
-| DATA-15 | readonly_document | 没有写权限的文档样本：一份 Markdown 文档，正文里放进两三处该改的（黑话、生造词、夹英文这一类），其余是平实的中文——用来判「读得到、有该改的、但写不进去」这一档：说清卡在哪、把改好的文本一并给出，两件都要判出来。这份文件的写权限要去掉（本机 Windows 上 `chmod 444` 就是把它设成只读），摆进工作区之后权限要跟原始样本一致；重新克隆仓库不会带上这个属性，跑之前要重新设一次 | 不需要（它没有写权限，改不动；跑完核对它逐字节没变） |
+| DATA-15 | readonly_document | 没有写权限的文档样本：一份 Markdown 文档，正文里放进两三处该改的（黑话、生造词、夹英文这一类），其余是平实的中文——用来判「读得到、有该改的、但写不进去」这一档：说清卡在哪、把改好的文本一并给出，两件都要判出来。这份文件的写权限要去掉（`chmod 444` 就是把它设成只读），摆进工作区之后权限要跟原始样本一致；重新克隆仓库不会带上这个属性，跑之前要重新设一次 | 不需要（它没有写权限，改不动；跑完核对它逐字节没变） |

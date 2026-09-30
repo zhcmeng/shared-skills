@@ -138,6 +138,16 @@ NAME_ROW = re.compile(r"^\|\s*" + NAME_COL + r"\s*\|\s*([^|]*?)\s*\|\s*$", re.M)
 #   「统写成「要」」是一条行文纪律，不是一个词。
 NOT_BANNED = {"测试用例", "测试数据", "统写成「要」"}
 
+# SKILL.md 里「六份里不许出现的东西」那一节列的词，脚本按它查，命中就报错。
+# 范围分两档：方案名与它自己的配置文件名六份全查；具体环境名不查 DECISION_DOC——
+# 那一份记的是过程，「当时定的是本机 Windows」是照实记，不是违规。
+#
+# 档位（哪几个词算环境名）写在脚本里，不塞进那张表的第三列：哪几个词是环境名是
+# 一次判断，不是配置；摆在这儿一眼看得见。词本身照旧只写在 SKILL.md 里一处，
+# 两处分叉由 test_check_docs.py 的 check_env_word_scope() 盯着。
+ENV_WORDS = ("WSL2", "Docker", "本机 Windows")
+SCHEME_WORDS_MIN = 6
+
 
 def banned_words():
     """取 SKILL.md「必须照写的几个词」表右列，按顿号与斜杠拆开。"""
@@ -161,6 +171,32 @@ def banned_words():
             w = w.strip()
             if w and w not in NOT_BANNED:
                 words.append(w)
+    return words
+
+
+def scheme_words():
+    """取 SKILL.md「六份里不许出现的东西」表左列，整词收，不拆。
+
+    和 banned_words() 一个样子，只差一点：这一列不按顿号与斜杠拆开——拆了
+    「本机 Windows」就成了「本机」和「Windows」，「Windows」这个词本身不该禁。
+    """
+    if not SKILL_MD.is_file():
+        return []
+    text = SKILL_MD.read_text(encoding="utf-8")
+    m = re.search(r"^## 六份里不许出现的东西\s*$(.*?)^## ", text, re.S | re.M)
+    if not m:
+        return []
+    words = []
+    for line in m.group(1).splitlines():
+        line = line.strip()
+        if not line.startswith("|"):
+            continue
+        cells = [c.strip() for c in line.strip("|").split("|")]
+        if len(cells) < 2 or cells[0] == "词":
+            continue
+        if set(cells[0]) <= set(":-"):  # 分隔行
+            continue
+        words.append(cells[0])
     return words
 
 
@@ -1080,10 +1116,27 @@ def check_decision(text, rep):
     check_decision_blocks(text, rep)
 
 
-def check_words(texts, rep, banned):
+def words_for(name, banned, scheme):
+    """这一份要查哪些词。
+
+    三处不一样：
+    - 具体环境名不查 Decision Basis.md——那一份记的是过程，写了「当时定的是本机
+      Windows」是照实记，不是违规；
+    - 方案名与配置文件名六份全查，记过程也不例外；
+    - LEAKED 那六个词（技能里的出处）照旧六份都查。第七份不走这一条路，它另查
+      （见 check_impl）：方案名在那一份里正该出现。
+    """
+    out = list(banned)
+    out += [w for w in scheme if w not in ENV_WORDS]
+    if name != DECISION_DOC:
+        out += [w for w in scheme if w in ENV_WORDS]
+    return out + LEAKED
+
+
+def check_words(texts, rep, banned, scheme):
     hits = {}
     for name, text in texts.items():
-        for w in banned + LEAKED:
+        for w in words_for(name, banned, scheme):
             if w in text:
                 hits.setdefault(name, []).append(w)
     if not hits:
@@ -1139,6 +1192,12 @@ def main():
     banned = banned_words()
     if len(banned) < 5:
         print("没能从 SKILL.md 的「必须照写的几个词」表解析出禁用词（只拿到 %d 个）。" % len(banned))
+        print("多半是那张表的写法变了，去 %s 看一眼。" % SKILL_MD)
+        return 2
+
+    scheme = scheme_words()
+    if len(scheme) < SCHEME_WORDS_MIN:
+        print("没能从 SKILL.md 的「六份里不许出现的东西」表解析出禁用词（只拿到 %d 个）。" % len(scheme))
         print("多半是那张表的写法变了，去 %s 看一眼。" % SKILL_MD)
         return 2
 
@@ -1206,7 +1265,7 @@ def main():
         check_decision(texts[DECISION_DOC], rep)
 
     print("\n[禁用词与出处]")
-    check_words(texts, rep, banned)
+    check_words(texts, rep, banned, scheme)
 
     print("\n共 %d 处错误，%d 处提示。" % (rep.errors, rep.warns))
     if rep.errors == 0:

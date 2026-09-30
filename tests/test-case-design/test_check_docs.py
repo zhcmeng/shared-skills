@@ -440,6 +440,22 @@ CASES = [
     ("有一行报了错，就不要再报「这些编号没进任何一行」——它们明明写在那一行里",
      (CASE, COVER_ROW, COVER_ROW.replace("| 100% |", "|  |")),
      (), 1, "!没进「覆盖率自检」的任何一行"),
+
+    # 「六份里不许出现的东西」：方案名与配置文件名六份全查；具体环境名不查决策依据
+    # ——那一份记的是过程，「当时定的是本机 Windows」是照实记，不是违规。
+    ("通用稿里出现了测评方案的名字",
+     (MODEL, "**目标**：示例用的一小块。", "**目标**：示例用的一小块，按 skill-up 那份方案跑。"),
+     (), 1, "不该出现的词：skill-up"),
+    ("通用稿里出现了方案自己的配置文件名",
+     (DATA, "| DATA-1 | demo_text | 一段文本 | 不需要 |",
+      "| DATA-1 | demo_text | 一段文本，写在 eval.yaml 里 | 不需要 |"),
+     (), 1, "不该出现的词：eval.yaml"),
+    ("通用稿里点名了具体环境",
+     (ENV, "| ENV-1 | interpreter | 解释器 | Python 3 |",
+      "| ENV-1 | interpreter | 解释器 | Python 3，跑在 Docker 里 |"), (), 1, "不该出现的词：Docker"),
+    ("决策依据里照实记下当时定的是哪一种具体环境——这一份豁免，不报",
+     (DECISION, "| 用户点名的那一处最怕出错 | 用户给的 |",
+      "| 用户点名的那一处最怕出错，当时定的是本机 Windows | 用户给的 |"), (), 0, "机械项全过"),
 ]
 
 
@@ -642,6 +658,24 @@ def check_case_dirs_list():
     return problems
 
 
+def check_env_word_scope():
+    """ENV_WORDS 那三个词都得在 SKILL.md 的那张表里列着。
+
+    档位（哪几个词是环境名、不查决策依据）写在脚本里，词本身写在 SKILL.md 的表
+    里——两处会分叉。这一条盯着：从表里删掉一个词、脚本里却还留着它，就报出来。
+    """
+    if not hasattr(check_docs, "ENV_WORDS") or not hasattr(check_docs, "scheme_words"):
+        return ["check_docs 里还没有 ENV_WORDS / scheme_words()"]
+    listed = set(check_docs.scheme_words())
+    missing = [w for w in check_docs.ENV_WORDS if w not in listed]
+    if missing:
+        return ["ENV_WORDS 里这几个词没在 SKILL.md 的「六份里不许出现的东西」表里：%s"
+                % "、".join(missing)]
+    if len(listed) < 6:
+        return ["SKILL.md 那张表只解析出 %d 个词，六个都没到" % len(listed)]
+    return []
+
+
 def main():
     print("跑 %d 例\n" % len(CASES))
     bad = 0
@@ -708,6 +742,17 @@ def main():
     print()
     title = "目录名清单：漏一条、重复、一条规程一行、没有「执行器」栏，四种都合规矩"
     problems = check_case_dirs_list()
+    if problems:
+        bad += 1
+        print("[失败] %s" % title)
+        for p in problems:
+            print("       %s" % p)
+    else:
+        print("[通过] %s" % title)
+
+    print()
+    title = "环境名那三个词都在 SKILL.md 的表里列着（两处别分叉）"
+    problems = check_env_word_scope()
     if problems:
         bad += 1
         print("[失败] %s" % title)
