@@ -6,13 +6,15 @@
 
 `references/` 下那几份是填不准时照抄的东西——范本等于这套栏目的事实定义，模板等于
 各栏的写法定义。它们自己要是跟自己定的规矩对不上，照抄的人就跟着错，而且错在技能
-自己身上。四条：
+自己身上。五条：
 
-1. 范本拆成六份产出，喂给 check_docs.py 要零错零提示；
+1. 范本拆成七份产出，喂给 check_docs.py 要零错零提示；
 2. 技能自己的文字里不许出现它自己列进「容易写成」右列的词；
 3. 技能自己的文字里不许出现具体环境名（WSL2、Docker、本机 Windows）——六份通用稿
    不认任何一种具体环境，技能自己带头写，照抄的人就跟着写进产出；
-4. 模板给出的评测用例 id 例子，check_landing.py 要认得出里面的用例编号。
+4. 模板给出的评测用例 id 例子，check_landing.py 要认得出里面的用例编号；
+5. 模板第十节里写的第七份契约（文件名、对账表标题、方案节标记、三块的名字）
+   与 check_docs.py 里认的那几个常量对得上。
 """
 
 import contextlib
@@ -40,6 +42,7 @@ SECTIONS = [
     ("## 四、测试数据需求", "Test Data Requirements.md"),
     ("## 五、测试环境需求", "Test Environment Requirements.md"),
     ("## 六、决策依据", "Decision Basis.md"),
+    ("## 七、实施方案规格说明", check_docs.IMPL_DOC),
 ]
 
 # SKILL.md 的「必须照写的几个词」定了「测试项」，右列写着最容易顺手写成的那个。
@@ -89,7 +92,7 @@ def split_example(text):
 
 
 def check_example():
-    """范本拆成六份，喂给 check_docs.py。"""
+    """范本拆成七份，喂给 check_docs.py。"""
     docs = split_example(EXAMPLE.read_text(encoding="utf-8"))
     root = Path(tempfile.mkdtemp(prefix="check-example-"))
     try:
@@ -177,12 +180,31 @@ def check_id_example():
     return []
 
 
+def check_impl_contract():
+    """模板第十节把第七份的契约定死，脚本按同一套查——两处不许分叉。
+
+    这一条盯的是名字：文件名、对账表标题、方案节的标记、三块的名字。模板里写的
+    与 check_docs.py 里认的不是同一个，照模板写出来的第七份就会被判错。
+    """
+    text = TEMPLATE.read_text(encoding="utf-8")
+    if "## 十、实施方案规格说明" not in text:
+        return ["文档模板.md 里没有第十节「实施方案规格说明」"]
+    body = text.split("## 十、实施方案规格说明", 1)[1]
+    want = [check_docs.IMPL_DOC, check_docs.IMPL_MAP_HEAD, check_docs.IMPL_SCHEME_MARK]
+    want += list(check_docs.IMPL_BLOCKS)
+    missing = [w for w in want if w not in body]
+    if missing:
+        return ["模板第十节里没写到这几样（脚本按它们查第七份）：%s" % "、".join(missing)]
+    return []
+
+
 def main():
     checks = [
-        ("范本 `文档示例.md` 拆成六份，喂给 check_docs.py 零错零提示", check_example),
+        ("范本 `文档示例.md` 拆成七份，喂给 check_docs.py 零错零提示", check_example),
         ("技能自己的文字里没有「%s」" % BANNED, check_banned_words),
         ("技能自己的文字里没有具体环境名（%s）" % "、".join(ENV_WORDS), check_no_env_names),
         ("模板给的评测用例 id 例子，check_landing.py 认得出", check_id_example),
+        ("模板第十节与脚本常量对得上：文件名、对账表、方案节、三块", check_impl_contract),
     ]
     failed = 0
     for title, fn in checks:
