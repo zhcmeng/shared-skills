@@ -177,15 +177,7 @@ IMPL_TEXT = """# 实施方案规格说明
 
 跑一次，工作区由框架自己建。
 
-### 2.2 可跑配置（YAML 原文）
-
-```yaml
-environment:
-  setup_steps:
-    - run: echo hi
-```
-
-### 2.3 怎么跑、报告落在哪
+### 2.2 怎么跑、报告落在哪
 
 ```bash
 skill-up run eval.yaml
@@ -202,13 +194,13 @@ IMPL_CASES = [
      (IMPL, "## 二、方案：skill-up", "## 二、跑起来"), (), {IMPL: IMPL_TEXT}, 1,
      "没有一个「方案：」节"),
     ("方案节里缺一块",
-     (IMPL, "### 2.3 怎么跑、报告落在哪", "### 2.3 收尾"), (), {IMPL: IMPL_TEXT}, 1,
+     (IMPL, "### 2.2 怎么跑、报告落在哪", "### 2.2 收尾"), (), {IMPL: IMPL_TEXT}, 1,
      "缺这几块：怎么跑"),
-    # 三块只按标题里的词认，词按第一次出现的位置算——「说明」那一块里混进一行带
-    # 「怎么跑」的小标题，头一次匹配就落到它头上，真那块反倒排到了后头。
-    ("说明那一块里混进一行带「怎么跑」的小标题，三块次序对不上",
-     (IMPL, "### 2.1 说明\n\n跑一次，工作区由框架自己建。",
-      "### 2.1 说明\n\n跑一次，工作区由框架自己建。\n\n#### 顺手一提：怎么跑不在这一节"),
+    # 两块只按标题里的词认，词按第一次出现的位置算——「怎么跑」排到「说明」前头
+    # （先写怎么跑、再回头补说明），次序就反了。
+    ("方案节里两块次序倒过来：怎么跑排到了说明前头",
+     (IMPL, "### 2.1 说明\n\n跑一次，工作区由框架自己建。\n\n### 2.2 怎么跑、报告落在哪",
+      "### 2.1 怎么跑、报告落在哪\n\n跑一次，工作区由框架自己建。\n\n### 2.2 说明"),
      (), {IMPL: IMPL_TEXT}, 1, "次序不对"),
     ("没有「通用稿的编号落到哪」那张表",
      (IMPL, "| 通用稿的编号 | 本方案里落在哪 | 说明 |",
@@ -221,20 +213,6 @@ IMPL_CASES = [
     ("通用稿里定义了的环境项，在第七份里没给落点",
      (IMPL, "| ENV-1 | `eval.yaml` 的 `skills[].path` | 装技能那一条 |\n", ""),
      (), {IMPL: IMPL_TEXT}, 1, "通用稿里定义了、这一份里没给落点：ENV-1"),
-    ("第七份里贴的 YAML 解析不过",
-     (IMPL, "    - run: echo hi", "  - run: [没闭合"), (), {IMPL: IMPL_TEXT}, 1, "解析不过"),
-    # 围栏缩进了两格（写在列表项里、或者整段引起来的），仍旧是 yaml 块。认不出它会报
-    # 「一个 yaml 代码块都没有」——诊断与事实相反，那块 YAML 也就从没查过。
-    ("YAML 围栏缩进了两格，照样认得出、解析得过",
-     (IMPL, "```yaml\nenvironment:\n  setup_steps:\n    - run: echo hi\n```",
-      "  ```yaml\n  environment:\n    setup_steps:\n      - run: echo hi\n  ```"),
-     (), {IMPL: IMPL_TEXT}, 0, "机械项全过"),
-    # 围栏缩进之后，块里的内容要照缩进剥掉，不能整段原样喂给解析器——那样
-    # 「缩进块的合法性」这一项等于没查。
-    ("缩进两格的 YAML 围栏里，那一段本身解析不过照样报",
-     (IMPL, "```yaml\nenvironment:\n  setup_steps:\n    - run: echo hi\n```",
-      "  ```yaml\n  environment:\n    setup_steps:\n      - run: [没闭合\n  ```"),
-     (), {IMPL: IMPL_TEXT}, 1, "解析不过"),
     ("第七份带出了技能里的出处",
      (IMPL, "这份把六份通用设计稿落成能跑的东西。",
       "这份把六份通用设计稿落成能跑的东西，见 references/文档模板.md。"),
@@ -783,60 +761,6 @@ def check_env_word_scope():
     return []
 
 
-def check_yaml_optional():
-    """缺 PyYAML 时不许连坐：另两个脚本照跑，check_docs.py 报错不崩。
-
-    `check_landing.py` 与 `issue_ids.py` 都 `import check_docs`——脚本顶上写着
-    `import yaml` 的话，这两台根本用不上 YAML 的脚本也跟着起不来：取号（第 0 步起
-    每步都要跑）与落成对账一起死。导入挪进真用它的那一处之后：那两处照跑；第七份
-    真在盘上、机器上又没装 PyYAML 时，报成一条错误（不是 traceback），第 7 步终检
-    也就不会静默放过。
-
-    做法是把一个 import 就抛 ImportError 的假 yaml 放进 PYTHONPATH——顶在真的前面。
-    """
-    scripts = HERE.parent.parent / "plugin" / "skills" / "test-case-design" / "scripts"
-    fake = Path(tempfile.mkdtemp(prefix="no-yaml-"))
-    problems = []
-    try:
-        (fake / "yaml.py").write_text("raise ImportError('这条测试里假装没装 PyYAML')\n",
-                                      encoding="utf-8")
-        env = dict(os.environ, PYTHONPATH=str(fake))
-
-        imp = subprocess.run(
-            [sys.executable, "-X", "utf8", "-c",
-             "import sys; sys.path.insert(0, %r); import check_landing, issue_ids; "
-             "print('导入成功')" % str(scripts)],
-            env=env, capture_output=True)
-        if imp.returncode != 0 or "导入成功" not in imp.stdout.decode("utf-8", "replace"):
-            tail = imp.stderr.decode("utf-8", "replace").strip().splitlines()
-            problems.append("缺 PyYAML 时 check_landing.py 与 issue_ids.py 跟着起不来"
-                            "（它们都 import check_docs）：%s" % (tail[-1] if tail else ""))
-
-        root = Path(tempfile.mkdtemp(prefix="no-yaml-docs-"))
-        try:
-            make(root, None, (), {check_docs.IMPL_DOC: IMPL_TEXT})
-            run = subprocess.run(
-                [sys.executable, "-X", "utf8", str(scripts / "check_docs.py"), str(root)],
-                env=env, capture_output=True)
-            err = run.stderr.decode("utf-8", "replace")
-            body = run.stdout.decode("utf-8", "replace")
-            if "Traceback" in err:
-                tail = err.strip().splitlines()
-                problems.append("第七份在盘上、又缺 PyYAML 时脚本是崩的（traceback），"
-                                "不是报错——第 7 步终检看到的是一堆栈：%s"
-                                % (tail[-1] if tail else ""))
-            elif run.returncode == 0:
-                problems.append("缺 PyYAML、第七份里还贴着 YAML，脚本却退出码 0——"
-                                "那一项被静默跳过了")
-            elif "yaml" not in body.lower():
-                problems.append("缺 PyYAML 时没把缺的是什么说出来：%s" % body.strip()[-200:])
-        finally:
-            shutil.rmtree(root, ignore_errors=True)
-    finally:
-        shutil.rmtree(fake, ignore_errors=True)
-    return problems
-
-
 def main():
     print("跑 %d 例\n" % len(CASES))
     bad = 0
@@ -927,17 +851,6 @@ def main():
     print()
     title = "环境名那三个词都在 SKILL.md 的表里列着（两处别分叉）"
     problems = check_env_word_scope()
-    if problems:
-        bad += 1
-        print("[失败] %s" % title)
-        for p in problems:
-            print("       %s" % p)
-    else:
-        print("[通过] %s" % title)
-
-    print()
-    title = "缺 PyYAML 时不连坐（另两个脚本照跑，第七份那一项报错不崩）"
-    problems = check_yaml_optional()
     if problems:
         bad += 1
         print("[失败] %s" % title)

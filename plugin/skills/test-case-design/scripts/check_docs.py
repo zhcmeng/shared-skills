@@ -15,13 +15,12 @@
 
 **分两组查。**六份通用稿是一组（`DOCS` 那份名单，缺一份就报错）；第七份《实施方案
 规格说明》（`IMPL_DOC`）按需产出，产出目录里有它时才另起一组——查它的骨架（导语、
-对账表、`方案：`节）、每个方案节里三块齐不齐与次序对不对、贴出来的 YAML 解析不解析
-得过、`ENV-`／`DATA-` 两个方向的编号对账。没有它整组跳过，连提示都不报：分层之前
-留下的那几套产出不该因此多出一条错。
+对账表、`方案：`节）、每个方案节里两块齐不齐与次序对不对、`ENV-`／`DATA-` 两个方向
+的编号对账。没有它整组跳过，连提示都不报：分层之前留下的那几套产出不该因此多出
+一条错。
 
-第七份那一组要解析 YAML，所以用到才导入 PyYAML（见 `_yaml()`）。缺这个库时只报
-这一项，不连坐——`check_landing.py` 与 `issue_ids.py` 都 import 着本模块，它们不碰
-YAML，不该跟着一起死。
+第七份里**不贴配置原文**（配置由落成那一步写进盘里；抄一份到文档里就是第二份会
+漂移的副本），所以本模块不碰 YAML，也不依赖任何第三方库。
 
 两条方向相反的引用检查：用例与规程里引了不存在的数据项或环境项，算错误（悬空）；
 测试数据需求与测试环境需求里定义了、却没有任何用例与规程引用的编号，算提示（孤儿）
@@ -132,12 +131,12 @@ EVAL_EXECUTORS = ("控制器", "子代理")
 LEAKED = ["references/", "GB/T", "TD1", "TD2", "TD3", "TD4"]
 
 # 第七份的骨架，照 references/文档模板.md 第十节：开头一句导语；一节「通用稿的
-# 编号落到哪」，里面一张两列表；每个方案一节，节里三块。三块按标题里的词认，
-# 不认死标题全文——「2.2 可跑配置（YAML 原文）」这种写法要收得进来。
+# 编号落到哪」，里面一张两列表；每个方案一节，节里两块。两块按标题里的词认，
+# 不认死标题全文——「2.2 怎么跑、报告落在哪」这种写法要收得进来。
 IMPL_MAP_HEAD = "通用稿的编号落到哪"
 IMPL_MAP_COLS = ["通用稿的编号", "本方案里落在哪"]
 IMPL_SCHEME_MARK = "方案："
-IMPL_BLOCKS = ("说明", "可跑配置", "怎么跑")
+IMPL_BLOCKS = ("说明", "怎么跑")
 
 # 「英文名」这一栏：给下游把条目落成代码时照抄的名字核（模板第二节）。
 # 六类条目都带它，决策依据那份不带——那份记的是过程，不落成任何对象。
@@ -1181,28 +1180,14 @@ def impl_block_heads(body):
     """取方案节里的小标题，先跳掉围栏里的内容。
 
     围栏里的一行 `### 甲` 是配置或注释，不是标题。不跳掉它，它会顶替掉真正的那一块
-    ——三块的次序按每个词第一次出现的位置算，落在围栏里的那个词就排错了队。
+    ——两块按每个词第一次出现的位置排，落在围栏里的那个词就排错了队。
     """
     stripped = re.sub(r"^[ \t]*```.*?^[ \t]*```[ \t]*$", "", body, flags=re.S | re.M)
     return re.findall(r"^#{3,6}\s+(.+)$", stripped, re.M)
 
 
-def _yaml():
-    """用到才导入 PyYAML。
-
-    本模块被 `check_landing.py` 与 `issue_ids.py` 一起 import 着——顶上写着
-    `import yaml` 的话，缺这一个库会把取号与落成对账一起拖死，而那两台脚本根本用不
-    上 YAML。拿不到就返回 None，由调用处报成一条错误：宁可报出来，也不静默跳过。
-    """
-    try:
-        import yaml
-    except ImportError:
-        return None
-    return yaml
-
-
 def check_impl(text, rep, envs, datas):
-    """实施方案规格说明（第七份，按需产出）：骨架、三块、YAML 解析、编号对账、出处。
+    """实施方案规格说明（第七份，按需产出）：骨架、两块、编号对账、出处。
 
     这一份**不定义任何编号**，只引用前六份的，所以在 DOCS 之外单查一组。对账查两个
     方向：这一份里写的 ENV／DATA 编号都要指得到通用稿里的定义处；通用稿里定义过的
@@ -1235,38 +1220,13 @@ def check_impl(text, rep, envs, datas):
         if missing:
             rep.err(IMPL_DOC, "%s 里缺这几块：%s" % (name, "、".join(missing)))
         elif at != sorted(at):
-            rep.err(IMPL_DOC, "%s 里三块的次序不对——要照「%s」这个先后排（按每个词"
+            rep.err(IMPL_DOC, "%s 里两块的次序不对——要照「%s」这个先后排（按每个词"
                               "第一次出现的小标题算）：现在 %s"
                     % (name, "」→「".join(IMPL_BLOCKS),
                        "、".join("%s 在第 %d 个" % (w, i + 1)
                                  for w, i in zip(IMPL_BLOCKS, at))))
         else:
-            rep.ok("%s 里三块都在，次序也对" % name)
-
-    # 围栏可以缩进（写在列表项里，或者整段引起来）。块里的内容照围栏自己的缩进剥掉
-    # 再解析——整段原样喂进去，「缩进块的合法性」这一项就等于没查。
-    blocks = ["\n".join(l[len(ind):] if ind and l.startswith(ind) else l
-                        for l in b.split("\n"))
-              for ind, b in re.findall(
-                  r"^([ \t]*)```ya?ml[ \t]*$\n(.*?)^[ \t]*```[ \t]*$", text, re.S | re.M)]
-    yaml = _yaml()
-    if not blocks:
-        rep.err(IMPL_DOC, "一个 yaml 代码块都没有——可跑配置要以 YAML 原文贴出来，"
-                          "不是散文化地写「应该配什么」")
-    elif yaml is None:
-        rep.err(IMPL_DOC, "这台机器上没装 PyYAML，这一份里贴的 YAML 没法解析——"
-                          "装上再跑：pip install pyyaml")
-    else:
-        bad = 0
-        for i, b in enumerate(blocks, 1):
-            try:
-                yaml.safe_load(b)
-            except yaml.YAMLError as exc:
-                bad += 1
-                rep.err(IMPL_DOC, "第 %d 个 yaml 块解析不过：%s"
-                        % (i, str(exc).splitlines()[0]))
-        if not bad:
-            rep.ok("%d 个 yaml 块都过得了解析" % len(blocks))
+            rep.ok("%s 里两块都在，次序也对" % name)
 
     used_env = {int(n) for n in re.findall(r"ENV-(\d+)", text)}
     used_data = {int(n) for n in re.findall(r"DATA-(\d+)", text)}

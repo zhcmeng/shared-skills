@@ -6,14 +6,14 @@
 
 `references/` 下那几份是填不准时照抄的东西——范本等于这套栏目的事实定义，模板等于
 各栏的写法定义。它们自己要是跟自己定的规矩对不上，照抄的人就跟着错，而且错在技能
-自己身上。九条：
+自己身上。十条：
 
 1. 范本拆成七份产出，喂给 check_docs.py 要零错零提示；
 2. 技能自己的文字里不许出现它自己列进「容易写成」右列的词；
 3. 技能自己的文字里不许出现具体环境名（WSL2、Docker、本机 Windows）——六份通用稿
    不认任何一种具体环境，技能自己带头写，照抄的人就跟着写进产出；
 4. 模板给出的评测用例 id 例子，check_landing.py 要认得出里面的用例编号；
-5. 模板第十节里写的第七份契约（文件名、对账表标题与它的表头、方案节标记、三块的名字）
+5. 模板第十节里写的第七份契约（文件名、对账表标题与它的表头、方案节标记、两块的名字）
    与 check_docs.py 里认的那几个常量对得上；
 6. 讲落盘的那两处正文不许让「选了哪个方案」进六份——方案名在六份里一律报错，正文
    写着让它进去，模型照做、终检又得删掉；
@@ -21,7 +21,8 @@
    范本里有这一段——缺哪一份都不成；
 8. skill-up 的参考文档按承诺随包：五个文件都在，上游那三份一字不改、自己写的两份
    标明了来路；
-9. 第七份里报告落在 `runs/`——模板与范本都这么写，仓库根的 `.gitignore` 也真盖得住。
+9. 第七份里报告落在 `runs/`——模板与范本都这么写，仓库根的 `.gitignore` 也真盖得住；
+10. 第七份里不贴配置原文——范本里一个 yaml 围栏都没有。
 """
 
 import contextlib
@@ -206,7 +207,7 @@ def check_id_example():
 def check_impl_contract():
     """模板第十节把第七份的契约定死，脚本按同一套查——两处不许分叉。
 
-    这一条盯的是名字：文件名、对账表标题与它的表头、方案节的标记、三块的名字。模板里
+    这一条盯的是名字：文件名、对账表标题与它的表头、方案节的标记、两块的名字。模板里
     写的与 check_docs.py 里认的不是同一个，照模板写出来的第七份就会被判错。
     """
     text = TEMPLATE.read_text(encoding="utf-8")
@@ -335,6 +336,29 @@ def check_vendored():
 # 两处分叉的后果是静默的：文档说着「不进 git」，报告却跟着提交上去。
 RUNS_DIR = "runs/"
 RUNS_PROBE = "evals/demo/runs/2026-09-30-1430/iteration-1/report.json"
+YAML_FENCE = re.compile(r"^[ \t]*```ya?ml\b", re.M)
+SEVENTH_HEAD = "## 七、实施方案规格说明"
+
+
+def check_no_config_pasted():
+    """第七份里不贴配置原文——范本第七节里一个 yaml 围栏都没有。
+
+    配置由落成那一步写进盘里：落成的人读同目录的 `references/评测方案/<方案名>/`，
+    照对账表与落成约定把文件摆出来。第七份只写落点与约定。
+
+    范本等于这套栏目的事实定义——它要是贴着一份配置，照它抄的人就跟着贴。盘上那份
+    一改，文档里那份就成了第二份会漂移的副本，而且漂了不报错：两边看着都像真的。
+    """
+    head, _, seventh = EXAMPLE.read_text(encoding="utf-8").partition(SEVENTH_HEAD)
+    if not _:
+        return ["文档示例.md 里没有第七节「实施方案规格说明」"]
+    hits = [n for n, line in enumerate(seventh.splitlines(), 1) if YAML_FENCE.match(line)]
+    if not hits:
+        return []
+    return ["文档示例.md 第七节里还贴着 yaml 配置块（第 %s 行）——第七份只写落点与"
+            "落成约定，配置原文由落成那一步写进盘里；范本贴一份，照它抄的人就跟着贴，"
+            "盘上那份一改，文档里那份就是第二份会漂移的副本"
+            % "、".join(str(n) for n in hits)]
 
 
 def check_runs_dir_ignored():
@@ -354,7 +378,7 @@ def check_runs_dir_ignored():
     if "results/" in tenth[1]:
         problems.append("文档模板.md 第十节里还留着旧摆法 `results/`——两处摆法并存，"
                         "照哪一处写都说得通")
-    seventh = EXAMPLE.read_text(encoding="utf-8").split("## 七、实施方案规格说明", 1)
+    seventh = EXAMPLE.read_text(encoding="utf-8").split(SEVENTH_HEAD, 1)
     if len(seventh) < 2:
         problems.append("文档示例.md 里没有第七节「实施方案规格说明」")
     else:
@@ -379,12 +403,13 @@ def main():
         ("技能自己的文字里没有「%s」" % BANNED, check_banned_words),
         ("技能自己的文字里没有具体环境名（%s）" % "、".join(ENV_WORDS), check_no_env_names),
         ("模板给的评测用例 id 例子，check_landing.py 认得出", check_id_example),
-        ("模板第十节与脚本常量对得上：文件名、对账表、方案节、三块", check_impl_contract),
+        ("模板第十节与脚本常量对得上：文件名、对账表、方案节、两块", check_impl_contract),
         ("讲落盘的正文没让「选了哪个方案」进六份", check_scheme_not_in_six),
         ("第七份的「跑不了原样的那几条」：模板说了事实从哪来、范本里有这一段",
          check_impl_gap_section),
         ("skill-up 的参考文档随包（五个文件都在，上游三份、自己写的两份各标明）", check_vendored),
         ("第七份里的报告落在 `runs/`，仓库根的 .gitignore 也盖得住", check_runs_dir_ignored),
+        ("第七份里不贴配置原文：范本第七节里没有 yaml 围栏", check_no_config_pasted),
     ]
     failed = 0
     for title, fn in checks:

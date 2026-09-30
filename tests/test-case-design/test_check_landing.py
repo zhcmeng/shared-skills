@@ -151,13 +151,7 @@ IMPL_TEXT = """# 实施方案规格说明
 
 一条用例一轮，判据交给判官。
 
-### 2.2 可跑配置（YAML 原文）
-
-```yaml
-engine: claude
-```
-
-### 2.3 怎么跑、报告落在哪
+### 2.2 怎么跑、报告落在哪
 
 ```bash
 skill-up run eval.yaml
