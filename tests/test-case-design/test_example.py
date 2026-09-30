@@ -6,11 +6,13 @@
 
 `references/` 下那几份是填不准时照抄的东西——范本等于这套栏目的事实定义，模板等于
 各栏的写法定义。它们自己要是跟自己定的规矩对不上，照抄的人就跟着错，而且错在技能
-自己身上。三条：
+自己身上。四条：
 
 1. 范本拆成六份产出，喂给 check_docs.py 要零错零提示；
 2. 技能自己的文字里不许出现它自己列进「容易写成」右列的词；
-3. 模板给出的评测用例 id 例子，check_landing.py 要认得出里面的用例编号。
+3. 技能自己的文字里不许出现具体环境名（WSL2、Docker、本机 Windows）——六份通用稿
+   不认任何一种具体环境，技能自己带头写，照抄的人就跟着写进产出；
+4. 模板给出的评测用例 id 例子，check_landing.py 要认得出里面的用例编号。
 """
 
 import contextlib
@@ -45,6 +47,18 @@ SECTIONS = [
 # 词表本身那一行不算——它正是把这两个说法摆出来对照的地方。
 BANNED = "被测对象"
 WORD_TABLE_ROW = "| 测试项 |"
+
+# 六份通用稿是给代码与技能当测试依据用的，不认任何一种具体环境。这三个词是
+# SKILL.md「六份里不许出现的东西」那一节列出来的；技能自己的文字带头用它们，
+# 写产出的人就跟着写。摆出这些词的那一节本身除外——那正是拿出来对照的地方。
+ENV_WORDS = ("WSL2", "Docker", "本机 Windows")
+ENV_WORD_SECTION = "## 六份里不许出现的东西"
+
+# references/评测方案/ 这一支不归本技能的用词纪律管：上游文档一字不改，本技能自己
+# 写的那份讲的是那门方案自己的环境（哪台机器、哪个 shell），正该点名。
+# 两份扫描都跳过它——上游 writing-evals.md 里带着 6 处 Docker，《能力与边界》里
+# 写着 WSL2。
+VENDORED = "references/评测方案/"
 
 # 模板里讲评测用例 id 前缀的那一条。测试认死这句话：话没了，说明这一条被挪走或改写，
 # 该回来看一眼它旁边那个例子还在不在。
@@ -104,6 +118,8 @@ def check_banned_words():
     hits = []
     for path in sorted(SKILL.rglob("*.md")):
         rel = path.relative_to(SKILL).as_posix()
+        if rel.startswith(VENDORED):
+            continue
         for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
             if BANNED in line and not line.startswith(WORD_TABLE_ROW):
                 hits.append("%s:%d：%s" % (rel, n, line.strip()))
@@ -111,6 +127,34 @@ def check_banned_words():
         return []
     return ["技能自己的文字里出现了「%s」——它是词表里「容易写成」的那一个，"
             "要写「测试项」：" % BANNED] + hits
+
+
+def check_no_env_names():
+    """技能自己的 .md 里不出现具体环境名（摆出这些词的那一节、那一支参考文档除外）。
+
+    六份通用稿要能原样拿去当代码或技能的测试依据，所以它们不认 WSL2 还是 Docker
+    这类具体环境。技能自己的文字里写着它们，照抄的人就跟着写进产出，产出再喂给
+    check_docs.py 就被报出来——错在技能自己身上。
+    """
+    hits = []
+    for path in sorted(SKILL.rglob("*.md")):
+        rel = path.relative_to(SKILL).as_posix()
+        if rel.startswith(VENDORED):
+            continue
+        listed = False
+        for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if line.startswith("## "):
+                listed = line.startswith(ENV_WORD_SECTION)
+            if listed:
+                continue
+            for w in ENV_WORDS:
+                if w in line:
+                    hits.append("%s:%d：%s" % (rel, n, line.strip()))
+                    break  # 一行报一次就够——上面那句已经把要找的三个词都列出来了
+    if not hits:
+        return []
+    return ["技能自己的文字里出现了具体环境名（%s）——六份通用稿不认任何一种具体"
+            "环境，要写「默认就是本机」：" % "、".join(ENV_WORDS)] + hits
 
 
 def check_id_example():
@@ -137,6 +181,7 @@ def main():
     checks = [
         ("范本 `文档示例.md` 拆成六份，喂给 check_docs.py 零错零提示", check_example),
         ("技能自己的文字里没有「%s」" % BANNED, check_banned_words),
+        ("技能自己的文字里没有具体环境名（%s）" % "、".join(ENV_WORDS), check_no_env_names),
         ("模板给的评测用例 id 例子，check_landing.py 认得出", check_id_example),
     ]
     failed = 0
