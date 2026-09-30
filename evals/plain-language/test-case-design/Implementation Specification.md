@@ -67,7 +67,7 @@
 **只读那份样本的权限靠工作树带过去。** skill-up 铺夹具是逐字节写文件、连原文件的权限一起带上（`none` 这一档的 `UploadDir` 保留源文件的模式位），所以 DATA-15 在工作树里设成只读，铺进工作区之后还是只读——TC-7 判据⑤要的「写不进去」这个前提才成立。**git 不存这个属性**（它只存执行位），重新克隆仓库之后那份文件又变回可写的，跑之前要在工作树里重设一次：
 
 ```bash
-chmod 444 "C:/work/shared-skills/evals/plain-language/fixtures/repos/subject/evals/plain-language/cases/tp05-01-TC-7-file_blocked_reports_where/fixture/只读样本.md"
+chmod 444 "C:/Study/shared-skills/evals/plain-language/fixtures/repos/subject/evals/plain-language/cases/tp05-01-TC-7-file_blocked_reports_where/fixture/只读样本.md"
 ```
 
 没设成只读就跑，agent 会把它改掉，判据⑤判不过，屏幕上看不出是环境没摆对——所以这条要在跑之前自己核一眼。
@@ -157,7 +157,7 @@ schema_version: v1alpha1
 environment:
   type: none
   setup_steps:
-    - run: cat "C:/work/shared-skills/plugin/skills/plain-language/rules.md" >> CLAUDE.md
+    - run: cat "C:/Study/shared-skills/plugin/skills/plain-language/rules.md" >> CLAUDE.md
 
 mcp:
   servers: []
@@ -212,7 +212,7 @@ schema_version: v1alpha1
 environment:
   type: none
   setup_steps:
-    - run: cat "C:/work/shared-skills/plugin/skills/plain-language/rules.md" >> CLAUDE.md
+    - run: cat "C:/Study/shared-skills/plugin/skills/plain-language/rules.md" >> CLAUDE.md
 
 mcp:
   servers: []
@@ -646,11 +646,11 @@ judge:
 两条命令。路径写全，在哪儿跑都是同一句：
 
 ```bash
-C:/Study/skill-up/bin/skill-up.exe run C:/work/shared-skills/evals/plain-language/eval.yaml --output-dir C:/work/shared-skills/evals/plain-language/results
+C:/Study/skill-up/bin/skill-up.exe run C:/Study/shared-skills/evals/plain-language/eval.yaml --output-dir C:/Study/shared-skills/evals/plain-language/results
 ```
 
 ```bash
-C:/Study/skill-up/bin/skill-up.exe run C:/work/shared-skills/evals/plain-language/eval-no-skill.yaml --output-dir C:/work/shared-skills/evals/plain-language/results/no-skill
+C:/Study/skill-up/bin/skill-up.exe run C:/Study/shared-skills/evals/plain-language/eval-no-skill.yaml --output-dir C:/Study/shared-skills/evals/plain-language/results/no-skill
 ```
 
 两份配置各占一个输出目录。`--iteration` 默认是自动追加 `iteration-N/`，它数的是**这个输出目录下跑过几回**，不看跑的是哪份配置——两份共用一个目录的话，第二份会接到 `iteration-2/`，看着像第一份又跑了一遍。第二轮只有 1 条（`eval-no-skill.yaml` 里就列了 tp08 一条），单放一处才看得明白。
@@ -662,11 +662,11 @@ C:/Study/skill-up/bin/skill-up.exe run C:/work/shared-skills/evals/plain-languag
 跑之前先解析一遍，确认配置本身没写错：
 
 ```bash
-C:/Study/skill-up/bin/skill-up.exe validate C:/work/shared-skills/evals/plain-language/eval.yaml
+C:/Study/skill-up/bin/skill-up.exe validate C:/Study/shared-skills/evals/plain-language/eval.yaml
 ```
 
 ```bash
-C:/Study/skill-up/bin/skill-up.exe validate C:/work/shared-skills/evals/plain-language/eval-no-skill.yaml
+C:/Study/skill-up/bin/skill-up.exe validate C:/Study/shared-skills/evals/plain-language/eval-no-skill.yaml
 ```
 
 报告落在 `--output-dir` 里——第一份在 `evals/plain-language/results/`，第二份在 `results/no-skill/`——不进 git：`.gitignore` 里那条 `evals/*/results/` 把整个 `results/` 盖住了，`evals/` 下另外几套评测材料的结果也走同一条。

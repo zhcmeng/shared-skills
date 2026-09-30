@@ -9,7 +9,7 @@ schema_version: v1alpha1
 environment:
   type: none
   setup_steps:
-    - run: cat "C:/work/shared-skills/plugin/skills/plain-language/rules.md" >> CLAUDE.md
+    - run: cat "C:/Study/shared-skills/plugin/skills/plain-language/rules.md" >> CLAUDE.md
 
 mcp:
   servers: []
