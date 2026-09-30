@@ -57,7 +57,7 @@ CLASSES = [
 # 决策只反查：它在成品里该不该出现，看这条成品与产出有没有出入，脚本判不了
 DECISION = ("决策", "DEC-", check_docs.DEC_COLS)
 
-# 成品落点表（测试用例规格说明的第四块）：表头与「还没落成」那句话的写法都在
+# 成品落点表（测试用例规格说明的第五块）：表头与「还没落成」那句话的写法都在
 # check_docs.py 里定，这里跟着用——两处各写一份，改了一处另一处就开始骗人。
 PLACE_COLS = check_docs.PLACE_COLS
 NOT_YET = check_docs.NOT_YET
