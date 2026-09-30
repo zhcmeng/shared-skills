@@ -71,7 +71,15 @@ USER_SRC = "用户给的"
 # 文档模板第四节：测试用例规格说明分五块写，第四块是「覆盖率自检」——一行一门
 # 选定的技术，记这一门（这一档）识别的覆盖项条数 T、已被用例覆盖的条数 N、算出来
 # 的覆盖率与完成准则的要求。
+# 第 6 步自检的结论落在这一块，所以缺了报错；六栏写死，与模板一致。
 COVER_HEAD = "覆盖率自检"
+COVER_COLS = ["技术（档位）", "覆盖项编号", "覆盖项总数 T", "已被用例覆盖 N",
+              "覆盖率 N÷T", "完成准则要求"]
+# 覆盖项编号栏：`TCOV-3` 是单个，`TCOV-1～TCOV-4` 是范围（全角波浪号与半角都认）。
+COVER_ID = re.compile(r"TCOV-(\d+)")
+COVER_RANGE = re.compile(r"TCOV-(\d+)\s*[～~]\s*TCOV-(\d+)")
+# 覆盖率栏：`8÷8＝100%`——全角除号与等号，一位小数或不带小数。
+COVER_CELL = re.compile(r"(\d+)÷(\d+)＝(\d+(?:\.\d)?)%")
 
 # 文档模板第四节：测试用例规格说明分五块写，第五块是「成品落点」——成品（落下来的
 # 测试代码、评测用例）落在哪、每一类条目的编号在成品里怎么出现。设计的时候成品多半
@@ -490,7 +498,7 @@ def check_case(text, rep, tms, datas, envs):
 def place_block(text):
     """切出测试用例规格说明里的「成品落点」那一块；没有这一块时返回 None。
 
-    这一块是模板第四节的第四块。check_landing.py 也从这里取成品路径——两边认的
+    这一块是模板第四节的第五块。check_landing.py 也从这里取成品路径——两边认的
     必须是同一块，所以切法不各写一份。
     """
     m = re.search(r"^#{2,}\s*[^\n]*" + PLACE_HEAD + r"[^\n]*$", text, re.M)
@@ -513,6 +521,48 @@ def batch_block(text):
     rest = text[m.end():]
     nxt = re.search(r"^##\s", rest, re.M)
     return rest[:nxt.start()] if nxt else rest
+
+
+def coverage_block(text):
+    """切出测试用例规格说明里的「覆盖率自检」那一块；没有这一块时返回 None。
+
+    照 place_block 的样子单写一个，不并进去：那一个切的是「成品落点」，
+    check_landing.py 也在用它，两处认的必须是同一块。
+    """
+    m = re.search(r"^#{2,}\s*[^\n]*" + COVER_HEAD + r"[^\n]*$", text, re.M)
+    if not m:
+        return None
+    rest = text[m.end():]
+    nxt = re.search(r"^##\s", rest, re.M)
+    return rest[:nxt.start()] if nxt else rest
+
+
+def expand_cover_ids(cell):
+    """「覆盖项编号」栏 → ([编号, ...], [认不出的段, ...])。
+
+    一段一段分（顿号、半角与全角逗号都认）：`TCOV-3` 是单个，`TCOV-1～TCOV-4` 是
+    范围。范围写反了（起点大于终点）算认不出。认不出的段原样带回去由调用方报错——
+    这里不静默丢掉，丢掉了 T 就跟着算小。
+    """
+    nums, bad = [], []
+    for part in re.split(r"[、,，]", cell):
+        part = part.strip()
+        if not part:
+            continue
+        m = COVER_RANGE.fullmatch(part)
+        if m:
+            a, b = int(m.group(1)), int(m.group(2))
+            if a > b:
+                bad.append(part)
+            else:
+                nums.extend(range(a, b + 1))
+            continue
+        m = COVER_ID.fullmatch(part)
+        if m:
+            nums.append(int(m.group(1)))
+            continue
+        bad.append(part)
+    return nums, bad
 
 
 def check_case_dirs(head, body, rep, order, names):
@@ -654,7 +704,7 @@ def check_place(text, rep):
     """
     block = place_block(text)
     if block is None:
-        rep.err(CASE_DOC, "没有「%s」这一块——这份按模板分四块写，第四块写成品落在哪、"
+        rep.err(CASE_DOC, "没有「%s」这一块——这份按模板分五块写，第五块写成品落在哪、"
                           "每一类条目的编号在成品里怎么出现" % PLACE_HEAD)
         return
     if NOT_YET in block:
@@ -677,6 +727,104 @@ def check_place(text, rep):
             broken += 1
     if not broken:
         rep.ok("成品落点表 %d 行" % len(body))
+
+
+def check_coverage(text, rep):
+    """「覆盖率自检」那一块：在不在、表齐不齐、数对不对得上。
+
+    核的是机械项——T 等于那一栏列出来的条数、N 等于这些编号在对应表里非空的条数、
+    覆盖率栏的算式算得对、引的编号都有定义处。T 该是几（那要拿各技术的算式核模型，
+    模型是自由格式）、完成准则要求抄得对不对（那是散文），脚本核不了。
+    """
+    block = coverage_block(text)
+    if block is None:
+        rep.err(CASE_DOC, "没有「%s」这一块——第 6 步算出来的覆盖率连同 N、T 写在这一块里"
+                % COVER_HEAD)
+        return
+    head, body = pick(tables(block), COVER_COLS)
+    if head is None:
+        rep.err(CASE_DOC, "「%s」里没有那张表（表头应为：%s）"
+                % (COVER_HEAD, " | ".join(COVER_COLS)))
+        return
+    if not body:
+        rep.err(CASE_DOC, "「%s」表一行都没有——一门选定的技术一行" % COVER_HEAD)
+        return
+
+    defined_cov = defined(tables(text), text, COV_COLS, "TCOV-")
+    _, map_body = pick(tables(text), MAP_COLS)
+    covered = {}
+    for row in map_body or []:
+        m = COVER_ID.search(row[0]) if row else None
+        if m and len(row) >= 3:
+            covered[int(m.group(1))] = bool(row[2].strip())
+
+    listed, bad_rows = set(), 0
+    for row in body:
+        cells = list(row) + [""] * (len(COVER_COLS) - len(row))
+        tech = cells[0]
+        where = "「%s」表里%s那一行" % (COVER_HEAD, ("%s" % tech) if tech else "有一行")
+        if not all(cells[:len(COVER_COLS)]):
+            rep.err(CASE_DOC, "%s有空栏——六栏都要填" % where)
+            bad_rows += 1
+            continue
+        nums, bad = expand_cover_ids(cells[1])
+        if bad:
+            rep.err(CASE_DOC, "%s的「覆盖项编号」栏认不出这几段：%s"
+                              "（写成 TCOV-3 或 TCOV-1～TCOV-4）" % (where, "、".join(bad)))
+            bad_rows += 1
+            continue
+        if not nums:
+            rep.err(CASE_DOC, "%s的「覆盖项编号」栏一个编号都没有" % where)
+            bad_rows += 1
+            continue
+        listed.update(nums)
+        unknown = [n for n in nums if n not in defined_cov]
+        if unknown:
+            rep.err(CASE_DOC, "%s引的编号在覆盖项清单里没有定义处：%s"
+                    % (where, brief(unknown, "TCOV-")))
+            bad_rows += 1
+            continue
+        m = COVER_CELL.fullmatch(cells[4].replace(" ", ""))
+        if not m:
+            rep.err(CASE_DOC, "%s的「覆盖率」栏写成「%s」——照 N÷T＝xx.x%% 写"
+                    % (where, cells[4]))
+            bad_rows += 1
+            continue
+        t_raw, n_raw = cells[2], cells[3]
+        if not t_raw.isdigit() or int(t_raw) != len(nums):
+            rep.err(CASE_DOC, "%s的「覆盖项总数 T」写的是 %s，这一栏列了 %d 条覆盖项"
+                    % (where, t_raw, len(nums)))
+            bad_rows += 1
+            continue
+        if not n_raw.isdigit() or int(n_raw) > int(t_raw):
+            rep.err(CASE_DOC, "%s的「已被用例覆盖 N」写的是 %s，T 是 %s"
+                    % (where, n_raw, t_raw))
+            bad_rows += 1
+            continue
+        if (int(m.group(1)), int(m.group(2))) != (int(n_raw), int(t_raw)):
+            rep.err(CASE_DOC, "%s的覆盖率栏写的是 %s÷%s，与 T、N 两栏（%s÷%s）对不上"
+                    % (where, m.group(1), m.group(2), n_raw, t_raw))
+            bad_rows += 1
+            continue
+        want = round(int(n_raw) * 100.0 / int(t_raw), 1)
+        if abs(float(m.group(3)) - want) > 1e-9:
+            rep.err(CASE_DOC, "%s的覆盖率写成 %s%%，按 %s÷%s 算应是 %s%%"
+                    % (where, m.group(3), n_raw, t_raw, "%g" % want))
+            bad_rows += 1
+            continue
+        real = sum(1 for n in nums if covered.get(n))
+        if real != int(n_raw):
+            rep.err(CASE_DOC, "%s写的是 %s 条已被用例覆盖，对应表里这些编号只有 %d 条非空"
+                    % (where, n_raw, real))
+            bad_rows += 1
+
+    if not bad_rows:
+        rep.ok("覆盖率自检 %d 行" % len(body))
+    left = sorted(n for n in defined_cov if n not in listed)
+    if left:
+        rep.warn(CASE_DOC, "覆盖项清单里有 %d 条没进「%s」的任何一行：%s"
+                          "（判为不可行、已剔除的不列，那是正常的；不是不可行就该列上）"
+                 % (len(left), COVER_HEAD, brief(left, "TCOV-")))
 
 
 # 规程排用例的那一栏。加粗字段与两列表行两种写法都收（范本用的是后者）。
@@ -1010,6 +1158,7 @@ def main():
     if CASE_DOC in texts:
         print("\n[%s]" % CASE_DOC)
         check_case(texts[CASE_DOC], rep, tms, datas, envs)
+        check_coverage(texts[CASE_DOC], rep)
         check_place(texts[CASE_DOC], rep)
         check_sections(texts, rep)
 
