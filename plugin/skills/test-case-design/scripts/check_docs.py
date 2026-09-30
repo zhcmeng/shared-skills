@@ -68,7 +68,12 @@ USER_HEAD = "用户决策"
 MODEL_HEAD = "模型决策"
 USER_SRC = "用户给的"
 
-# 文档模板第四节：测试用例规格说明分四块写，第四块是「成品落点」——成品（落下来的
+# 文档模板第四节：测试用例规格说明分五块写，第四块是「覆盖率自检」——一行一门
+# 选定的技术，记这一门（这一档）识别的覆盖项条数 T、已被用例覆盖的条数 N、算出来
+# 的覆盖率与完成准则的要求。
+COVER_HEAD = "覆盖率自检"
+
+# 文档模板第四节：测试用例规格说明分五块写，第五块是「成品落点」——成品（落下来的
 # 测试代码、评测用例）落在哪、每一类条目的编号在成品里怎么出现。设计的时候成品多半
 # 还没落，那一块写「还没落成」；落成之后回来把表填上。
 # 表里的路径由 check_landing.py 拿去读成品，两处共用这一份定义。
@@ -925,14 +930,14 @@ def check_words(texts, rep, banned):
 
 
 def check_sections(texts, rep):
-    """模板说测试用例规格说明分四块写。多出来的顶层小节只提示不判错——
+    """模板说测试用例规格说明分五块写。多出来的顶层小节只提示不判错——
     多一段算不算「多造」是人的判断，脚本不替人定。"""
     heads = re.findall(r"^##\s+(.+)$", texts.get(CASE_DOC, ""), re.M)
-    known = ("覆盖项", "测试用例", "对应表", PLACE_HEAD)
+    known = ("覆盖项", "测试用例", "对应表", COVER_HEAD, PLACE_HEAD)
     extra = [h for h in heads if not any(k in h for k in known)]
     if extra:
-        rep.warn(CASE_DOC, "有模板四块之外的顶层小节：%s"
-                           "（模板说这份分四块写；多出来的算不算多造，自己定）" % "、".join(extra))
+        rep.warn(CASE_DOC, "有模板五块之外的顶层小节：%s"
+                           "（模板说这份分五块写；多出来的算不算多造，自己定）" % "、".join(extra))
 
 
 def prefer_utf8(stream):
