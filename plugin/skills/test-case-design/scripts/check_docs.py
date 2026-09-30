@@ -33,6 +33,8 @@ import re
 import sys
 from pathlib import Path
 
+import yaml
+
 HERE = Path(__file__).resolve().parent
 SKILL_MD = HERE.parent / "SKILL.md"
 
@@ -45,6 +47,10 @@ DATA_DOC = "Test Data Requirements.md"
 ENV_DOC = "Test Environment Requirements.md"
 DECISION_DOC = "Decision Basis.md"
 DOCS = [MODEL_DOC, CASE_DOC, PROC_DOC, DATA_DOC, ENV_DOC, DECISION_DOC]
+
+# 第七份：按需产出，不进 DOCS。它不定义任何编号（不参与发号），所以在产出目录里
+# 找不到它时整组跳过——分层之前留下的那几套产出不该因此多出一条错。
+IMPL_DOC = "Implementation Specification.md"
 
 # 文档模板第六、七节：这两份的栏是写死的，正好几栏就是几栏。
 # 这两组只做「认定义处」用，所以不含英文名——英文名另查，见下面 NAME_COL 那段说明。
@@ -113,6 +119,14 @@ EVAL_EXECUTORS = ("控制器", "子代理")
 # SKILL.md 里「产出文档里只写测试内容，不把技能文件里的节号与出处带出去」点名的东西。
 # 禁用词表本身从 SKILL.md 解析，不在这里再抄一份。
 LEAKED = ["references/", "GB/T", "TD1", "TD2", "TD3", "TD4"]
+
+# 第七份的骨架，照 references/文档模板.md 第十节：开头一句导语；一节「通用稿的
+# 编号落到哪」，里面一张两列表；每个方案一节，节里三块。三块按标题里的词认，
+# 不认死标题全文——「2.2 可跑配置（YAML 原文）」这种写法要收得进来。
+IMPL_MAP_HEAD = "通用稿的编号落到哪"
+IMPL_MAP_COLS = ["通用稿的编号", "本方案里落在哪"]
+IMPL_SCHEME_MARK = "方案："
+IMPL_BLOCKS = ("说明", "可跑配置", "怎么跑")
 
 # 「英文名」这一栏：给下游把条目落成代码时照抄的名字核（模板第二节）。
 # 六类条目都带它，决策依据那份不带——那份记的是过程，不落成任何对象。
@@ -1146,6 +1160,87 @@ def check_words(texts, rep, banned, scheme):
         rep.err(name, "出现不该出现的词：%s" % "、".join(sorted(set(words))))
 
 
+def impl_scheme_sections(text):
+    """切出 `## …、方案：…` 那些节，返回 [(标题, 正文), ...]。"""
+    return [(h, b) for h, b in sections(text)
+            if h and h.startswith("##") and IMPL_SCHEME_MARK in h]
+
+
+def check_impl(text, rep, envs, datas):
+    """实施方案规格说明（第七份，按需产出）：骨架、三块、YAML 解析、编号对账、出处。
+
+    这一份**不定义任何编号**，只引用前六份的，所以在 DOCS 之外单查一组。对账查两个
+    方向：这一份里写的 ENV／DATA 编号都要指得到通用稿里的定义处；通用稿里定义过的
+    每一条，在这一份里都要查得到一个落点——用不上的要写一行说明为什么。
+    """
+    parsed = tables(text)
+
+    # 导语：第一个 `##` 之前要有非标题、非空的行
+    lead = [l for l in re.split(r"^## ", text, maxsplit=1, flags=re.M)[0].splitlines()
+            if l.strip() and not l.startswith("#")]
+    if not lead:
+        rep.err(IMPL_DOC, "开头没有导语——先说清这一份是干什么的、与六份通用稿冲突时以谁为准")
+
+    maps = pick_all(parsed, IMPL_MAP_COLS)
+    if not maps:
+        rep.err(IMPL_DOC, "没有「%s」那张表（表头要含「%s」）"
+                % (IMPL_MAP_HEAD, " | ".join(IMPL_MAP_COLS)))
+    else:
+        rep.ok("「%s」那张表在，%d 行" % (IMPL_MAP_HEAD, sum(len(b) for _, b in maps)))
+
+    schemes = impl_scheme_sections(text)
+    if not schemes:
+        rep.err(IMPL_DOC, "没有一个「%s」节——方案按节分，将来比别的方案在同一份里"
+                          "再起一节" % IMPL_SCHEME_MARK)
+    for head, body in schemes:
+        name = head.strip("# ").strip()
+        subs = re.findall(r"^#{3,6}\s+(.+)$", body, re.M)
+        missing = [w for w in IMPL_BLOCKS if not any(w in s for s in subs)]
+        if missing:
+            rep.err(IMPL_DOC, "%s 里缺这几块：%s" % (name, "、".join(missing)))
+        else:
+            rep.ok("%s 里三块都在" % name)
+
+    blocks = re.findall(r"^```ya?ml\s*$\n(.*?)^```\s*$", text, re.S | re.M)
+    if not blocks:
+        rep.err(IMPL_DOC, "一个 yaml 代码块都没有——可跑配置要以 YAML 原文贴出来，"
+                          "不是散文化地写「应该配什么」")
+    else:
+        bad = 0
+        for i, b in enumerate(blocks, 1):
+            try:
+                yaml.safe_load(b)
+            except yaml.YAMLError as exc:
+                bad += 1
+                rep.err(IMPL_DOC, "第 %d 个 yaml 块解析不过：%s"
+                        % (i, str(exc).splitlines()[0]))
+        if not bad:
+            rep.ok("%d 个 yaml 块都过得了解析" % len(blocks))
+
+    used_env = {int(n) for n in re.findall(r"ENV-(\d+)", text)}
+    used_data = {int(n) for n in re.findall(r"DATA-(\d+)", text)}
+    dangling = []
+    for prefix, used, known in (("ENV-", used_env, envs), ("DATA-", used_data, datas)):
+        bad = sorted(used - known)
+        if bad:
+            dangling.append("引了没有定义处的%s：%s"
+                            % ("环境项" if prefix == "ENV-" else "数据项",
+                               brief(bad, prefix)))
+        lost = sorted(known - used)
+        if lost:
+            dangling.append("通用稿里定义了、这一份里没给落点：%s——用不上的要写一行"
+                            "说明为什么" % brief(lost, prefix))
+    if dangling:
+        for d in dangling:
+            rep.err(IMPL_DOC, d)
+    else:
+        rep.ok("编号两个方向都对得上：这一份引的都指得到定义处，通用稿定义的都给了落点")
+
+    hits = [w for w in LEAKED if w in text]
+    if hits:
+        rep.err(IMPL_DOC, "出现不该出现的词：%s" % "、".join(sorted(set(hits))))
+
+
 def check_sections(texts, rep):
     """模板说测试用例规格说明分五块写。多出来的顶层小节只提示不判错——
     多一段算不算「多造」是人的判断，脚本不替人定。"""
@@ -1217,6 +1312,10 @@ def main():
         print("\n六份文档一份都没读到，先确认目录对不对。")
         return 1
 
+    # 第七份按需产出。产出目录里没有它时整组跳过——连提示都不报（见 IMPL_DOC 那段）。
+    impl_path = root / IMPL_DOC
+    impl_text = impl_path.read_text(encoding="utf-8") if impl_path.is_file() else None
+
     # 用例与规程要跨文档查引用，所以定义处先都算出来，再逐份检查
     tcs = defined(tables(texts.get(CASE_DOC, "")), texts.get(CASE_DOC, ""), CASE_COLS, "TC-")
     tc_names = case_names(tables(texts.get(CASE_DOC, "")))
@@ -1263,6 +1362,10 @@ def main():
     if DECISION_DOC in texts:
         print("\n[%s]" % DECISION_DOC)
         check_decision(texts[DECISION_DOC], rep)
+
+    if impl_text is not None:
+        print("\n[%s]" % IMPL_DOC)
+        check_impl(impl_text, rep, envs, datas)
 
     print("\n[禁用词与出处]")
     check_words(texts, rep, banned, scheme)

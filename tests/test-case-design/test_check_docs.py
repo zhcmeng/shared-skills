@@ -156,6 +156,76 @@ BASE = {
     DECISION: DECISION_TEXT,
 }
 
+# 第七份（实施方案规格说明）按需产出，不在 DOCS 里——不定义任何编号，只引用前六份的。
+# 这一份在产出目录里时另起一组检查，没有就整组跳过。
+IMPL = check_docs.IMPL_DOC if hasattr(check_docs, "IMPL_DOC") else "Implementation Specification.md"
+
+IMPL_TEXT = """# 实施方案规格说明
+
+这份把六份通用设计稿落成能跑的东西。方案按节分，将来比别的方案再起一节。
+
+## 一、通用稿的编号落到哪
+
+| 通用稿的编号 | 本方案里落在哪 | 说明 |
+|:---|:---|:---|
+| ENV-1 | `eval.yaml` 的 `skills[].path` | 装技能那一条 |
+| DATA-1 | `cases/tp01-01-TC-1-verify_a.yaml` 的 `input.prompt` | 一条对一条 |
+
+## 二、方案：skill-up
+
+### 2.1 说明
+
+跑一次，工作区由框架自己建。
+
+### 2.2 可跑配置（YAML 原文）
+
+```yaml
+environment:
+  setup_steps:
+    - run: echo hi
+```
+
+### 2.3 怎么跑、报告落在哪
+
+```bash
+skill-up run eval.yaml
+```
+"""
+
+# 每一例：说明、改哪儿（文件名, 把什么, 换成什么）、丢掉哪份、额外铺哪几份、
+# 期望退出码、输出里该出现的话（以 ! 开头表示「不该出现」）。
+IMPL_CASES = [
+    ("第七份都在时整组查得住", None, (), {IMPL: IMPL_TEXT}, 0, "机械项全过"),
+    ("产出目录里没有第七份——整组跳过，不报错也不提示",
+     None, (), None, 0, "![Implementation Specification.md]"),
+    ("第七份里一个方案节都没有",
+     (IMPL, "## 二、方案：skill-up", "## 二、跑起来"), (), {IMPL: IMPL_TEXT}, 1,
+     "没有一个「方案：」节"),
+    ("方案节里缺一块",
+     (IMPL, "### 2.3 怎么跑、报告落在哪", "### 2.3 收尾"), (), {IMPL: IMPL_TEXT}, 1,
+     "缺这几块：怎么跑"),
+    ("没有「通用稿的编号落到哪」那张表",
+     (IMPL, "| 通用稿的编号 | 本方案里落在哪 | 说明 |",
+      "| 通用稿的编号 | 落在哪 | 说明 |"), (), {IMPL: IMPL_TEXT}, 1,
+     "没有「通用稿的编号落到哪」那张表"),
+    ("第七份引了一个没有定义处的环境项",
+     (IMPL, "| ENV-1 | `eval.yaml` 的 `skills[].path` | 装技能那一条 |",
+      "| ENV-1 | `eval.yaml` 的 `skills[].path` | 装技能那一条 |\n| ENV-9 | 别处 | 悬空 |"),
+     (), {IMPL: IMPL_TEXT}, 1, "引了没有定义处的环境项：ENV-9"),
+    ("通用稿里定义了的环境项，在第七份里没给落点",
+     (IMPL, "| ENV-1 | `eval.yaml` 的 `skills[].path` | 装技能那一条 |\n", ""),
+     (), {IMPL: IMPL_TEXT}, 1, "通用稿里定义了、这一份里没给落点：ENV-1"),
+    ("第七份里贴的 YAML 解析不过",
+     (IMPL, "    - run: echo hi", "  - run: [没闭合"), (), {IMPL: IMPL_TEXT}, 1, "解析不过"),
+    ("第七份带出了技能里的出处",
+     (IMPL, "这份把六份通用设计稿落成能跑的东西。",
+      "这份把六份通用设计稿落成能跑的东西，见 references/文档模板.md。"),
+     (), {IMPL: IMPL_TEXT}, 1, "不该出现的词：references/"),
+    ("第七份里出现方案名与配置文件名——这一份正该有，不报",
+     (IMPL, "### 2.1 说明", "### 2.1 说明\n\n用 skill-up 跑，配置是 eval.yaml。"),
+     (), {IMPL: IMPL_TEXT}, 0, "机械项全过"),
+]
+
 # 「各批落到哪」那张表的两版：基线用落成可跑测试的一版（BATCH_SCRIPT，此刻就在
 # PROC_TEXT 里）；下面那些例把它整个换成落成评测用例的一版（BATCH_MODEL），
 # 试「用例目录名」这一栏。两版都带这一栏——基线那一行是脚本批，那一格空着。
@@ -501,8 +571,10 @@ def run_check(root):
     return code, buf.getvalue()
 
 
-def make(root, tweak, drop):
+def make(root, tweak, drop, extra=None):
     docs = dict(BASE)
+    if extra:
+        docs.update(extra)
     if tweak:
         name, old, new = tweak
         if old not in docs[name]:
@@ -512,6 +584,19 @@ def make(root, tweak, drop):
         if name in drop:
             continue
         (root / name).write_text(text, encoding="utf-8")
+
+
+def judge(title, code, out, want_code, want_text):
+    """一条例该不该过。返回该报的毛病（空列表表示过了）。"""
+    problems = []
+    if code != want_code:
+        problems.append("退出码 %s，期望 %s" % (code, want_code))
+    if want_text.startswith("!"):
+        if want_text[1:] in out:
+            problems.append("输出里不该有「%s」" % want_text[1:])
+    elif want_text not in out:
+        problems.append("输出里没有「%s」" % want_text)
+    return problems
 
 
 def check_pipe_utf8():
@@ -686,14 +771,27 @@ def main():
             code, out = run_check(root)
         finally:
             shutil.rmtree(root, ignore_errors=True)
-        problems = []
-        if code != want_code:
-            problems.append("退出码 %s，期望 %s" % (code, want_code))
-        if want_text.startswith("!"):
-            if want_text[1:] in out:
-                problems.append("输出里不该有「%s」" % want_text[1:])
-        elif want_text not in out:
-            problems.append("输出里没有「%s」" % want_text)
+        problems = judge(title, code, out, want_code, want_text)
+        if problems:
+            bad += 1
+            print("[失败] %s" % title)
+            for p in problems:
+                print("       %s" % p)
+            print("       —— 实际输出 ——")
+            for line in out.strip().splitlines():
+                print("       " + line)
+        else:
+            print("[通过] %s" % title)
+
+    print("\n第七份（实施方案规格说明）那一组：产出目录里有它时查、没有就跳过\n")
+    for title, tweak, drop, extra, want_code, want_text in IMPL_CASES:
+        root = Path(tempfile.mkdtemp(prefix="check-impl-"))
+        try:
+            make(root, tweak, drop, extra)
+            code, out = run_check(root)
+        finally:
+            shutil.rmtree(root, ignore_errors=True)
+        problems = judge(title, code, out, want_code, want_text)
         if problems:
             bad += 1
             print("[失败] %s" % title)
