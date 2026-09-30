@@ -12,13 +12,10 @@
 
 | 通用稿的编号 | 本方案里落在哪 | 说明 |
 |:---|:---|:---|
-| ENV-1 | 运行一的 `eval.yaml` 里 `skills[].path` | 指向 `../plugin/skills/plain-language`，`include` 只装 `SKILL.md` 与 `rules.md` |
-| ENV-2 | 两次运行的 `report.artifacts` 与各条 `judge.context` | 回复看 `final_message`，盘上改动看 `workspace_diff`（standard 档默认 `file_ref`） |
-| ENV-3 | 各条 `cases/<用例名>.yaml` 的 `judge.criteria` | 各条用例「预期结果」栏的散文压成条目，连「判的时候留个心」那些操作提示一并写进去 |
+| ENV-1、ENV-2、ENV-3 | 运行一的 `eval.yaml` 里 `skills[].path`；两次运行的 `report.artifacts` 与各条 `judge.context`；各条用例的 `judge.criteria` | 三条的值都由 2.1 第 2、3 小节写死：技能只装 `SKILL.md` 与 `rules.md`；回复看 `final_message`、盘上改动看 `workspace_diff`；判据是各条用例「预期结果」栏的散文压成条目，连「判的时候留个心」那些操作提示一并写进去 |
 | ENV-4 | 夹具 `evals/plain-language/fixtures/repos/subject/` | 每条用例各把这个目录的内容铺进自己那份临时工作区；原始夹具全程不动。五份样本就摆在这棵树里，铺进去之后权限跟原始样本一致（TC-7 那份是只读的） |
 | ENV-5 | 两次运行的 `environment.setup_steps`——从绝对路径读 `rules.md` 写进工作区的 `CLAUDE.md`；见 2.1 第 4 小节第 4 条 | 钩子那条道在本方案里走不通：skill-up 起 claude 时带 `--settings '{"disableAllHooks":true}'`，钩子一律不生效 |
-| ENV-6 | skill-up 每条用例各建一个的临时工作区 | 见 2.1 第 2 小节：跑完就删，重试与迭代各起一个。ENV-6 要的「每跑一条之前清干净」由框架自己保证 |
-| ENV-7 | 同上那一个临时工作区 | 被测那侧就是建这个目录的机器（本机 Windows）；样本副本也在这一处 |
+| ENV-6、ENV-7 | 同一个临时工作区 | 见 2.1 第 2 小节：跑完就删，重试与迭代各起一个，ENV-6 要的「每跑一条之前清干净」由框架自己保证；ENV-7 要的那处执行环境就是建这个目录的机器（本机 Windows），样本副本也在这一处 |
 | DATA-1、DATA-2、DATA-3、DATA-4、DATA-5、DATA-6、DATA-7、DATA-8、DATA-9、DATA-10、DATA-11、DATA-12、DATA-13、DATA-14 | 各条用例配置的正文——`input.prompt`，TC-7 那条走 `input.turns`；DATA-5、DATA-6 另接在用户消息前面 | 十四条样本文本，一条对一条落进它那条用例。落法一样，并成一行写，号列全。DATA-5、DATA-6 另有一处保真度折扣，见 2.1 第 4 小节第 3 条 |
 | DATA-15 | 夹具里 `…/cases/tp05-01-TC-7-file_blocked_reports_where/fixture/只读样本.md` | 没有写权限的文档样本；权限靠工作树带过去，**git 不存这个属性**，重新克隆之后要在工作树里重设一次（`chmod 444`），见 2.1 第 2 小节 |
 
@@ -29,22 +26,7 @@
 
 **相对路径的基准是 `evals/`。**skill-up 找技能根的办法是：从 `eval.yaml` 所在目录往上找带 `SKILL.md` 的目录；找不到就退到「`eval.yaml` 所在目录的上一层」。技能在 `plugin/skills/plain-language/` 下、评测材料在 `evals/plain-language/` 下，两处不在一块，所以上面那条「往上找」永远找不到，每次都退一步——配置摆在 `evals/plain-language/` 里，退一步正好是 `evals/`，基准就是它。于是每一条相对路径都带 `plain-language/` 这个前缀：`skills[].path` 写 `../plugin/skills/plain-language`、`cases.files` 写 `plain-language/cases/...`、`context.repo_fixture` 写 `plain-language/fixtures/repos/subject`。每次跑都会打一条 `SKILL.md not found ... falling back to ...\evals` 的警告，是上面那一步退让的正常产物，不是错。
 
-**产出目录与落成的成品不同层。**产出目录（这七份文档）是**评测材料根下的一个子目录**；落成的配置、用例目录、夹具、报告放在它的**上一级**，与产出目录并列。
-
-```
-evals/plain-language/         ← 评测材料根：落成的东西住这儿
-├── eval.yaml                 运行一的配置
-├── eval-no-skill.yaml        运行二的配置
-├── cases/                    用例配置，一条一个 yaml
-├── fixtures/                 夹具
-├── runs/                     报告（不进 git）：一批跑测一个时间戳目录
-│   └── 2026-09-29-1950/      跑第一批的那一刻
-│       ├── iteration-1/      运行一
-│       └── iteration-2/      运行二
-└── test-case-design/         ← 产出目录：六份通用稿 ＋ 第七份实施方案
-```
-
-所以表里那一栏写的是**从评测材料根算起**的相对路径（`eval.yaml`、`cases/…`），不是从产出目录算。
+表里那一栏是**从评测材料根算起**的相对路径（`eval.yaml`、`cases/…`）。这七份文档自己住在评测材料根下的 `test-case-design/` 里，落成的配置、用例、夹具、报告摆在它的上一级，与产出目录并列——不从一个算。
 
 ## 二、方案：skill-up
 
@@ -79,18 +61,13 @@ chmod 444 "C:/Study/shared-skills/evals/plain-language/fixtures/repos/subject/ev
 
 没设成只读就跑，agent 会把它改掉，判据⑤判不过，屏幕上看不出是环境没摆对——所以这条要在跑之前自己核一眼。
 
-**差集要开 `context.git.init`。**工作区是新建的空目录，不是 git 仓库。skill-up 拍基线之前先探一下这里是不是 git 仓库，不是就**把差集静默关掉**——不报错、不中断，只在判官材料的清单里留一行 `workspace_diff: omit`，屏幕上什么也看不出来。开了 `git.init: true`，它就在工作区里 `git init`，把当时盘上所有文件 `git add --all` 提交成一条基线；这条基线是在夹具与注入都到位之后拍的，所以差集里只剩被测 agent 改的东西。用到 `workspace_diff` 的五条（TC-1、TC-2、TC-3、TC-6、TC-7）都带这一项；另外三条不带，因为它们的判据不看盘上改动，带了也是白拍。
+**差集要开 `context.git.init`。**工作区是新建的空目录，不是 git 仓库，不开这一项差集会被**静默**省掉——不报错、不中断，只在判官材料的清单里留一行 `workspace_diff: omit`。开了之后，基线是在夹具与注入都到位之后拍的，所以差集里只剩被测 agent 改的东西。用到 `workspace_diff` 的五条（TC-1、TC-2、TC-3、TC-6、TC-7）都带这一项；另外三条不带，因为它们的判据不看盘上改动，带了也是白拍。
 
 **判据进不来。**skill-up 装技能时无条件跳过 `evals/` 这棵子树（`internal/agent/skill.go` 里写死的那条），与 `include`、`exclude` 无关；工作区又是个新建的空目录，不是仓库副本。判据、六份设计稿、技能源码一个字节都到不了被测 agent 手里。先前那套摆法是拿仓库副本当工作区，为的是让样本路径指得到；那个目的现在由夹具顶上，而夹具只带样本、不带别的，代价小得多。
 
 **3. 判据两层怎么落**
 
-通用稿的判据分两层：机械一层、语义一层。在本方案里，两层的落点是：
-
-- **机械层**用 `expect` 门槛。它是零花费的前置闸门，不过就不跑判官。
-- **语义层**用 `judge`（`agent_judge`）。八条都用它。
-
-八条都用 `agent_judge`，没有一条改用 `rule_based` 或 `script`：判的都是「改了哪几处、哪几处一个字没动、回复里说了什么」，落不到命令、退出码或盘上文件上。
+通用稿的判据分两层，本方案里：机械层用 `expect` 门槛（零花费的前置闸门，不过就不跑判官），语义层用 `judge`。八条都用 `agent_judge`，没有一条改用 `rule_based` 或 `script`：判的都是「改了哪几处、哪几处一个字没动、回复里说了什么」，落不到命令、退出码或盘上文件上。
 
 逐条看：
 
@@ -131,7 +108,7 @@ chmod 444 "C:/Study/shared-skills/evals/plain-language/fixtures/repos/subject/ev
 
 另有三条道试过、都不走：不用钩子（skill-up 拼的命令带 `--settings '{"disableAllHooks":true}'`，钩子一律不生效）；不用 `claude -p --append-system-prompt`（skill-up 没有传额外参数的口子，这条命令行它拼不出来）；不把 `rules.md` 接在用户消息前面（那样它就成了这一条消息里的内容，不再是被测的那个常驻注入，而 TC-8 判的正是常驻注入之下的落笔）；不在夹具里放一份命名成 `CLAUDE.md` 的副本（那一份会跟真仓库那份各自漂移，改了 `rules.md` 忘了同步夹具，跑出来的结论就不作数——从绝对路径读真仓库那份，只有一份源）。
 
-**第 5 条：TC-7 的两轮怎么发。**这一条用 `input.turns` 发两条用户消息，一轮一条（其余七条用 `input.prompt` 发一条）。skill-up 接着同一个会话跑第二轮（`claude_code` 这一档支持按会话 ID 接着跑），所以第二轮里 agent 还记得第一轮给过什么。判据按轮分开写：判官拿到的材料是完整 transcript 加上最后一条回复，第一轮那条回复要从 transcript 里取——判据第一条明写了这件事。
+**第 5 条：TC-7 的两轮怎么发。**这一条用 `input.turns` 发两条用户消息，一轮一条（其余七条用 `input.prompt` 发一条）。判据按轮分开写：判官拿到的材料是完整 transcript 加上最后一条回复，第一轮那条回复要从 transcript 里取——判据第一条明写了这件事。
 
 **5. 跑不了原样的那几条**
 
