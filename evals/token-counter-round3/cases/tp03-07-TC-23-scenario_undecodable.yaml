@@ -1,0 +1,23 @@
+# TP-3；TC-23 scenario_undecodable；覆盖项 TCOV-29；风险等级 高。
+# 判据落在「要读执行过程」那一层。
+id: tp03-07-TC-23-scenario_undecodable
+title: 文件解不了码时把这一情况报出来、指认是哪个文件
+description: 用户给的文件含非 UTF-8 字节，回话里要说明解不了码并指认文件，不报一个当作答案的数。
+
+input:
+  # 兑现 ENV-1、ENV-2、ENV-7。
+  # DATA-5：夹具铺进工作区根目录，那 5 个字节照通用稿写的摆。
+  prompt: |
+    这个文件有多少 token？文件在工作目录下，叫 sample_not_utf8.bin
+
+context:
+  repo_fixture: token-counter-round3/fixtures/samples
+
+judge:
+  type: agent_judge
+  criteria:
+    # 判据逐条兑现 TC-23「预期结果」那一栏。
+    - "回话里说明这个文件解不了码"
+    - "回话里指认了是哪个文件，指名 sample_not_utf8.bin"
+    - "没有报出一个当作答案的 token 数"
+  pass_threshold: 1.0

@@ -1,0 +1,19 @@
+# TP-3；TC-21 scenario_special_token；覆盖项 TCOV-27；风险等级 高。
+# 判据落在「要读执行过程」那一层。
+id: tp03-05-TC-21-scenario_special_token
+title: 文本里带特殊标记，按官方词表把它计进去
+description: 用户给的文本含一个 DeepSeek 特殊 token 字面量，回话里的数要把它算在内。
+
+input:
+  # 兑现 ENV-1、ENV-2、ENV-7。DATA-7 的正文照通用稿抄。
+  prompt: |
+    算一下这段有多少 token：<｜end▁of▁sentence｜>
+
+judge:
+  type: agent_judge
+  criteria:
+    # 判据逐条兑现 TC-21「预期结果」那一栏。
+    - "回话里报出了 token 数 1"
+    - "transcript 里能读到它跑过一次 count_tokens.py"
+    - "跑的那一次给的正是这段带特殊标记的文本"
+  pass_threshold: 1.0

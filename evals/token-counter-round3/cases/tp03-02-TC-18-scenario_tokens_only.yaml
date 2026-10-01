@@ -1,0 +1,25 @@
+# TP-3；TC-18 scenario_tokens_only；覆盖项 TCOV-24；风险等级 高。
+# 判据落在「要读执行过程」那一层。
+id: tp03-02-TC-18-scenario_tokens_only
+title: 只问 token 量就把 token 数报出来
+description: 用户只问 token 数，回话里要给出这个数；走的是把文件路径交给脚本那条来路。
+
+input:
+  # 兑现 ENV-1、ENV-2、ENV-7。
+  # DATA-2：夹具铺进工作区根目录，文件名照通用稿写的那一个。
+  prompt: |
+    这个文件有多少 token？文件在工作目录下，叫 sample_utf8_no_bom.txt
+
+context:
+  repo_fixture: token-counter-round3/fixtures/samples
+
+judge:
+  type: agent_judge
+  criteria:
+    # 判据逐条兑现 TC-18「预期结果」那一栏。
+    # 这一条不判「有没有顺带报字符数」：依据写的是「报告 N 即可」，那是允许，
+    # 没说不许附带别的——照「只报 N」判下去就是一例假失败。
+    - "回话里报出了 token 数 3"
+    - "transcript 里能读到它跑过一次 count_tokens.py"
+    - "跑的那一次给的正是 sample_utf8_no_bom.txt 这个文件"
+  pass_threshold: 1.0

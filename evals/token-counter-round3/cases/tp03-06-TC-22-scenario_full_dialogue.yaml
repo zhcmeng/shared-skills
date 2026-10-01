@@ -1,0 +1,22 @@
+# TP-3；TC-22 scenario_full_dialogue；覆盖项 TCOV-28；风险等级 高。
+# 判据落在「要读执行过程」那一层。
+id: tp03-06-TC-22-scenario_full_dialogue
+title: 要估一整轮对话时说明得先按对话模板拼装再计数
+description: 用户要给一整轮对话估 token，回话里要说明光算消息正文不够。
+
+input:
+  # 兑现 ENV-1、ENV-2、ENV-7。
+  # DATA-13：它没有文件可指，正文只能接在消息里，照通用稿那段抄。
+  prompt: |
+    帮我把这一轮对话估一下 token。对话正文是：
+    user: 帮我看下这段循环有没有问题
+    assistant: 贴出来看看
+    user: for i in range(10): print(i)
+
+judge:
+  type: agent_judge
+  criteria:
+    # 判据逐条兑现 TC-22「预期结果」那一栏。
+    - "回话里说明光算消息正文不够、得先按对话模板把这一轮拼装成请求再计数"
+    - "没有把「只算这段正文」得出的数当成整轮请求的 token 数报出来"
+  pass_threshold: 1.0
