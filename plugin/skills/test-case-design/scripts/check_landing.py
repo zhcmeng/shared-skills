@@ -14,13 +14,17 @@
 
 退出码：0 全过；1 有错；2 用法不对、读不到产出目录，或成品还没落成。
 
-两条方向相反的检查：
+两条方向相反的检查，外加一条引用检查：
 
   - 产出里定义过的条目，在成品里都要找得到——**这是这一条要管的主要毛病**：文档里
     写了 TM-6、TCOV-47、ENV-12，成品里一处也没提，两边就各说各的，拿编号搜不过去。
     六类都查；决策（DEC-）不查这一条，它只在成品与产出有出入时才写，见下。
   - 成品里出现的编号，在产出里都要有定义处——引了一个不存在的号，读的人会以为漏看了
     哪一份文档，其实是那个号写错了。七类都查，含 DEC-。
+  - 引第七份（实施方案规格说明）的小节号，要指得到——`见 2.1 第 4 小节第 3 条` 这种话
+    在成品与产出里都有，第七份一重编小节号，它们就整片指错地方；指错了不报，读的人
+    照着号翻过去，翻到的是另一条，还看不出来翻错了。第七份自己里面还有「第 4 小节
+    第 3 条」这种不带节号的写法，只在那里面查得到，见 scan_refs。
 
 怎么看出成品里「有」这个编号：编号照抄，代码里写不成连字符就换成下划线（`TC-30`
 写成 `TC_30`），数字照原样、不补零（不写 `TC_030`、`TC_03`）。就这两种写法，别的一种不认
@@ -88,6 +92,15 @@ def read_docs(root):
         if path.is_file():
             texts[name] = path.read_text(encoding="utf-8")
     return texts
+
+
+def read_impl(root):
+    """读产出目录里的第七份（实施方案规格说明）；没产出就返回空串。
+
+    它按需产出，不在那六份里，所以 check_docs.DOCS 里也没有它。
+    """
+    path = root / check_docs.IMPL_DOC
+    return path.read_text(encoding="utf-8") if path.is_file() else ""
 
 
 def defined_ids(texts):
@@ -194,6 +207,143 @@ def check_backward(blob, ids, rep):
                 % check_docs.brief(miss, prefix))
 
 
+# 第七份（实施方案规格说明）的结构，就认这三种写法：`### 2.1 说明` 是小节，它底下
+# `**1. …**` 是「第 N 小节」、`**第 3 条：…**` 是第 N 小节里的第 M 条。别的一概不认——
+# 认宽了，就分不清哪一行是标题、哪一行是正好长成那样的正文，`2.1 第 4 小节` 指到哪儿
+# 又得猜，而这一条检查要防的正是「猜」。
+SEC_XY = re.compile(r"^###\s+(\d+\.\d+)\s*(.*?)\s*$")
+SUB_N = re.compile(r"^\*\*(\d+)\.\s*(.+?)\*\*")
+ITEM_N = re.compile(r"^\*\*第\s*(\d+)\s*条：\s*(.+?)\*\*")
+# 引用：`2.1 第 4 小节第 3 条`、`2.1 第 4 小节`；条号可以不带。不带节号那种见 scan_refs。
+REF_FULL = re.compile(r"(\d+\.\d+)\s*第\s*(\d+)\s*小节(?:\s*第\s*(\d+)\s*条)?")
+REF_BARE = re.compile(r"第\s*(\d+)\s*小节(?:\s*第\s*(\d+)\s*条)?")
+
+NO_IMPL = "产出目录里没有第七份（`%s`），这个号指不到东西" % check_docs.IMPL_DOC
+
+
+def parse_impl_sections(impl):
+    """读出第七份各小节与条，返回 {小节号: {"title":…, "subs": {小节号: 标题}, "items": {小节号: {条号: 标题}}}}。
+
+    小节与条都只在某一节的底下才认，所以是先记下当前落在哪一节、哪一小节，再往上挂。
+    """
+    out, xy, sub = {}, None, None
+    for line in impl.splitlines():
+        m = SEC_XY.match(line)
+        if m:
+            xy, sub = m.group(1), None
+            out.setdefault(xy, {"title": m.group(2), "subs": {}, "items": {}})
+            continue
+        if line.startswith("##"):
+            xy, sub = None, None      # 出了这一节，后面再写小节号就得自己带上节号了
+            continue
+        if xy is None:
+            continue
+        m = SUB_N.match(line)
+        if m:
+            sub = int(m.group(1))
+            out[xy]["subs"][sub] = m.group(2)
+            continue
+        m = ITEM_N.match(line)
+        if m:
+            out[xy]["items"].setdefault(sub, {})[int(m.group(1))] = m.group(2)
+    return out
+
+
+def scan_refs(text, with_bare=False):
+    """扫一段文本里引第七份小节号的地方，返回 [(原文, 节号, 小节号, 条号或 None)]。
+
+    带节号的写法哪儿都认。不带节号的只有在 `with_bare` 时才认，而且得落在某个
+    `### 2.1` 底下才知道说的是哪一节——认不出是哪一节的，节号记成 None，调用那边
+    跳过不查（只写「第 4 小节」指不到哪一份，本来也不该那么写）。
+
+    先找带节号的、把它们从这行里划掉再找不带节号的：`2.1 第 4 小节第 3 条` 里也含着
+    一段「第 4 小节第 3 条」，不划掉会被当成两处引用数进去。
+    """
+    out, xy = [], None
+    for line in text.splitlines():
+        m = SEC_XY.match(line)
+        if m:
+            xy = m.group(1)
+            continue
+        if line.startswith("##"):
+            xy = None
+            continue
+        for m in REF_FULL.finditer(line):
+            out.append((m.group(0), m.group(1), int(m.group(2)),
+                        int(m.group(3)) if m.group(3) else None))
+        if with_bare:
+            for m in REF_BARE.finditer(REF_FULL.sub("", line)):
+                out.append((m.group(0), xy, int(m.group(1)),
+                            int(m.group(2)) if m.group(2) else None))
+    return out
+
+
+def span(nums):
+    """一串号写成「第 1 至第 5」；断了就一个个列出来。"""
+    nums = sorted(nums)
+    if len(nums) > 1 and nums == list(range(nums[0], nums[-1] + 1)):
+        return "第 %d 至第 %d" % (nums[0], nums[-1])
+    return "、".join("第 %d" % n for n in nums)
+
+
+def resolve_ref(struct, xy, sub_n, item_n):
+    """这处引用指得到吗：指得到返回空串，指不到返回一句为什么。"""
+    if xy is None:
+        return ""
+    sec = struct.get(xy)
+    if sec is None:
+        return "第七份里没有 %s 这一节" % xy
+    if not sec["subs"]:
+        return "%s（%s）底下没有编号的小节" % (xy, sec["title"])
+    if sub_n not in sec["subs"]:
+        return "%s 底下只有%s 小节" % (xy, span(sec["subs"]))
+    if item_n is None:
+        return ""
+    items, title = sec["items"].get(sub_n, {}), sec["subs"][sub_n]
+    if not items:
+        return "%s 第 %d 小节（%s）底下没有编号的条" % (xy, sub_n, title)
+    if item_n not in items:
+        return "%s 第 %d 小节（%s）底下只有%s 条" % (xy, sub_n, title, span(items))
+    return ""
+
+
+def check_impl_refs(impl, sources, rep):
+    """引第七份的小节号，要指得到。
+
+    第七份按需产出，落成之后还会一通重编——整节整条地插、删、挪，小节号跟着全变。
+    通用稿与成品里那些「见 2.1 第 4 小节第 3 条」是手抄过去的，重编一轮就得一份份
+    跟着改；漏下一处，读的人照着号翻过去，翻到的是另一条，而且看不出来翻错了，比
+    指着一处空白还难发现。这一条查的就是这个：指不到就报错。
+
+    `sources` 是 [(哪儿, 正文, 认不认不带节号的写法)]：那六份与成品各一条，
+    第七份自己一条（只有它认不带节号那种写法，见 scan_refs）。
+    """
+    struct = parse_impl_sections(impl)
+    bad, total = {}, 0
+    for where, text, bare_ok in sources:
+        for raw, xy, sub_n, item_n in scan_refs(text, bare_ok):
+            total += 1
+            why = NO_IMPL if not impl else resolve_ref(struct, xy, sub_n, item_n)
+            if why:
+                bad.setdefault(where, []).append((raw, why))
+    if bad:
+        for where, hits in bad.items():
+            # 同一条引用出现多次是常事——那句话抄在几条用例配置里，一处指不到就处处
+            # 指不到。一次一次列出来只会把屏幕刷满，按引用归并、带上出现几处。
+            count = {}
+            for raw, why in hits:
+                count[(raw, why)] = count.get((raw, why), 0) + 1
+            msgs = []
+            for (raw, why), n in count.items():
+                if n > 1:
+                    msgs.append("`%s`（%d 处）指不到——%s" % (raw, n, why))
+                else:
+                    msgs.append("`%s` 指不到——%s" % (raw, why))
+            rep.err(where, "引的第七份小节号 " + "；".join(msgs))
+    elif total:
+        rep.ok("引的第七份小节号，%d 处都指得到" % total)
+
+
 def main():
     # 在解析参数之前：用法写错、读不到目录时那几句提示也是中文
     check_docs.prefer_utf8(sys.stdout)
@@ -209,6 +359,7 @@ def main():
     if not texts:
         print("产出目录里六份文档一份都没读到，先确认目录对不对：%s" % root)
         return 2
+    impl = read_impl(root)
 
     paths = list(sys.argv[2:])
     reason = ""
@@ -245,6 +396,13 @@ def main():
     check_forward(blob, ids, rep)
     print()
     check_backward(blob, ids, rep)
+
+    print()
+    sources = [(name, text, False) for name, text in texts.items()]
+    sources.append(("成品", blob, False))
+    if impl:
+        sources.append((check_docs.IMPL_DOC, impl, True))
+    check_impl_refs(impl, sources, rep)
 
     print("\n共 %d 处错误，%d 处提示。" % (rep.errors, rep.warns))
     if rep.errors == 0:

@@ -105,7 +105,7 @@ DATA_TEXT = """# 测试数据需求
 
 | 唯一标识符 | 英文名 | 描述 | 重置需求 |
 |:---|:---|:---|:---|
-| DATA-1 | demo_text | 一段文本 | 不需要 |
+| DATA-1 | demo_text | 一段文本，正文见实施方案规格说明 2.1 第 5 小节 | 不需要 |
 """
 
 ENV_TEXT = """# 测试环境需求
@@ -133,7 +133,8 @@ BASE = {
 
 # 第七份（实施方案规格说明）按需产出，不在 DOCS 里。它的对账表按契约要求把通用稿里
 # 定义过的每一条 `ENV-…`／`DATA-…` 都列出来一次——于是它跟那六份一样，是个「什么
-# 编号都有」的文本。它有时也在产出目录里，所以「产出目录不算成品」那份名单里也得有它。
+# 编号都有」的文本。它一般也在产出目录里（落成之后就有），所以 make() 也把它写进去，
+# 「产出目录不算成品」那份名单里同样得算上它。
 IMPL_TEXT = """# 实施方案规格说明
 
 这一份把六份通用稿落成能跑的东西。
@@ -151,6 +152,28 @@ IMPL_TEXT = """# 实施方案规格说明
 
 一条用例一轮，判据交给判官。
 
+**1. 跑几次**
+
+一条用例一轮。
+
+**2. 工作区怎么来**
+
+一条一个新建的空目录。
+
+**3. 判据怎么落**
+
+判据交给判官，那处折扣见第 4 小节第 1 条。
+
+**4. 消息怎么渲染**
+
+**第 1 条：技能怎么被唤起。**消息里的技能名渲染成短名。
+
+**第 2 条：样本路径。**按工作区里的相对路径原样给。
+
+**5. 跑不了原样的那几条**
+
+无。
+
 ### 2.2 怎么跑、报告落在哪
 
 ```bash
@@ -158,13 +181,15 @@ skill-up run eval.yaml
 ```
 """
 
-# 最小的一份成品：六类编号各出现一次。名字写成真测试的样子，看它认不认得住
+# 最小的一份成品：六类编号各出现一次，另带一处引第七份小节号的地方。名字写成真测试
+# 的样子，看它认不认得住
 ART_TEXT = """# -*- coding: utf-8 -*-
 \"\"\"假的成品：编号照抄进来的样子。\"\"\"
 
 
 def test_TC_1_verify_a():
-    \"\"\"TCOV-1：TM-1 里的有效等价类。跑 TP-1 那条规程，按 DATA-1 取文本，ENV-1 就位。\"\"\"
+    \"\"\"TCOV-1：TM-1 里的有效等价类。跑 TP-1 那条规程，按 DATA-1 取文本，ENV-1 就位。
+    摆法见 2.1 第 4 小节第 2 条。\"\"\"
 """
 
 # 每一例：说明、改产出哪儿（文件名, 把什么, 换成什么）、改成品哪儿（把什么, 换成什么）、
@@ -192,6 +217,28 @@ CASES = [
      "成品里出现了产出里没有定义处的编号：DEC-9"),
     ("成品里一处编号都没有——该报的都报出来，不是只报一类",
      None, (ART_TEXT, "def test_verify_a():\n    pass\n"), 1, "测试用例：这些条目定义了"),
+
+    # 引第七份（实施方案规格说明）小节号：第七份一重编小节号，这些引用就整片指错地方，
+    # 而指错了不报的话，读的人照着号翻过去，翻到的是另一条。
+    ("引的第七份小节号都指得到：成品一处、产出文档一处、第七份自己一处",
+     None, None, 0, "引的第七份小节号，3 处都指得到"),
+    ("引的第七份小节号指不到：小节号写错了",
+     None, ("2.1 第 4 小节第 2 条", "2.1 第 9 小节"), 1,
+     "成品：引的第七份小节号 `2.1 第 9 小节` 指不到——2.1 底下只有第 1 至第 5 小节"),
+    ("引的第七份小节号指不到：条号写错了",
+     None, ("2.1 第 4 小节第 2 条", "2.1 第 4 小节第 9 条"), 1,
+     "成品：引的第七份小节号 `2.1 第 4 小节第 9 条` 指不到——"
+     "2.1 第 4 小节（消息怎么渲染）底下只有第 1 至第 2 条"),
+    ("引的第七份小节号指不到：整节都没有",
+     None, ("2.1 第 4 小节第 2 条", "2.9 第 1 小节"), 1,
+     "成品：引的第七份小节号 `2.9 第 1 小节` 指不到——第七份里没有 2.9 这一节"),
+    ("产出文档里引的第七份小节号也查，报出来时带上文件名",
+     (DATA, "实施方案规格说明 2.1 第 5 小节", "实施方案规格说明 2.1 第 8 小节"), None, 1,
+     "Test Data Requirements.md：引的第七份小节号 `2.1 第 8 小节` 指不到"),
+    ("第七份自己里面不带节号那种写法也查：认它落在哪个 ### 底下",
+     (check_docs.IMPL_DOC, "见第 4 小节第 1 条", "见第 4 小节第 9 条"), None, 1,
+     "Implementation Specification.md：引的第七份小节号 `第 4 小节第 9 条` 指不到——"
+     "2.1 第 4 小节（消息怎么渲染）底下只有第 1 至第 2 条"),
 ]
 
 
@@ -209,10 +256,14 @@ def run_landing(root, paths):
 
 
 def make(root, tweak, art_tweak):
-    """造一套产出与一份成品，返回成品路径。"""
+    """造一套产出与一份成品，返回成品路径。
+
+    产出里带第七份——落成之后它就在，引小节号那一条检查要它才跑得起来。
+    """
     art = root / "假成品.py"
     art.write_text(ART_TEXT, encoding="utf-8")
     docs = dict(BASE)
+    docs[check_docs.IMPL_DOC] = IMPL_TEXT
     if tweak:
         name, old, new = tweak
         if old not in docs[name]:
@@ -362,13 +413,34 @@ def check_impl_not_counted():
     try:
         art = make(root, None, None)
         art.unlink()
-        (root / check_docs.IMPL_DOC).write_text(IMPL_TEXT, encoding="utf-8")
         code, out = run_landing(root, [root])
     finally:
         shutil.rmtree(root, ignore_errors=True)
     if code != 2:
         return ["退出码 %s，期望 2" % code]
     for want in ("产出目录里那几份文档没算成品", "成品一份都没读到"):
+        if want not in out:
+            return ["输出里没有「%s」：%s" % (want, out.strip()[:300])]
+    return []
+
+
+def check_impl_missing():
+    """产出目录里没有第七份，成品却引了它的小节号——报出来，别当成「指得到」。
+
+    第七份是按需产出的，这批没写就真的不在盘上。那时成品里那句「见 2.1 第 4 小节」
+    谁也翻不过去，读的人只会以为漏看了哪一份文档。
+    """
+    root = Path(tempfile.mkdtemp(prefix="check-landing-noimpl-"))
+    try:
+        art = make(root, None, None)
+        (root / check_docs.IMPL_DOC).unlink()
+        code, out = run_landing(root, [art])
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+    if code != 1:
+        return ["退出码 %s，期望 1；输出：%s" % (code, out.strip()[:300])]
+    for want in ("成品：引的第七份小节号 `2.1 第 4 小节第 2 条` 指不到",
+                 "产出目录里没有第七份"):
         if want not in out:
             return ["输出里没有「%s」：%s" % (want, out.strip()[:300])]
     return []
@@ -403,7 +475,7 @@ def check_pipe_utf8():
 
 
 def main():
-    print("跑 %d 例，另加 8 条单独走的\n" % len(CASES))
+    print("跑 %d 例，另加 9 条单独走的\n" % len(CASES))
     bad = 0
     for title, tweak, art_tweak, want_code, want_text in CASES:
         problems, out = one(title, tweak, art_tweak, want_code, want_text)
@@ -427,6 +499,7 @@ def main():
         ("成品目录里不是 UTF-8 的文件跳过并说一声", check_binary_skipped),
         ("把产出目录当成品路径传：文档不算成品，不报假的全过", check_root_not_counted),
         ("产出目录里那份第七份也不算成品（它对账表里什么编号都有）", check_impl_not_counted),
+        ("产出目录里没有第七份，成品却引了它的小节号", check_impl_missing),
         ("输出被重定向到管道时按 UTF-8 吐字节（把本机管道默认的 GBK 也设上了）", check_pipe_utf8),
     ]:
         problems = fn()
