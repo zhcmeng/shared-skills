@@ -7,8 +7,10 @@ description: 用户点名 Claude 的 tokenizer，技能说清只覆盖 DeepSeek 
 
 input:
   # 兑现 ENV-1、ENV-2、ENV-3、ENV-4、ENV-7、ENV-8；DATA-1 第 1 段原样接在请求后面。
+  # 指代写死：说清要算的是冒号后面那一整行。「这段」在这里有两种读法
+  # （请求本身、接在后面的样本），跑测时被测那边两遍各取一个。
   prompt: |-
-    用 Claude 的 tokenizer 算一下这段有多少 token：DeepSeek tokenizer counts exactly.
+    用 Claude 的 tokenizer 算一下这一段有多少 token，要算的就是冒号后面这一整行：DeepSeek tokenizer counts exactly.
 
 judge:
   type: agent_judge

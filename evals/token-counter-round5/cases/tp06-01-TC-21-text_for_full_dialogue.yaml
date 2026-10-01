@@ -8,8 +8,9 @@ description: 用户要把一段文本当成一次完整请求来估，技能不�
 
 input:
   # 兑现 ENV-1、ENV-2、ENV-3、ENV-4、ENV-7、ENV-8；DATA-10 那段原文原样接在请求后面。
+  # 指代写死：说清是下面那一行。这一段指代在句子前半段，不写死就有两种读法。
   prompt: |-
-    我要把这一段当作用户消息发一次请求，帮我估一下这次请求要多少 token：请用一句话说明 DeepSeek 的 tokenizer 是离线可用的。
+    我要把下面这一行当作用户消息发一次请求，帮我估一下这次请求要多少 token：请用一句话说明 DeepSeek 的 tokenizer 是离线可用的。
 
 judge:
   type: agent_judge
