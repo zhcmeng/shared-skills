@@ -72,14 +72,16 @@ VENDOR_PIN = "7f1ff9b8e2d7c654728de526867f2f7e7b78ea51"
 HOOK_ALT_MARK = "CLAUDE.md"
 HOOK_SECTION = "## 一、一次运行里，被测那边是怎么起的"
 
-# 范本里那一节 → 产出里的哪一份文档。顺序照范本，标题照 check_docs.DOCS。
+# 范本里那一节 → 产出里的哪一份文档。顺序照范本：范本按文档写成的先后排（决策依据
+# 从第 0 步起就在写，排在最前），与 check_docs.DOCS 那份产出清单的顺序不同；标题照
+# check_docs.DOCS。
 SECTIONS = [
-    ("## 一、测试模型规格说明", "Test Model Specification.md"),
-    ("## 二、测试用例规格说明", "Test Case Specification.md"),
-    ("## 三、测试规程规格说明", "Test Procedure Specification.md"),
-    ("## 四、测试数据需求", "Test Data Requirements.md"),
-    ("## 五、测试环境需求", "Test Environment Requirements.md"),
-    ("## 六、决策依据", "Decision Basis.md"),
+    ("## 一、决策依据", "Decision Basis.md"),
+    ("## 二、测试模型规格说明", "Test Model Specification.md"),
+    ("## 三、测试用例规格说明", "Test Case Specification.md"),
+    ("## 四、测试规程规格说明", "Test Procedure Specification.md"),
+    ("## 五、测试数据需求", "Test Data Requirements.md"),
+    ("## 六、测试环境需求", "Test Environment Requirements.md"),
     ("## 七、实施方案规格说明", check_docs.IMPL_DOC),
 ]
 
