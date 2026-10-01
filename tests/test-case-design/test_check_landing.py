@@ -513,13 +513,13 @@ def check_partial_landing():
             "TCOV-1：有效等价类。")
     table = ("| 成品 | 落的是哪些条目 |\n|:---|:---|\n| `{ART}` | TC-1 |")
 
-    def run(block):
+    def run(block, with_path=False):
         root = Path(tempfile.mkdtemp(prefix="check-landing-partial-"))
         try:
-            make(root, (CASE, "| 成品 | 落的是哪些条目 |\n|:---|:---|\n"
-                              "| `{ART}` | TC-1 与它的覆盖项、TM-1、TP-1、DATA-1、ENV-1 |",
-                              block), drop)
-            return run_landing(root, [])
+            art = make(root, (CASE, "| 成品 | 落的是哪些条目 |\n|:---|:---|\n"
+                                     "| `{ART}` | TC-1 与它的覆盖项、TM-1、TP-1、DATA-1、ENV-1 |",
+                                     block), drop)
+            return run_landing(root, [art] if with_path else [])
         finally:
             shutil.rmtree(root, ignore_errors=True)
 
@@ -531,6 +531,20 @@ def check_partial_landing():
     for want in ("还写着「还没落成」", "只算提示"):
         if want not in out:
             problems.append("输出里没有「%s」：%s" % (want, out.strip()[:300]))
+
+    # 命令行上把成品路径一条条点出来，也得走同一条降级。模板要求这样做——成品写在
+    # 上一层目录时（而上一层住着报告目录、虚拟环境、缓存），别把整个上一层指过去，
+    # 那条命令上一条条点出来；那正是分批落成时的常规写法。早先这条路把降级整个绕掉
+    # 了：`partial` 只在「命令行没给路径」时才从产出里读，于是照模板写的那条命令反而
+    # 把还没落成的那几处按错报，返回来逼人一次把表填全——正是这套降级要避免的。
+    code, out = run(table + "\n\nTM-1、TP-1、DATA-1、ENV-1 那几处还没落成。", with_path=True)
+    if code != 0:
+        problems.append("命令行上点了成品路径时退出码 %s，期望 0；输出：%s"
+                        % (code, out.strip()[:300]))
+    for want in ("还写着「还没落成」", "只算提示"):
+        if want not in out:
+            problems.append("命令行上点了成品路径时，输出里没有「%s」：%s"
+                            % (want, out.strip()[:300]))
 
     code, out = run(table)
     if code != 1:

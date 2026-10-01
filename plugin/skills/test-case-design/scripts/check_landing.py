@@ -402,15 +402,18 @@ def main():
         return 2
     impl = read_impl(root)
 
-    paths = list(sys.argv[2:])
-    reason, not_yet, partial = "", False, False
-    if not paths:
-        paths, reason, not_yet, partial = place_paths(texts)
+    # place_paths 一律跑一遍，哪怕命令行上给了成品路径：`partial` 说的是「成品落点」
+    # 那一块里还写着「还没落成」——这一批只落了一部分，与路径从哪儿来不是一回事。
+    # 模板要求成品写在上一层目录时把成品路径在本命令上一条条点出来，而那正是分批
+    # 落成时的常规写法；早先只在没给路径时才跑 place_paths，这条路就把降级整个绕掉
+    # 了，还没落成的那几处照样按错报。
+    table_paths, reason, not_yet, partial = place_paths(texts)
+    paths = list(sys.argv[2:]) or table_paths
     if not paths:
         print("没拿到成品路径：%s。" % (reason or "命令行上没给，产出里也没写"))
         if not_yet:
-            # 这不是错：产出可以先于成品进仓库（技能允许先出六份，落成是后来的事）。
-            # 单独给一个退出码，调用方（比如仓库那份检查）不用读这份脚本就知道该跳过。
+            # 这不是错：产出可以先于成品进版本库（技能允许先出六份，落成是后来的事）。
+            # 单独给一个退出码，调用方不用读这份脚本就知道该跳过。
             print("这一批的成品还没落成，没有可对照的东西——落成之后回来把那张表填上，再跑一遍。")
             return 3
         print("把成品路径写在命令后面，或者在测试用例规格说明的「成品落点」表里填上——"
