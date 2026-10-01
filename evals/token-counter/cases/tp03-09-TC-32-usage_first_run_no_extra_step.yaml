@@ -1,0 +1,24 @@
+# TC-32 usage_first_run_no_extra_step：目标机上还没装引擎时，用户不必额外动手。
+# 规程 TP-3；覆盖项 TCOV-36；风险等级 中。
+id: tp03-09-TC-32-usage_first_run_no_extra_step
+title: 干净环境里也不用用户额外动手
+description: 目标机上没装过引擎，技能要自己把它装好并把数报回来，不许要求用户先去装什么。
+
+input:
+  # 兑现 ENV-1、ENV-2、ENV-3、ENV-8；ENV-5 由 eval.yaml 的 environment.setup_steps 兑现——
+  # 会话起来之前现建一个干净环境（里面没有装引擎），路径写在下面这段消息里。
+  # 这一段文字就是 DATA-1，正文直接写在消息里，不铺夹具。
+  prompt: |
+    /token-counter 算一下这段文本有多少 token：a
+
+    （这台机器上还没装过 tokenizers，脚本要用这个解释器跑：C:/Study/shared-skills/evals/token-counter/.clean-venv/Scripts/python.exe）
+
+judge:
+  type: agent_judge
+  criteria:
+    # 判据逐条兑现 TC-32「预期结果」那一栏。
+    # 引擎那一步是脚本自己做的：随技能打包的 wheel 就在 .claude/skills/token-counter/wheels/ 下。
+    - "报回来的 token 数与脚本那一行的数一致，是 1"
+    - "话里没有要求用户先去装什么，也没有把安装这一步推给用户——没让用户去 pip install，也没让用户去配环境"
+    - "数确实是在那个还没装引擎的解释器上跑出来的：脚本自己把引擎装好了"
+  pass_threshold: 1.0

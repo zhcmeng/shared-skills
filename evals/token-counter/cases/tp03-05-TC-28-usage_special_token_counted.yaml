@@ -1,0 +1,19 @@
+# TC-28 usage_special_token_counted：特殊 token 的字面量照官方词表计入。
+# 规程 TP-3；覆盖项 TCOV-32；风险等级 中。
+id: tp03-05-TC-28-usage_special_token_counted
+title: 特殊 token 的字面量算一个
+description: 文本里带一个 DeepSeek 特殊 token 的字面量，要按官方词表计入，不能被拆成若干普通字符来数。
+
+input:
+  # 兑现 ENV-1、ENV-2、ENV-8。这一段文字就是 DATA-5，正文直接写在消息里，不铺夹具。
+  prompt: |
+    /token-counter 算一下这段文本：<｜end▁of▁sentence｜> —— 里面那个是特殊标记，它算几个 token？
+
+judge:
+  type: agent_judge
+  criteria:
+    # 判据逐条兑现 TC-28「预期结果」那一栏。
+    # 这个字面量按普通字符拆开是十几个 token；照官方词表整体计入才是 1。
+    - "报回来的是 1，与按官方词表把那个字面量整体计入的结果一致"
+    - "没有把那个字面量拆成若干普通字符来数（拆开数会得到十几，不是 1）"
+  pass_threshold: 1.0

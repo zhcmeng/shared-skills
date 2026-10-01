@@ -14,6 +14,14 @@
 
 | 通用稿的编号 | 本方案里落在哪 | 说明 |
 |:---|:---|:---|
+| TM-1、TM-2、TM-3 | 批一：`tests/token-counter/` 下的测试代码 | 三个模型都由批一的用例兑现——它们的用例（TC-1 至 TC-23）整批归批一 |
+| TM-4 | 批二：`evals/token-counter/cases/` 下那九条用例配置 | 交互序列那个模型只在批二里落；TC-24 至 TC-32 都从它导出 |
+| TCOV-1、TCOV-2、TCOV-3、TCOV-4、TCOV-5、TCOV-6、TCOV-7、TCOV-8、TCOV-9、TCOV-10、TCOV-11、TCOV-12、TCOV-13、TCOV-14、TCOV-15、TCOV-16、TCOV-17、TCOV-18、TCOV-19、TCOV-20、TCOV-21、TCOV-22、TCOV-23、TCOV-24、TCOV-25、TCOV-26、TCOV-27 | 批一：`tests/token-counter/` 下的测试代码 | 27 条整批落在一处，号列全、不写范围 |
+| TCOV-28、TCOV-29、TCOV-30、TCOV-31、TCOV-32、TCOV-33、TCOV-34、TCOV-35、TCOV-36 | 批二：`evals/token-counter/cases/` 下那九条用例配置 | 同上，9 条 |
+| TC-1、TC-2、TC-3、TC-4、TC-5、TC-6、TC-7、TC-8、TC-9、TC-10、TC-11、TC-12、TC-13、TC-14、TC-15、TC-16、TC-17、TC-18、TC-19、TC-20、TC-21、TC-22、TC-23 | 批一：`tests/token-counter/` 下的测试代码 | 批一的用例，由 TP-1、TP-2 排到 |
+| TC-24、TC-25、TC-26、TC-27、TC-28、TC-29、TC-30、TC-31、TC-32 | 批二：`evals/token-counter/cases/` 下那九条用例配置，一条一个目录 | 批二的九条，由 TP-3 排到；目录名见测试规程规格说明的「各批落到哪」 |
+| TP-1、TP-2 | 批一：`tests/token-counter/` 下的测试代码 | 两条规程都落成能跑的测试代码，不在这一套评测配置里 |
+| TP-3 | 批二：`evals/token-counter/cases/` 下那九条用例配置，加一份 `eval.yaml` | 本方案跑的就是这一条规程 |
 | ENV-1、ENV-2、ENV-3、ENV-4、ENV-8 | 跑 skill-up 的那台机器；四条都由 `environment.type: none` 兑现——命令在宿主机上跑，不起容器 | 测试规程、被测那侧、CPython 解释器、已装好的引擎、能起子进程并读回结果的执行环境，五样指的都是同一台机器。判据要看「它有没有把脚本跑起来」，靠 `judge` 拿到的 transcript 读，这由 ENV-8 那处执行环境保证 |
 | ENV-5 | 每条用得上的用例，在 `environment.setup_steps` 里现建一个 venv | 只有 TC-32 用得上：会话起来之前先 `python -m venv` 建一个干净环境，里面不装引擎。建在一处固定的绝对路径下，prompt 里把那个路径给被测那边 |
 | ENV-6 | 宿主机的网络出口 | 本方案里用不上——要网络的只有回落那条用例（TC-22），它归批一，落成能跑的测试代码，不进这一套评测用例 |
@@ -21,6 +29,8 @@
 | DATA-1、DATA-5 | 各条用例配置的 `input.prompt` 正文 | 两段文字直接写在消息里：DATA-1 进 TC-32，DATA-5 进 TC-28。落法一样，并成一行写，号列全 |
 | DATA-6、DATA-8、DATA-12 | 夹具 `evals/token-counter/fixtures/cases/` 下各条用例自己的 `fixture/` 目录 | 三个文件样本：DATA-6 进 TC-24、TC-25、TC-27、TC-31，DATA-8 进 TC-31，DATA-12 进 TC-30。按描述栏写明的字节造，铺进工作区时路径照用例消息里给的那一串摆 |
 | DATA-2、DATA-3、DATA-4、DATA-7、DATA-9、DATA-10、DATA-11、DATA-13、DATA-14、DATA-15 | 用不上——这十条只被 TP-1、TP-2 的用例取用，而那一批判据落在命令、退出码与盘上的文件上，归批一，落成能跑的测试代码 | 本方案只落 TP-3。这十条要么是脚本层那几处取值与边界（DATA-2、DATA-3、DATA-4、DATA-7、DATA-9、DATA-10、DATA-11），要么是异常路径与引擎获取那一路的样本（DATA-13、DATA-14、DATA-15），九条交互序列一条都不取它们 |
+
+**六类都收。**模型、覆盖项、用例、规程、数据项、环境项，六份里定义过的每一条都要在这张表里出现一次；用不上的也要写一行说明为什么。模型、覆盖项、用例、规程这四类整批落在同一处，一类一行、号列全——写成 `TC-1 至 TC-23` 只是行文里的说法，表里那一格是逐个列出来的。
 
 **编号在盘上怎么留痕。**这张表说的是「落到哪」；落成的时候还得让编号在盘上搜得到——不然过几个月拿着盘上的配置，认不出哪一条兑现了通用稿里的哪个号。两处这么编：
 
@@ -51,7 +61,7 @@ TP-1 与 TP-2 不在这套方案里跑。这两条规程的判据落在命令、
 1. **技能**：装到 `.claude/skills/token-counter/`，`tokenizer.json` 与 `wheels/` 跟着进去（ENV-7）。
 2. **夹具**：把 `evals/token-counter/fixtures/cases/` 这棵子树的内容铺到工作区根上，由 `context.repo_fixture` 指定；样本路径照消息里给的那一串摆。
 
-`environment.setup_steps` 只用在一处：TC-32 那条，会话起来之前按 ENV-5 现建一个干净环境。
+`environment.setup_steps` 里只有一步：会话起来之前按 ENV-5 现建一个干净环境，给 TC-32 那条用。**这一步是整份配置级的**——九条用例每条开跑前都走一遍，对另外八条没有用，只是白建一次。要它只落在 TC-32 那条身上做不到：一条用例那一层没有这个字段，配上去是默默丢掉的；只能拆成两份配置分两次跑。命令写成 `python -m venv --clear <写死的绝对路径>`，重跑时把上一回装进去的引擎清掉。
 
 **差集这一套不看。**九条判据全落在回复正文上——说了什么、有没有说该说的那一句——没有一条判「盘上哪个文件被改了」。所以不开 `context.git.init`：工作区不是 git 仓库时差集会被静默省掉，这一套不看它，省掉也不影响（机制见 `usage-notes.md` 第二节）。TC-32 里脚本往干净环境装引擎那一步算搭场子，判据也不看盘上。
 
@@ -60,6 +70,10 @@ TP-1 与 TP-2 不在这套方案里跑。这两条规程的判据落在命令、
 **3. 判据分几层、逐条判什么**
 
 九条都用 `agent_judge`，没有一条改用 `rule_based` 或 `script`：判的是「回复里说了什么、有没有把脚本跑起来」，落不到命令、退出码或盘上文件上。机械层只用 `expect` 卡一条：退出码 0。
+
+**判官要指定模型。**这一条是落成时才撞见的：判官那块不写模型，`validate` 当场驳回，话是 `judge.model is required when judge.type is agent_judge`。模型在批次那一层给一次就够，九条用例那一层只写各自的判据（实测：只给批次那一层，九条都能过校验）。本机跑用的是 `anthropic/claude-sonnet-5`——走本机那个网关，模型名按 Anthropic 那一套写。`pass_threshold` 取 1.0：每条判据都得成立，这几条的预期结果本来就是「这几样都要做到」，不是做够几条就算过。
+
+**九条串着跑，不并发。**TC-32 那条要在「引擎还没装」的状态下开跑（ENV-5），九条共用一个写死路径的干净环境；并发跑的话那条会被别的用例抢先装上引擎，白跑。
 
 `judge.context` 用默认的 `standard`：`final_message` 内联，`transcript` 与 `workspace_diff` 以文件引用给出。TC-24、TC-25、TC-28、TC-31 要判「它有没有真去跑脚本、跑出来的数是几」，得读 transcript 才判得了——默认那一档给得到。
 
@@ -97,7 +111,7 @@ TP-1 与 TP-2 不在这套方案里跑。这两条规程的判据落在命令、
 - **工作区不是 git 仓库时差集被静默省掉**（同第二节）：这一套不看差集，没有影响。
 - **装技能时无条件跳过 `evals/` 子树**（同第三节）：这个技能的目录下没有 `evals/`，没有影响。
 - **多轮只收 `user` 角色**（同第七节）：九条都是一轮，没有一条要拿「技能上一条回答」当输入，没有影响。
-- **本机是原生 Windows，而原生 Windows 上跑不了完整的模型**（同第四节：起真实 agent 那条路要用 bash 引导 Node／nvm，上游建议改用 WSL2，或者先把 Node 与命令行工具装好）。这一条影响的是这一套跑不跑得起来，不是某一条用例的判据；**落地之前先确认这一处**——本机现在装的是 `v0.12.0`，这一条是从上游文档站读来的、没有在二进制上实测过，标为待确认。
+- **起真实 agent 要机器上备齐 bash 与 Node**（同第四节：那条路要用 bash 引导 Node／nvm）。备齐了就起得来，与是不是原生 Windows 无关——本机是原生 Windows 11、没进 WSL，备着 cygwin 的 `bash` 与 Node v24.6.0，`v0.12.0` 上这九条整批跑通过（2026-10-01 实测）。这一条影响的是这一套跑不跑得起来，不是某一条用例的判据。
 - **`.sh` 判官要一个非 WSL 的 bash**（同第四节）：九条都用 `agent_judge`，不用 `.sh` 判官，没有影响。
 
 ### 2.2 怎么跑、报告落在哪
@@ -111,7 +125,19 @@ C:/Users/Administrator/.local/bin/skill-up.exe run C:/Study/shared-skills/evals/
 
 一批跑一次命令，落进 `runs/<时间戳>/`，`iteration-1/` 由 skill-up 自己追加。同一批里要跑第二回（改了判据或者重跑），用同一个 `--output-dir` 再跑一次，它自己接成 `iteration-2/`——**哪一回是哪个按目录序号认**，报告里 `result.json` 的 `start_time` 与 `requested_configuration` 也记着。再跑一批就另取一次当前时刻，落进新的 `runs/<时间戳>/`，前几批的报告原样留着，盖不掉。
 
-只跑九条用例里的一条时，用 `--case tp03-05-TC-28-usage_special_token_counted` 这样按目录名点——目录名照第一节那张表里 `--case-dirs` 打出来的写。
+**报告出两种格式**：`report.formats` 里列了 `json` 与 `html`。`result.json` 是给机器读的那份——九条各自哪几条判据过了、每步花了多久都在里面；HTML 是给人看的那份，一轮跑完直接点开。这一栏不列 `html` 就不出 HTML，事后要补得用 `report` 子命令从 `result.json` 另生成一份。
+
+**同一批至少跑两遍**，两遍结论不一致的用例照实记下来。跑第二遍不为核对结论，为的是看判据稳不稳：一轮过一轮不过的用例，毛病多半出在判据卡了可有可无的附带动作——被测那边有时顺带做、有时不做，卡上去这条用例就一轮一个样。同一个 `--output-dir` 再跑一次就是 `iteration-2/`，两遍并排看。
+
+**跑过之后的结论记在哪**：哪几条没过、为什么、下一轮改什么，记在那两份报告里，不另起一份、也不写回产出那几份文档。报告不进 git（见下一条），要留结论就留在这两处，或者把要紧的几条抄进这一节。
+
+只跑九条用例里的一条、或者挑几条时，用 `--include-case-name` 按目录名点（收通配符，可以给多条）：
+
+```powershell
+C:/Users/Administrator/.local/bin/skill-up.exe run C:/Study/shared-skills/evals/token-counter/eval.yaml --include-case-name "tp03-05-TC-28-*"
+```
+
+目录名照第一节那张表里 `--case-dirs` 打出来的写。要排掉某几条用 `--exclude-case-name`，收同样的通配符。
 
 跑之前不用手工摆任何东西：工作区由 skill-up 新建，夹具与那个干净环境由配置里的 `context.repo_fixture` 与 `environment.setup_steps` 各做各的。
 

@@ -14,12 +14,18 @@
 
 | 通用稿的编号 | 本方案里落在哪 | 说明 |
 |:---|:---|:---|
+| TM-1、TM-2、TM-3、TM-4 | `evals/plain-language/cases/` 下那八条用例配置，写在每条开头的注释里 | 四个模型都只落这一处；号列全、不写范围 |
+| TCOV-1、TCOV-2、TCOV-3、TCOV-4、TCOV-5、TCOV-6、TCOV-7、TCOV-8、TCOV-9、TCOV-10、TCOV-11、TCOV-12、TCOV-13、TCOV-14、TCOV-15、TCOV-16、TCOV-17、TCOV-18、TCOV-19、TCOV-20、TCOV-21、TCOV-22、TCOV-23、TCOV-24、TCOV-25、TCOV-26、TCOV-27、TCOV-28、TCOV-29、TCOV-30、TCOV-31、TCOV-32、TCOV-33、TCOV-34、TCOV-35、TCOV-36、TCOV-37、TCOV-38 | 同上 | 38 条覆盖项整批落一处，号列全、不写范围 |
+| TC-1、TC-2、TC-3、TC-4、TC-5、TC-6、TC-7、TC-8 | 同上，一条用例一份配置 | 八条用例各落一份，文件名见「各批落到哪」那一栏 |
+| TP-1、TP-2、TP-3、TP-4、TP-5、TP-6、TP-7、TP-8 | 同上，各条用例配置的注释，与它那条用例写在一起 | 八条规程一套落同一处，不分批；TP-8 那条在 `eval-no-skill.yaml` 那次运行里跑 |
 | ENV-1、ENV-2、ENV-3 | 运行一的 `eval.yaml` 里 `skills[].path`；两次运行的 `report.artifacts` 与各条 `judge.context`；各条用例的 `judge.criteria` | 三条的值都由 2.1 第 2、3 小节写死：技能只装 `SKILL.md` 与 `rules.md`；回复看 `final_message`、盘上改动看 `workspace_diff`；判据是各条用例「预期结果」栏的散文压成条目，连「判的时候留个心」那些操作提示一并写进去 |
 | ENV-4 | 夹具 `evals/plain-language/fixtures/repos/subject/` | 每条用例各把这个目录的内容铺进自己那份临时工作区；原始夹具全程不动。五份样本就摆在这棵树里，铺进去之后权限跟原始样本一致（TC-7 那份是只读的） |
 | ENV-5 | 两次运行的 `environment.setup_steps`——从绝对路径读 `rules.md` 写进工作区的 `CLAUDE.md`；见 2.1 第 4 小节第 4 条 | 钩子那条道在本方案里走不通 |
 | ENV-6、ENV-7 | 同一个临时工作区 | 见 2.1 第 2 小节：跑完就删，重试与迭代各起一个，ENV-6 要的「每跑一条之前清干净」由框架自己保证；ENV-7 要的那处执行环境就是建这个目录的机器（本机 Windows），样本副本也在这一处 |
 | DATA-1、DATA-2、DATA-3、DATA-4、DATA-5、DATA-6、DATA-7、DATA-8、DATA-9、DATA-10、DATA-11、DATA-12、DATA-13、DATA-14 | 各条用例配置的正文——`input.prompt`，TC-7 那条走 `input.turns`；DATA-5、DATA-6 另接在用户消息前面 | 十四条样本文本，一条对一条落进它那条用例。落法一样，并成一行写，号列全。DATA-5、DATA-6 另有一处保真度折扣，见 2.1 第 4 小节第 3 条 |
 | DATA-15 | 夹具里 `…/cases/tp05-01-TC-7-file_blocked_reports_where/fixture/只读样本.md` | 没有写权限的文档样本；权限靠工作树带过去，**git 不存这个属性**，重新克隆之后要在工作树里重设一次（`chmod 444`），见 2.1 第 2 小节 |
+
+**六类都收。**模型、覆盖项、用例、规程、数据项、环境项，六份里定义过的每一条都要在这张表里出现一次；用不上的也要写一行说明为什么。这一套八条规程落同一处，前四类因此各占一行、号列全——写成 `TCOV-1 至 TCOV-38` 只是行文里的说法，表里那一格是逐个列出来的。
 
 **编号在盘上怎么留痕。**这张表说的是「落到哪」；落成的时候还得让编号在盘上搜得到——不然过几个月拿着盘上的配置，认不出哪一条兑现了通用稿里的哪个号。两处这么编：
 
@@ -127,6 +133,12 @@ C:/Users/Administrator/.local/bin/skill-up.exe run C:/Study/shared-skills/evals/
 两条命令落进同一个目录，各成一回：运行一是 `iteration-1/`，运行二是 `iteration-2/`（`--iteration` 默认怎么追加见 `/skill-upper` 的 `cli.md`）。哪一回是哪个，报告里认得出：`result.json` 的 `start_time` 与 `requested_configuration` 记着跑的是哪份配置，每条用例的目录名本身带着规程号与用例号，而运行二只有 `eval-no-skill.yaml` 里列的那一条 TP-8。
 
 **一批一个时间戳，后跑的盖不掉先跑的。**再跑一批就另取一次当前时刻，落进新的 `runs/<时间戳>/`，前几批的报告原样留着。
+
+**报告出两种格式**：两份配置的 `report.formats` 里都列了 `json` 与 `html`。`result.json` 是给机器读的那份——八条各自哪几条判据过了、每步花了多久都在里面；HTML 是给人看的那份，一轮跑完直接点开。这一栏不列 `html` 就不出 HTML，事后要补得用 `report` 子命令从 `result.json` 另生成一份。
+
+**同一批至少跑两遍**，两遍结论不一致的用例照实记下来。跑第二遍不为核对结论，为的是看判据稳不稳：一轮过一轮不过的用例，毛病多半出在判据卡了可有可无的附带动作——被测那边有时顺带做、有时不做，卡上去这条用例就一轮一个样。整套再跑一遍就按上面那条另取一个时间戳落进新目录，两批并排看。
+
+**跑过之后的结论记在哪**：哪几条没过、为什么、下一轮改什么，记在那一批的两份报告里，不另起一份、也不写回产出那几份文档。报告不进 git（见下一条），要留结论就留在这两处，或者把要紧的几条抄进这一节。
 
 跑之前不用手工摆任何东西：工作区由 skill-up 新建，夹具与 `rules.md` 的注入由配置里的 `context.repo_fixture` 与 `environment.setup_steps` 各做各的。两次运行之间也不用复位——它们的工作区是两个互不相干的临时目录。
 

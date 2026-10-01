@@ -152,4 +152,7 @@
 
 ## 成品落点
 
-还没落成。
+| 成品 | 落的是哪些条目 |
+|:---|:---|
+| `tests/token-counter/` | 批一（TP-1、TP-2）落成的可跑测试：TC-1 至 TC-23，连同它们覆盖的 TCOV-1 至 TCOV-27、TM-1 至 TM-3，以及取用的 DATA-1 至 DATA-15 与 ENV-1 至 ENV-8 |
+| `evals/token-counter/cases/` | 批二（TP-3）落成的九条评测用例配置：TC-24 至 TC-32，连同它们覆盖的 TCOV-28 至 TCOV-36 与 TM-4；样本在 `evals/token-counter/fixtures/cases/` 下各条用例自己的 `fixture/` 目录里 |

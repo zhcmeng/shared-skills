@@ -7,3 +7,6 @@ __pycache__/
 # 评测跑出来的报告：一批跑测一个时间戳目录（runs/<yyyy-MM-dd-HHmm>/iteration-N/），
 # 不进 git。产出目录（evals/<材料>/test-case-design/）在它旁边，照旧提交。
 evals/*/runs/
+# 评测用例现建的那个「干净环境」（ENV-5）：TC-32 那条要在没装引擎的解释器上跑，
+# 由 eval.yaml 的 setup_steps 在会话起来之前建出来，路径写死在配置里。是跑测的产物，不进 git。
+evals/*/.clean-venv/

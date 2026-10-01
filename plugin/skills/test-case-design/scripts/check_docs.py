@@ -20,9 +20,9 @@
 
 **分两组查。**六份通用稿是一组（`DOCS` 那份名单，缺一份就报错）；第七份《实施方案
 规格说明》（`IMPL_DOC`）按需产出，产出目录里有它时才另起一组——查它的骨架（导语、
-对账表、`方案：`节）、每个方案节里两块齐不齐与次序对不对、`ENV-`／`DATA-` 两个方向
-的编号对账。没有它整组跳过，连提示都不报：分层之前留下的那几套产出不该因此多出
-一条错。
+对账表、`方案：`节）、每个方案节里两块齐不齐与次序对不对、六类编号两个方向的对账
+（`IMPL_CLASSES`：模型、覆盖项、用例、规程、数据项、环境项）。没有它整组跳过，连
+提示都不报：分层之前留下的那几套产出不该因此多出一条错。
 
 第七份里**不贴配置原文**（配置由落成那一步写进盘里；抄一份到文档里就是第二份会
 漂移的副本），所以本模块不碰 YAML，也不依赖任何第三方库。
@@ -142,6 +142,18 @@ IMPL_MAP_HEAD = "通用稿的编号落到哪"
 IMPL_MAP_COLS = ["通用稿的编号", "本方案里落在哪"]
 IMPL_SCHEME_MARK = "方案："
 IMPL_BLOCKS = ("说明", "怎么跑")
+
+# 对账表六类都收（模板第十节）：六份里定义过的每一条编号，这一份里都要给个落点。
+# 四类整批落在同一处是常事（一类一行、号列全），但「给了落点没有」这件事按号查，
+# 所以六类走同一套判定，不因为「通常都落得到」就少查几类。
+IMPL_CLASSES = [
+    ("TM-", "模型"),
+    ("TCOV-", "覆盖项"),
+    ("TC-", "用例"),
+    ("TP-", "规程"),
+    ("DATA-", "数据项"),
+    ("ENV-", "环境项"),
+]
 
 # 「英文名」这一栏：给下游把条目落成代码时照抄的名字核（模板第二节）。
 # 六类条目都带它，决策依据那份不带——那份记的是过程，不落成任何对象。
@@ -770,39 +782,44 @@ def check_place(text, rep):
     """成品落点那一块：在不在、表齐不齐。
 
     只管机械项——成品路径读不读得到、编号在成品里出没出现，归 check_landing.py。
-    这一块落成之后才填得全，所以写成「还没落成」也算填了。
+    这一块落成之后才填得全，所以写成「还没落成」也算填了；分几批落成时两种写法并存
+    （模板第四节）：列出来的那些行照旧逐行查，那句话交代剩下还没落的几处。
     """
     block = place_block(text)
     if block is None:
         rep.err(CASE_DOC, "没有「%s」这一块——这份按模板分五块写，第五块写成品落在哪、"
                           "每一类条目的编号在成品里怎么出现" % PLACE_HEAD)
         return
-    if NOT_YET in block:
-        # 那四个字得是这一块里的一句话，不能占「成品」那一栏：占了一栏，落成对照就把
-        # 那一格当成一个成品路径去读，读不到退 2、只打一句「成品一份都没读到」——那句
-        # 话指不到这儿来，写的人只能去翻 check_landing.py 才知道错在哪儿。在这一步拦
-        # 住，报的话里写清该写成什么样。只认「成品」栏，与 place_paths 认的是同一格。
-        bad = []
-        for head, body in tables(block):
-            if not all(c in head for c in PLACE_COLS):
-                continue
-            i = head.index(PLACE_COLS[0])
-            bad += [row[i] for row in body if len(row) > i and NOT_YET in row[i]]
+    # 那四个字得是这一块里的一句话，不能占「成品」那一栏：占了一栏，落成对照就把
+    # 那一格当成一个成品路径去读，读不到退 2、只打一句「成品一份都没读到」——那句
+    # 话指不到这儿来，写的人只能去翻 check_landing.py 才知道错在哪儿。在这一步拦
+    # 住，报的话里写清该写成什么样。只认「成品」栏，与 place_paths 认的是同一格。
+    # 这一段排在最前，与「这一块里有没有表」无关：落了一部分时两种写法并存，那句话
+    # 在、表也在，占格子的那种错照样要拦。
+    for head, body in tables(block):
+        if not all(c in head for c in PLACE_COLS):
+            continue
+        i = head.index(PLACE_COLS[0])
+        bad = [row[i] for row in body if len(row) > i and NOT_YET in row[i]]
         if bad:
             rep.err(CASE_DOC, "「%s」表的「%s」栏里写着「%s」——这四个字是那一块里的"
-                              "一句话，不占表里的一格；成品还没落成时那一块不列表，"
-                              "写一句「%s」就行"
-                    % (PLACE_HEAD, PLACE_COLS[0], NOT_YET, NOT_YET))
+                              "一句话，不占表里的一格；这一栏写的是成品路径"
+                    % (PLACE_HEAD, PLACE_COLS[0], NOT_YET))
             return
-        rep.ok("「%s」那一块写着「%s」——落成之后回来把表填上，再跑一遍落成对照"
-               % (PLACE_HEAD, NOT_YET))
-        return
     head, body = pick(tables(block), PLACE_COLS)
     if head is None:
+        if NOT_YET in block:
+            rep.ok("「%s」那一块写着「%s」——落成之后回来把表填上，再跑一遍落成对照"
+                   % (PLACE_HEAD, NOT_YET))
+            return
         rep.err(CASE_DOC, "「%s」里没有那张表（表头应为：%s）；成品还没落成的话，"
                           "那一块写「%s」" % (PLACE_HEAD, " | ".join(PLACE_COLS), NOT_YET))
         return
     if not body:
+        if NOT_YET in block:
+            rep.ok("「%s」那一块写着「%s」，一条都还没落成——落成之后回来把表填上，"
+                   "再跑一遍落成对照" % (PLACE_HEAD, NOT_YET))
+            return
         rep.err(CASE_DOC, "「%s」表一行都没有——一份成品也要有一行；还没落成就写「%s」"
                 % (PLACE_HEAD, NOT_YET))
         return
@@ -812,7 +829,11 @@ def check_place(text, rep):
             rep.err(CASE_DOC, "「%s」表有一行有空栏：%s" % (PLACE_HEAD, " | ".join(row)))
             broken += 1
     if not broken:
-        rep.ok("成品落点表 %d 行" % len(body))
+        if NOT_YET in block:
+            rep.ok("成品落点表 %d 行；这一块里还写着「%s」——剩下那几处落成之后回来补上"
+                   % (len(body), NOT_YET))
+        else:
+            rep.ok("成品落点表 %d 行" % len(body))
 
 
 def check_coverage(text, rep):
@@ -1207,12 +1228,15 @@ def impl_block_heads(body):
     return re.findall(r"^#{3,6}\s+(.+)$", stripped, re.M)
 
 
-def check_impl(text, rep, envs, datas):
+def check_impl(text, rep, ids):
     """实施方案规格说明（第七份，按需产出）：骨架、两块、编号对账、出处。
 
-    这一份**不定义任何编号**，只引用前六份的，所以在 DOCS 之外单查一组。对账查两个
-    方向：这一份里写的 ENV／DATA 编号都要指得到通用稿里的定义处；通用稿里定义过的
-    每一条，在这一份里都要查得到一个落点——用不上的要写一行说明为什么。
+    这一份**不定义任何编号**，只引用前六份的，所以在 DOCS 之外单查一组。对账**六类
+    都查**（模板第十节的对账表六类都收），每类两个方向：这一份里写的编号都要指得到
+    通用稿里的定义处；通用稿里定义过的每一条，在这一份里都要查得到一个落点——用不上
+    的要写一行说明为什么。
+
+    `ids` 是 {前缀: {号}}，六个前缀各定义过哪几号，由 main 从六份文档算好传进来。
     """
     parsed = tables(text)
 
@@ -1249,15 +1273,15 @@ def check_impl(text, rep, envs, datas):
         else:
             rep.ok("%s 里两块都在，次序也对" % name)
 
-    used_env = {int(n) for n in re.findall(r"ENV-(\d+)", text)}
-    used_data = {int(n) for n in re.findall(r"DATA-(\d+)", text)}
     dangling = []
-    for prefix, used, known in (("ENV-", used_env, envs), ("DATA-", used_data, datas)):
+    for prefix, label in IMPL_CLASSES:
+        known = ids.get(prefix, set())
+        if not known:
+            continue
+        used = {int(n) for n in re.findall(prefix + r"(\d+)", text)}
         bad = sorted(used - known)
         if bad:
-            dangling.append("引了没有定义处的%s：%s"
-                            % ("环境项" if prefix == "ENV-" else "数据项",
-                               brief(bad, prefix)))
+            dangling.append("引了没有定义处的%s：%s" % (label, brief(bad, prefix)))
         lost = sorted(known - used)
         if lost:
             dangling.append("通用稿里定义了、这一份里没给落点：%s——用不上的要写一行"
@@ -1266,7 +1290,8 @@ def check_impl(text, rep, envs, datas):
         for d in dangling:
             rep.err(IMPL_DOC, d)
     else:
-        rep.ok("编号两个方向都对得上：这一份引的都指得到定义处，通用稿定义的都给了落点")
+        rep.ok("编号两个方向都对得上，六类都查过：这一份引的都指得到定义处，"
+               "通用稿定义的都给了落点")
 
     hits = [w for w in LEAKED if w in text]
     if hits:
@@ -1371,8 +1396,10 @@ def print_rules():
     print("  %s 分两块：%s | %s" % (DECISION_DOC, USER_HEAD, MODEL_HEAD))
     print("  模型的加粗字段、规程的两列表左栏：唯一标识符、%s、%s"
           % (NAME_COL, PROC_ORDER_FIELD))
-    print("  第七份：一节「%s」；每个方案一节，标题里含「%s」；每节两块：%s\n"
+    print("  第七份：一节「%s」；每个方案一节，标题里含「%s」；每节两块：%s"
           % (IMPL_MAP_HEAD, IMPL_SCHEME_MARK, "、".join(IMPL_BLOCKS)))
+    print("    第七份的对账表六类都收：%s——两个方向都查（引的编号要指得到定义处，"
+          "通用稿定义过的都要给落点）\n" % "、".join(p for p, _ in IMPL_CLASSES))
 
     print("【写死的取值与形制】")
     print("  「执行器」栏：%s——后面可以带一句括号说明" % " / ".join(EXECUTORS))
@@ -1441,10 +1468,13 @@ def main():
     # 用例与规程要跨文档查引用，所以定义处先都算出来，再逐份检查
     tcs = defined(tables(texts.get(CASE_DOC, "")), texts.get(CASE_DOC, ""), CASE_COLS, "TC-")
     tc_names = case_names(tables(texts.get(CASE_DOC, "")))
+    tcovs = set(defined(tables(texts.get(CASE_DOC, "")), texts.get(CASE_DOC, ""),
+                        COV_COLS, "TCOV-"))
     datas = set(defined(tables(texts.get(DATA_DOC, "")), texts.get(DATA_DOC, ""),
                         DATA_COLS, "DATA-"))
     envs = set(defined(tables(texts.get(ENV_DOC, "")), texts.get(ENV_DOC, ""),
                        ENV_COLS, "ENV-"))
+    tps = set(defined(tables(texts.get(PROC_DOC, "")), texts.get(PROC_DOC, ""), [], "TP-"))
 
     tms = None
     if MODEL_DOC in texts:
@@ -1487,7 +1517,10 @@ def main():
 
     if impl_text is not None:
         print("\n[%s]" % IMPL_DOC)
-        check_impl(impl_text, rep, envs, datas)
+        check_impl(impl_text, rep, {
+            "TM-": set(tms or ()), "TCOV-": tcovs, "TC-": set(tcs),
+            "TP-": tps, "DATA-": datas, "ENV-": envs,
+        })
 
     print("\n[禁用词与出处]")
     check_words(texts, rep, banned, scheme)

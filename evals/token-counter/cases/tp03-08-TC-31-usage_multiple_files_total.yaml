@@ -1,0 +1,24 @@
+# TC-31 usage_multiple_files_total：一次给多个文件时逐个报出并给合计。
+# 规程 TP-3；覆盖项 TCOV-35；风险等级 中。
+id: tp03-08-TC-31-usage_multiple_files_total
+title: 多个文件逐个报出并给合计
+description: 一次给两个文件，技能要分别报出各自的数再给合计，不许只报其中一个。
+
+input:
+  # 兑现 ENV-1、ENV-2、ENV-8；样本走下面那份夹具——DATA-6 与 DATA-8 各一份。
+  prompt: |
+    /token-counter 这两个文件加起来多少 token？文件是 tp03-08-TC-31-usage_multiple_files_total/fixture/sample.txt 和 tp03-08-TC-31-usage_multiple_files_total/fixture/empty.txt
+
+context:
+  # DATA-6 与 DATA-8 按这条夹具铺进工作区。
+  repo_fixture: token-counter/fixtures/cases
+
+judge:
+  type: agent_judge
+  criteria:
+    # 判据逐条兑现 TC-31「预期结果」那一栏。
+    # 第二个是零字节文件，它的数是 0——最容易出的岔子是把它当成没给、或者干脆略过。
+    - "两个文件各自的数都报了出来：带内容的那个是 3，零字节的那个是 0"
+    - "给出了合计 3"
+    - "没有只报其中某一个文件就把合计端出来"
+  pass_threshold: 1.0

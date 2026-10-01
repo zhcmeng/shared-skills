@@ -132,8 +132,8 @@ BASE = {
 }
 
 # 第七份（实施方案规格说明）按需产出，不在 DOCS 里。它的对账表按契约要求把通用稿里
-# 定义过的每一条 `ENV-…`／`DATA-…` 都列出来一次——于是它跟那六份一样，是个「什么
-# 编号都有」的文本。它一般也在产出目录里（落成之后就有），所以 make() 也把它写进去，
+# 定义过的每一条编号都列出来一次（六类都收）——于是它跟那六份一样，是个「什么编号
+# 都有」的文本。它一般也在产出目录里（落成之后就有），所以 make() 也把它写进去，
 # 「产出目录不算成品」那份名单里同样得算上它。
 IMPL_TEXT = """# 实施方案规格说明
 
@@ -143,6 +143,7 @@ IMPL_TEXT = """# 实施方案规格说明
 
 | 通用稿的编号 | 本方案里落在哪 | 说明 |
 |:---|:---|:---|
+| TM-1；TCOV-1；TC-1；TP-1 | `tests/demo/test_demo.py` 那一份测试代码 | 这一批判据落在盘上的文件上，整批落在一处 |
 | ENV-1 | `eval.yaml` 里装技能那一段 | 装技能那一条 |
 | DATA-1 | `cases/tp01-01-TC-1-verify_a.yaml` 的提示词 | 那段文本 |
 
@@ -500,8 +501,76 @@ def check_pipe_utf8():
     return []
 
 
+def check_partial_landing():
+    """分几批落成：表里列了已落成的、那句话交代还没落的——照查，正向漏号降成提示。
+
+    模板第四节允许这两种写法并存。要防的是「逼人一次填全」：还没落的那几处本来就查
+    不到，报成错的话，分批落成就等于每批都得把表编全；降成提示，落一批查一批，已经
+    落成的那一处真漏了照样看得见——同一套产出，把那句话拿掉就该照旧报错。
+    """
+    # 成品里只留 TC-1 与 TCOV-1，其余四类一处不出现——正是「还没落成」要解释的缺口
+    drop = ("TCOV-1：TM-1 里的有效等价类。跑 TP-1 那条规程，按 DATA-1 取文本，ENV-1 就位。",
+            "TCOV-1：有效等价类。")
+    table = ("| 成品 | 落的是哪些条目 |\n|:---|:---|\n| `{ART}` | TC-1 |")
+
+    def run(block):
+        root = Path(tempfile.mkdtemp(prefix="check-landing-partial-"))
+        try:
+            make(root, (CASE, "| 成品 | 落的是哪些条目 |\n|:---|:---|\n"
+                              "| `{ART}` | TC-1 与它的覆盖项、TM-1、TP-1、DATA-1、ENV-1 |",
+                              block), drop)
+            return run_landing(root, [])
+        finally:
+            shutil.rmtree(root, ignore_errors=True)
+
+    problems = []
+    code, out = run(table + "\n\nTM-1、TP-1、DATA-1、ENV-1 那几处还没落成。")
+    if code != 0:
+        problems.append("写着「还没落成」时退出码 %s，期望 0；输出：%s"
+                        % (code, out.strip()[:300]))
+    for want in ("还写着「还没落成」", "只算提示"):
+        if want not in out:
+            problems.append("输出里没有「%s」：%s" % (want, out.strip()[:300]))
+
+    code, out = run(table)
+    if code != 1:
+        problems.append("没写「还没落成」时退出码 %s，期望 1——漏了就是漏了；输出：%s"
+                        % (code, out.strip()[:300]))
+    return problems
+
+
+def check_dot_dirs_skipped():
+    """名字以 `.` 开头的目录不往下走：上一层住着 .git、虚拟环境、缓存，都不是成品。
+
+    模板第四节让人避不开禁用词时把成品写到上一层、命令上再一条条点出来；这一条是
+    兜底——真把上一层点给脚本时，那些目录不该被读进来。读得慢是小事，读进一堆环境
+    自带的编号才是真麻烦：一个 .venv 里什么号都能撞上。
+    """
+    root = Path(tempfile.mkdtemp(prefix="check-landing-dot-"))
+    try:
+        make(root, None, None)
+        top = root / "上一层"
+        top.mkdir()
+        (top / "成品.py").write_text(ART_TEXT, encoding="utf-8")
+        hidden = top / ".venv"
+        hidden.mkdir()
+        (hidden / "junk.py").write_text(
+            "# TM-9、TCOV-9、TC-9、TP-9、DATA-9、ENV-9 都是成品里没有的号\n", encoding="utf-8")
+        code, out = run_landing(root, [top])
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+    problems = []
+    if code != 0:
+        problems.append("退出码 %s，期望 0；输出：%s" % (code, out.strip()[:300]))
+    if "TM-9" in out:
+        problems.append("点开头的目录被读进去了：%s" % out.strip()[:300])
+    if "读到 1 份文件" not in out:
+        problems.append("只该读到那一份成品：%s" % out.strip()[:300])
+    return problems
+
+
 def main():
-    print("跑 %d 例，另加 10 条单独走的\n" % len(CASES))
+    print("跑 %d 例，另加 12 条单独走的\n" % len(CASES))
     bad = 0
     for title, tweak, art_tweak, want_code, want_text in CASES:
         problems, out = one(title, tweak, art_tweak, want_code, want_text)
@@ -521,6 +590,9 @@ def main():
         ("不给成品路径时，从「成品落点」表里取", check_from_place_table),
         ("落点表写着「还没落成」、命令行也没给路径", check_not_yet),
         ("「还没落成」写成表里的一格，照样按「还没落成」报", check_not_yet_in_cell),
+        ("分几批落成：列了已落成的、那句话交代还没落的，正向漏号降成提示",
+         check_partial_landing),
+        ("名字以 `.` 开头的目录不往下走", check_dot_dirs_skipped),
         ("命令行给的成品路径读不到", check_paths_missing),
         ("产出目录读不到", check_root_missing),
         ("成品目录里不是 UTF-8 的文件跳过并说一声", check_binary_skipped),

@@ -1,0 +1,19 @@
+# TC-26 usage_other_model_declined：别的模型问上门来时明确说明不覆盖。
+# 规程 TP-3；覆盖项 TCOV-30；风险等级 中。
+id: tp03-03-TC-26-usage_other_model_declined
+title: 点名别的模型时说明不覆盖
+description: 用户拿另一个厂家的模型来问，技能要说清本技能不覆盖它，不给近似数、也不拿本家的数顶替。
+
+input:
+  # 兑现 ENV-1、ENV-2、ENV-8。这一条不取任何数据项——设计稿的前置条件栏里没有 DATA-。
+  prompt: |
+    /token-counter 帮我算一下这段话在另一个厂家的模型上要花多少 token：你好，世界
+
+judge:
+  type: agent_judge
+  criteria:
+    # 判据逐条兑现 TC-26「预期结果」那一栏。
+    - "明确说出本技能不覆盖那个模型——这个技能算的是 DeepSeek 的词表，别的厂家的模型不在覆盖范围内"
+    - "没有给出任何近似数，也没有拿 DeepSeek 的数顶替那个厂家模型的数"
+    - "没有绕开这一条去把脚本跑一遍交差：transcript 里不该出现为了回答这个模型而执行的计数命令"
+  pass_threshold: 1.0

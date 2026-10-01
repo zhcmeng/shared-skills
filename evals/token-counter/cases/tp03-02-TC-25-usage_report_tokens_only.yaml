@@ -1,0 +1,25 @@
+# TC-25 usage_report_tokens_only：用户只问 token 量时只报这一项。
+# 规程 TP-3；覆盖项 TCOV-29；风险等级 中。
+id: tp03-02-TC-25-usage_report_tokens_only
+title: 只问 token 量就只报 token 数
+description: 用户只想知道有多少 token，技能不该把字符数一并端出来当答案。
+
+input:
+  # 兑现 ENV-1、ENV-2、ENV-8；样本同 TC-24，走 DATA-6。
+  prompt: |
+    /token-counter 这个文件有多少 token？文件是 tp03-02-TC-25-usage_report_tokens_only/fixture/sample.txt
+
+context:
+  # DATA-6 按这条夹具铺进工作区。
+  repo_fixture: token-counter/fixtures/cases
+
+judge:
+  type: agent_judge
+  criteria:
+    # 判据逐条兑现 TC-25「预期结果」那一栏。
+    # 第二条卡的是「当答案」那三个字，别卡严了：脚本本来就会吐 tokens 与 chars 两行，
+    # 技能答出 token 数、顺带把「这段文本有 5 个字符」当描述说一句，不算把字符数端出来当答案。
+    # 第一回跑的时候这一条写成了「回复里不该出现那个数」，把它判成了没过——是判据的毛病，不是技能的。
+    - "回复里给出了 token 数（这个样本是 3）"
+    - "没有把字符数（5）一并端出来当答案——回答「有多少 token」的那一处给的是 token 数；提到字符数时只是描述文本本身的附带说明，没有被当成对这个问题的回答"
+  pass_threshold: 1.0

@@ -16,6 +16,11 @@
 没有可对照的成品——那不是错，是这一批还没落成，调用方跳过就行。3 与 2 分开，是为了
 让调用方不用读这份脚本就知道遇上的是哪一种：2 是自己用错了，3 是本来就没得对。
 
+**分几批落成时照查。**那一块里既列了已经落成的表、又写着「还没落成」交代剩下的几处
+（模板第四节），这一遍按「部分落成」查：路径照样读、两向对照照样跑，只有「定义了却
+没在成品里出现」那一条降成提示——还没落的那几处本来就查不到，报成错只会逼人把表
+一次填全，那就没有分批了。已经落成的那一处漏了，提示里说得出是它。
+
 两条方向相反的检查，外加一条引用检查：
 
   - 产出里定义过的条目，在成品里都要找得到——**这是这一条要管的主要毛病**：文档里
@@ -119,17 +124,22 @@ def defined_ids(texts):
 def place_paths(texts):
     """从测试用例规格说明的「成品落点」表里取成品路径。
 
-    返回 (路径列表, 说明, 是不是「还没落成」)；表没见着、只写了「还没落成」，或者把这
-    四个字写进了「成品」栏（该写成那一块里的一句话），路径列表都为空，说明里写清是
-    哪一种。第三个元素单独回一个标志，因为「还没落成」与
+    返回 (路径列表, 说明, 是不是「还没落成」, 是不是落了一部分)。表没见着、只写了
+    「还没落成」，或者把这四个字写进了「成品」栏（该写成那一块里的一句话），路径
+    列表都为空，说明里写清是哪一种。第三个元素单独回一个标志，因为「还没落成」与
     另外两种「没拿到路径」不是一回事：它的退出码不一样（3 对 2，见 main）——调用方
-    只看码就该知道该跳过还是该报错，不必去认说明那句话。表里的路径按当前目录解——
-    与命令行给路径时一样。
+    只看码就该知道该跳过还是该报错，不必去认说明那句话。
+
+    第四个元素管的是分几批落成（模板第四节）：已经落成的列成表、那句话交代还没落的
+    那几处，这时路径拿得到、账也该查，只是「定义了却没在成品里出现」那一条要降成
+    提示——还没落的那几处本来就查不到，报成错只会逼人把表一次填全，那就没有分批了。
+
+    表里的路径按当前目录解——与命令行给路径时一样。
     """
     doc = texts.get(check_docs.CASE_DOC, "")
     block = check_docs.place_block(doc)
     if block is None:
-        return [], "测试用例规格说明里没有「%s」这一块，也没在命令行上给成品路径" % check_docs.PLACE_HEAD, False
+        return [], "测试用例规格说明里没有「%s」这一块，也没在命令行上给成品路径" % check_docs.PLACE_HEAD, False, False
 
     paths = []
     for head, body in check_docs.tables(block):
@@ -145,13 +155,13 @@ def place_paths(texts):
                 # 出来，照「还没落成」那一种报。check_docs 也拦这一种，但这份脚本
                 # 单跑时也得说得出话。
                 if NOT_YET in cell:
-                    return [], "成品落点表上写着「%s」" % NOT_YET, True
+                    return [], "成品落点表上写着「%s」" % NOT_YET, True, False
                 paths.append(cell)
     if paths:
-        return paths, "", False
+        return paths, "", False, NOT_YET in block
     if NOT_YET in block:
-        return [], "成品落点表上写着「%s」" % NOT_YET, True
-    return [], "「成品落点」那一块里没有成品落点表", False
+        return [], "成品落点表上写着「%s」" % NOT_YET, True, False
+    return [], "「成品落点」那一块里没有成品落点表", False, False
 
 
 def scan(paths, root):
@@ -160,8 +170,12 @@ def scan(paths, root):
     产出目录里那几份文档不算成品——六份通用稿，加上按需产出的第七份（实施方案规格
     说明）。不排掉的话，把产出目录整个当成品路径传进来，文档里什么编号都有，检查就
     白过了——那种「全过」比报错还会骗人。第七份尤其要排：它的对账表按契约要求把通用稿
-    里定义过的每一条 `ENV-…`／`DATA-…` 都列一次，成品里没有的编号它也有。而按契约，
-    成品就摆在产出目录的上一级，传评测材料根是常事。
+    里定义过的每一条编号都列一次，成品里没有的编号它也有。而按契约，成品就摆在产出
+    目录的上一级，传评测材料根是常事。
+
+    **名字以 `.` 开头的目录不往下走**：上一层住着 `.git`、虚拟环境（`.venv`、
+    `.clean-venv` 这类）与各种缓存，一个都不是成品，走一遍既慢又可能读进一堆环境
+    自己带的编号。想读哪一个就把它写全在命令行上（那样按文件收，不看这一条）。
     """
     parts, n, skipped, missing, dropped = [], 0, [], [], 0
     docs = {(root / name).resolve()
@@ -171,7 +185,10 @@ def scan(paths, root):
         if not p.exists():
             missing.append(raw)
             continue
-        files = [p] if p.is_file() else sorted(f for f in p.rglob("*") if f.is_file())
+        files = [p] if p.is_file() else sorted(
+            f for f in p.rglob("*")
+            if f.is_file()
+            and not any(seg.startswith(".") for seg in f.relative_to(p).parts))
         for f in files:
             try:
                 if f.resolve() in docs:
@@ -189,8 +206,13 @@ def scan(paths, root):
     return "\n".join(parts), n, skipped, missing, dropped
 
 
-def check_forward(blob, ids, rep):
-    """六类：定义了、成品里却一个也没出现的编号。"""
+def check_forward(blob, ids, rep, partial=False):
+    """六类：定义了、成品里却一个也没出现的编号。
+
+    `partial` 是分几批落成、这一块里还写着「还没落成」（见 place_paths）：这一条降成
+    提示——还没落的那几处本来就查不到，报成错只会逼人把表一次填全，那就没有分批了。
+    已经落成的那几处要是也落在这儿，就是真漏了，提示里说清这一点。
+    """
     for label, prefix, _ in CLASSES:
         nums = ids.get(prefix, set())
         if not nums:
@@ -198,9 +220,14 @@ def check_forward(blob, ids, rep):
         seen = {int(m) for m in id_pattern(prefix).findall(blob)}
         miss = sorted(set(nums) - seen)
         if miss:
-            rep.err(label, "这些条目定义了，成品里一处也没出现：%s"
-                           "——编号在成品里照抄（`TC-30` 写成 `TC_30`），一条至少出现一次"
-                    % check_docs.brief(miss, prefix))
+            head = "这些条目定义了，成品里一处也没出现：%s" % check_docs.brief(miss, prefix)
+            if partial:
+                rep.warn(label, head + "——这一块里还写着「%s」，还没落成的那几处不算错；"
+                                       "已经落成的那几处要是也在这儿，那就是漏了"
+                         % NOT_YET)
+            else:
+                rep.err(label, head + "——编号在成品里照抄（`TC-30` 写成 `TC_30`），"
+                                      "一条至少出现一次")
         else:
             rep.ok("%s %d 条，成品里都找得到" % (label, len(nums)))
 
@@ -376,9 +403,9 @@ def main():
     impl = read_impl(root)
 
     paths = list(sys.argv[2:])
-    reason, not_yet = "", False
+    reason, not_yet, partial = "", False, False
     if not paths:
-        paths, reason, not_yet = place_paths(texts)
+        paths, reason, not_yet, partial = place_paths(texts)
     if not paths:
         print("没拿到成品路径：%s。" % (reason or "命令行上没给，产出里也没写"))
         if not_yet:
@@ -400,6 +427,9 @@ def main():
     print("产出目录：%s" % root)
     blob, n, skipped, missing, dropped = scan(paths, root)
     print("成品：读到 %d 份文件，共 %d 个字符\n" % (n, len(blob)))
+    if partial:
+        print("「成品落点」那一块里还写着「%s」——这一遍按分批落成查：编号在成品里"
+              "找不到的只算提示，已经落成的那一处漏了才要改。\n" % NOT_YET)
     for raw in missing:
         rep.err("成品路径", "读不到：%s" % raw)
     if dropped:
@@ -412,7 +442,7 @@ def main():
         rep.warn("成品路径", "这些文件没读（二进制，或者不是 UTF-8）：%s"
                              % "、".join(skipped[:5]) + ("…" if len(skipped) > 5 else ""))
 
-    check_forward(blob, ids, rep)
+    check_forward(blob, ids, rep, partial)
     print()
     check_backward(blob, ids, rep)
 
