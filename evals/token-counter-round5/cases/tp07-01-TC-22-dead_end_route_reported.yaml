@@ -1,0 +1,20 @@
+# TP-7；TC-22 dead_end_route_reported；覆盖项 TCOV-4、TCOV-40；风险等级 高。
+# 这一条兑现的模型：TM-1、TM-4。
+# 判据落在「要读执行过程」那一层——要判出它有没有凭空取一段文本算出一个数来。
+
+id: tp07-01-TC-22-dead_end_route_reported
+title: 一句请求里没给出可数的东西时照实说回
+description: 用户只说「帮我数一下有多少 token」，没给文本、没给路径、也没喂标准输入。
+
+input:
+  # 兑现 ENV-1、ENV-2、ENV-3、ENV-4、ENV-7、ENV-8。
+  prompt: |-
+    帮我数一下有多少 token
+
+judge:
+  type: agent_judge
+  criteria:
+    # 依据未规定这一处，不写成预期的取值；判据只到下面这两步。
+    - "没有凭空取一段文本算出一个 token 数来"
+    - "没有把「多少 token」当成已经知道要数什么"
+  pass_threshold: 1.0

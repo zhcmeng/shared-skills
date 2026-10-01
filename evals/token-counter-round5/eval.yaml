@@ -1,0 +1,75 @@
+schema_version: v1alpha1
+
+# 这一份落的是评测批：TP-5、TP-6、TP-7 三条规程，共 7 条用例（TC-17 至 TC-23）。
+# 脚本批那 16 条（TC-1 至 TC-16，TP-1 至 TP-4）不在这里——它们的判据落在命令、
+# 退出码与盘上的文件上，落成能跑的测试代码，落点见实施方案规格说明的对账表。
+#
+# 用例文件名照 issue_ids.py --case-dirs 打出来的写，加 .yaml。
+# 执行位次就在文件名里（tp05-01 那一段），字母序等于执行顺序，不另外排。
+#
+# 覆盖项 TCOV-28、TCOV-29 判为不可行，已从分母里剔除，两批都不落它们
+# （UTF-8 里造不出占 0 个字节与占 5 个字节的字符）。落点写在测试用例规格说明的对应表里。
+
+# ENV-1、ENV-2：测试规程在哪跑、被测那侧在哪执行——两条指的是同一台机器，
+# 都由这一条兑现：命令在宿主机上跑，不起容器。
+environment:
+  type: none
+  # 两条确认，都是整份配置级的，7 条用例每条开跑前各走一遍：一次 import、一次
+  # 版本判断的事，不值当为它们拆配置。任何一条退非零就整条用例当场报错，
+  # 免得后面几条一个个报出看不懂的失败。
+  setup_steps:
+    # ENV-3：宿主机的 CPython 版本不低于 3.9、且是 64 位。不满足时随技能打包的
+    # 那份引擎包装不上，会掉进联网那条道，这一批的前提就不成立了。
+    - run: python -c "import sys; assert sys.version_info[:2] >= (3, 9), 'need 3.9+'; assert sys.maxsize > 2**32, 'need 64-bit'"
+    # ENV-8：宿主机那个解释器里引擎已在位。这一批不装也不卸引擎，七条用例的前提都是它。
+    - run: python -c "import tokenizers"
+
+# ENV-4：被测技能整个目录装进工作区的 .claude/skills/token-counter/，
+# 随技能分发的 tokenizer.json 与 wheels/ 跟着一起进去。
+# 相对路径的基准是这一份配置的上一层（evals/）——技能与评测材料不在一棵树里，
+# 跑起来会打一条 SKILL.md not found ... falling back to 的警告，那是正常产物，不是错。
+skills:
+  - source: local_path
+    path: ../plugin/skills/token-counter
+
+engine:
+  name: claude_code
+
+cases:
+  files:
+    - token-counter-round5/cases/tp05-01-TC-17-counting_request_main_scenario.yaml
+    - token-counter-round5/cases/tp05-02-TC-18-naming_other_model.yaml
+    - token-counter-round5/cases/tp05-03-TC-19-asks_api_cost.yaml
+    - token-counter-round5/cases/tp05-04-TC-20-tokens_only_request.yaml
+    - token-counter-round5/cases/tp06-01-TC-21-text_for_full_dialogue.yaml
+    - token-counter-round5/cases/tp06-02-TC-23-special_token_passed_through.yaml
+    - token-counter-round5/cases/tp07-01-TC-22-dead_end_route_reported.yaml
+  # 这一批可以并发：7 条用例各起一个工作区，互相看不到对方；两两之间没有共用
+  # 一处写死路径的地方。共用的只有宿主机上那台已经装好引擎的解释器，而这一批里
+  # 没有一条用例去动它——都是调它，不装也不卸。
+  parallelism: 4
+  defaults:
+    # 机械层只卡这一条：这一轮根本没跑完就当场挡掉。这一批没有一条判据落在能钉死的
+    # 字串上——四条要看执行过程，另外三条判的是「说了什么、没说什么」，一个关键词管不住
+    # （TC-19 里的 8 与 TC-23 里的 5、24 混在散文里到处都是），全交给判官。
+    expect:
+      exit_code: 0
+    # 判官那一轮要读 transcript，偶尔第一次吐不出能解析的 JSON、重试一次才成；
+    # 默认 300 秒不够它重试完时，那一条会报 ERROR——那不是被测那边没过。
+    # 抬到 600 秒，给重试留出余量。
+    timeout_seconds: 600
+
+judge:
+  type: agent_judge
+  # 判官自己也要跑一轮模型。走的是本机那个网关，模型名用 Anthropic 那一套。
+  model: anthropic/claude-sonnet-5
+  # context 用默认的 standard：final_message 内联，transcript 与 workspace_diff
+  # 以文件引用给出。判据落在「要读执行过程」那一层的四条（TC-17、TC-21、TC-22、
+  # TC-23），要判「有没有真把计数脚本调起来、交给它的是不是原样的文本」，得读
+  # transcript 才判得了。用例那一层只写 criteria 与 pass_threshold，这里继承。
+  # 通过口径一律取「列出的判据全成立才算过」——每条用例的预期结果栏写的都是
+  # 「这几样都要做到」，所以每条用例那一层都写 pass_threshold: 1.0。
+
+report:
+  # result.json 一直会写，那一项不用列。把 html 列上，跑完直接出一份能点开看的报告。
+  formats: [json, html]

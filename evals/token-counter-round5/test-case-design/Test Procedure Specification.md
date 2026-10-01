@@ -106,14 +106,16 @@
 
 | 批次 | 规程 | 执行器 | 落到哪 | 用例目录名 | 说明 |
 |:---|:---|:---|:---|:---|:---|
-| 脚本批 | TP-1 | 脚本 | `tests/token-counter/test_count_tokens.py` |  | 三条调用方式与几类文本取值，判据是那两行输出与退出码，跑一遍就有结论 |
-| 脚本批 | TP-2 | 脚本 | `tests/token-counter/test_count_tokens.py` |  | 三处边界上的取值，判据同样落在两行输出上 |
-| 脚本批 | TP-3 | 脚本 | `tests/token-counter/test_count_tokens.py` |  | 三条走不通的路线，判据落在退出码与标准输出上有没有那两行 |
-| 脚本批 | TP-4 | 脚本 | `tests/token-counter/test_count_tokens.py` |  | 三条安装道，判据落在标准错误里那两句提示与退出码上 |
+| 脚本批 | TP-1 | 脚本 | `tests/token-counter/test_count_tokens_round5.py` |  | 三条调用方式与几类文本取值，判据是那两行输出与退出码，跑一遍就有结论 |
+| 脚本批 | TP-2 | 脚本 | `tests/token-counter/test_count_tokens_round5.py` |  | 三处边界上的取值，判据同样落在两行输出上 |
+| 脚本批 | TP-3 | 脚本 | `tests/token-counter/test_count_tokens_round5.py` |  | 三条走不通的路线，判据落在退出码与标准输出上有没有那两行 |
+| 脚本批 | TP-4 | 脚本 | `tests/token-counter/test_count_tokens_round5.py` |  | 三条安装道，判据落在标准错误里那两句提示与退出码上 |
 | 评测批 | TP-5 | 控制器 | `evals/token-counter-round5/cases/` | tp05-01-TC-17-counting_request_main_scenario、tp05-02-TC-18-naming_other_model、tp05-03-TC-19-asks_api_cost、tp05-04-TC-20-tokens_only_request | 主场景与三处答法，判据要看技能跑起来一路做了什么，交给模型驱动着逐条读 |
 | 评测批 | TP-6 | 控制器 | `evals/token-counter-round5/cases/` | tp06-01-TC-21-text_for_full_dialogue、tp06-02-TC-23-special_token_passed_through | 完整对话请求与特殊 token 的字面形，同样要读执行过程 |
 | 评测批 | TP-7 | 控制器 | `evals/token-counter-round5/cases/` | tp07-01-TC-22-dead_end_route_reported | 没有可数的东西交过来，判据落在回话上 |
 
 两批按判据落在哪分：脚本批那四条的判据是命令的输出、退出码与盘上落下的文件，跑一遍脚本就有结论；评测批那三条的判据要读一轮模型的行为——跑了哪条命令、把什么交给了脚本、回话里点明了哪几样。分界落在规程边界上，没有哪一条规程被劈成两半。
+
+**脚本批那个文件名与同一处的上一批不同**：`tests/token-counter/` 下已经躺着早前一轮（`evals/token-counter/`）那一套设计的测试代码，它里面的 `TC-1`、`TCOV-1`、`DATA-1` 与本轮的号各指各的、数出来的条数也不同，写进同一份文件里两个方向都会认错、还会互相盖掉。所以这一批另起一个名字，六份里写的就是这个新名字。
 
 TP-4 的改动文件写「只读」：它跑起来会往解释器里装包，可技能目录里的文件一个字节都不动；要给联网那条道准备的那份技能副本、清空它的 `wheels/`，都是启动栏里的搭场子，不是规程执行当中改动测试项。这一处的判法记在决策依据里。

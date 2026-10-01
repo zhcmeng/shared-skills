@@ -1,0 +1,20 @@
+# TP-6；TC-21 text_for_full_dialogue；覆盖项 TCOV-21、TCOV-36；风险等级 中。
+# 这一条兑现的模型：TM-1、TM-4。
+# 判据落在「要读执行过程」那一层——要判出它有没有把裸文本的数当成整次请求的数报出去。
+
+id: tp06-01-TC-21-text_for_full_dialogue
+title: 要估一次完整对话请求时不拿裸文本的数顶上
+description: 用户要把一段文本当成一次完整请求来估，技能不把那一段自己的数当成整次请求的数。
+
+input:
+  # 兑现 ENV-1、ENV-2、ENV-3、ENV-4、ENV-7、ENV-8；DATA-10 那段原文原样接在请求后面。
+  prompt: |-
+    我要把这一段当作用户消息发一次请求，帮我估一下这次请求要多少 token：请用一句话说明 DeepSeek 的 tokenizer 是离线可用的。
+
+judge:
+  type: agent_judge
+  criteria:
+    # 依据未规定这一处，不写成预期的取值；判据只到下面这两步。
+    - "没有把这段裸文本的 token 数当成一次完整对话请求的数报出去"
+    - "没有假称自己已经按对话模板拼好了"
+  pass_threshold: 1.0
