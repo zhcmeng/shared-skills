@@ -51,7 +51,7 @@ claude --settings '{"disableAllHooks":true}' --session-id <id> -p --permission-m
 
 做不到的：
 
-- **机器上没备齐 bash 与 Node 时，起不了真实 agent**：那条路要用 bash 引导 Node／nvm。上游的建议是先把 Node 与命令行工具装好，装不好再改用 WSL2。**这一条不是「原生 Windows 上跑不了」，是「没备齐就跑不了」**——一台原生 Windows 11（没进 WSL）上备着 cygwin 的 `bash` 与 Node v24.6.0，`v0.12.0` 上九条用例（`claude_code` 引擎、`agent_judge` 判官）整批跑通（2026-10-01 实测）。原来这条写的是「原生 Windows 上跑不了完整的模型」，照那句判会把环境白改成 WSL2，或者把一条本来能跑的路标成跑不了。
+- **机器上没备齐 bash 与 Node 时，起不了真实 agent**：那条路要用 bash 引导 Node／nvm。上游的建议是先把 Node 与命令行工具装好，装不好再改用 WSL2。**这一条不是「原生 Windows 上跑不了」，是「没备齐就跑不了」**——一台原生 Windows 11（没进 WSL）上备着 cygwin 的 `bash` 与 Node v24.6.0，`v0.12.0` 上九条用例（`claude_code` 引擎、`agent_judge` 判官）整批跑通（2026-10-01 实测）。判成前者的代价写在明处：把环境白改成 WSL2，或者把一条本来能跑的路标成跑不了。
 - **`.ps1` 判官只在 Windows 目标上支持**：runtime 是 POSIX（比如 opensandbox 的 Linux 沙箱）时只能用 `.sh`。
 
 （这一节照上游 `docs/zh/guide/windows.md` 写的，不是从源码核的；上面那条「备齐就跑得起来」是实跑核过的，出处见文末。）
