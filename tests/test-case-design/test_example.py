@@ -6,7 +6,7 @@
 
 `references/` 下那几份是填不准时照抄的东西——范本等于这套栏目的事实定义，模板等于
 各栏的写法定义。它们自己要是跟自己定的规矩对不上，照抄的人就跟着错，而且错在技能
-自己身上。十条：
+自己身上。十一条：
 
 1. 范本拆成七份产出，喂给 check_docs.py 要零错零提示；
 2. 技能自己的文字里不许出现它自己列进「容易写成」右列的词；
@@ -19,10 +19,14 @@
    写着让它进去，模型照做、终检又得删掉；
 7. 第七份的「跑不了原样的那几条」：模板说了事实从哪来（随包那份《使用要点》）、
    范本里有这一段——缺哪一份都不成；
-8. skill-up 的参考文档按承诺随包：五个文件都在，上游那三份一字不改、自己写的两份
-   标明了来路；
+8. skill-up 的参考文档：上游原文不再随包（配置字段与命令参数改由 `/skill-upper`
+   技能提供），这一支里只剩本技能自己写的两份，依赖写死在 SKILL.md 里，删掉的那两
+   个文件名不再被技能自己的文字点到；
 9. 第七份里报告落在 `runs/`——模板与范本都这么写，仓库根的 `.gitignore` 也真盖得住；
-10. 第七份里不贴配置原文——范本里一个 yaml 围栏都没有。
+10. 第七份里不贴配置原文——范本里一个 yaml 围栏都没有；
+11. `usage-notes.md` 第一节里写着钩子被禁掉之后常驻上下文的替代道（工作区根目录那份
+    `CLAUDE.md`）——上游只讲到钩子不生效为止，缺了这一句，写第七份的人碰到通用稿里
+    的钩子注入只能标「待确认」。
 """
 
 import contextlib
@@ -44,19 +48,26 @@ import check_landing  # noqa: E402
 EXAMPLE = SKILL / "references" / "文档示例.md"
 TEMPLATE = SKILL / "references" / "文档模板.md"
 
-# 这一支里的参考文档。技能自包含，写着「不要去翻本机那份 clone」——那就得真的
-# 有一份在包里，五个文件一个不少。
+# 这一支里的参考文档。上游原文不再随包：配置字段怎么填、命令怎么用，改由 `/skill-upper`
+# 技能下 `references/` 那几份提供，本技能只留自己写的两份。
 VENDOR_DIR = SKILL / "references" / "评测方案" / "skill-up"
-VENDOR_FILES = ("README.md", "usage-notes.md", "LICENSE",
-                "writing-evals.md", "cli-reference.md")
-# 哪几份是上游原文、哪几份是本技能自己写的。上游那三份一字不改，由
-# `git diff --no-index` 比一遍（见本 Task 的 Step 5）；自己写的那两份顶上要写明，
-# 不然读的人会当成上游原文，上游一改版就不知道该信谁。
-VENDOR_UPSTREAM = ("LICENSE", "writing-evals.md", "cli-reference.md")
-VENDOR_OURS = ("README.md", "usage-notes.md")
+VENDOR_FILES = ("README.md", "usage-notes.md")
+# 这两份都是本技能自己写的，不是上游原文，顶上都要写明——不写明，读的人会当成上游的，
+# 上游一改版就不知道该信谁。
 VENDOR_OURS_MARK = "本技能自己写"
-# 钉住的那一个 commit。逐字节比对比不出来时也不静默放过：至少把出处这一行钉死。
+# 从前随包带着的那两份上游原文。删掉之后，技能自己的文字里再点到它们的名字，读的人
+# 就会去找一个不存在的文件。
+VENDOR_GONE = ("writing-evals.md", "cli-reference.md")
+# 装 `/skill-upper` 那一句。配置字段与命令参数在它那儿，写第七份之前要确认装着——
+# 这一句没了，没装的人只能照着印象编。
+DEP_MARK = "skill-upper"
+# 钉住的那一个 commit。这两份是照上游写的，不钉住就不知道对着哪一版核。
 VENDOR_PIN = "7f1ff9b8e2d7c654728de526867f2f7e7b78ea51"
+# 钩子被禁掉之后，常驻上下文那条替代道。上游只讲到「钩子一律不生效」为止，这条是
+# Claude Code 自己的行为。它是这一支里最容易被顺手删掉的一句：删掉之后文档照样读得
+# 通，写第七份的人却只能把通用稿里的钩子注入标成「待确认」。
+HOOK_ALT_MARK = "CLAUDE.md"
+HOOK_SECTION = "## 一、一次运行里，被测那边是怎么起的"
 
 # 范本里那一节 → 产出里的哪一份文档。顺序照范本，标题照 check_docs.DOCS。
 SECTIONS = [
@@ -81,10 +92,9 @@ WORD_TABLE_ROW = "| 测试项 |"
 ENV_WORDS = ("WSL2", "Docker", "本机 Windows")
 ENV_WORD_SECTION = "## 六份里不许出现的东西"
 
-# references/评测方案/ 这一支不归本技能的用词纪律管：上游文档一字不改，本技能自己
-# 写的那份讲的是那门方案自己的环境（哪台机器、哪个 shell），正该点名。
-# 两份扫描都跳过它——上游 writing-evals.md 里带着 6 处 Docker，《使用要点》里
-# 写着 WSL2。
+# references/评测方案/ 这一支不归本技能的用词纪律管：这一支讲的是那门方案自己的环境
+# （哪台机器、哪个 shell、哪个 runtime），正该点名——`usage-notes.md` 里写着 WSL2
+# 与 Windows 的几条。两份扫描都跳过它。
 VENDORED = "references/评测方案/"
 
 # 模板里讲评测用例 id 前缀的那一条。测试认死这句话：话没了，说明这一条被挪走或改写，
@@ -307,28 +317,73 @@ def check_impl_gap_section():
 
 
 def check_vendored():
-    """skill-up 的参考文档五个文件都在；上游那三份一字不改，自己写的那两份标明了。"""
-    if sorted(VENDOR_UPSTREAM + VENDOR_OURS) != sorted(VENDOR_FILES):
-        return ["测试自己写错了：VENDOR_FILES 与「上游／自己写的」那两份名单对不上"
-                "——一边加了文件，另一边没加"]
+    """这一支里只剩本技能自己写的两份；上游原文不再随包，依赖写死在 SKILL.md 里。
+
+    上游那两份手册（`writing-evals.md`、`cli-reference.md`）与 `LICENSE` 从前随包
+    带着，现在不带了——配置字段与命令参数由 `/skill-upper` 技能提供。三处都要查住：
+
+    - 目录里只剩自己写的那两份，多一份少一份都算错；
+    - `SKILL.md` 里写着装 `/skill-upper` 这一句——没它，没装的人拿到的第七份只能
+      照着印象编，而编出来的东西看不出是编的；
+    - 技能自己的文字里不再点到删掉的那两个文件名——留着就是叫读的人去找一个不存在
+      的文件。
+    """
     if not VENDOR_DIR.is_dir():
         return ["没有 %s 这一目录——技能里说「读技能里这一份」，那就得真的有一份"
                 % VENDOR_DIR.relative_to(SKILL).as_posix()]
-    missing = [f for f in VENDOR_FILES if not (VENDOR_DIR / f).is_file()]
-    if missing:
-        return ["%s 下缺这几个文件：%s" % (VENDOR_DIR.relative_to(SKILL).as_posix(),
-                                          "、".join(missing))]
+    present = sorted(p.name for p in VENDOR_DIR.iterdir() if p.is_file())
+    if present != sorted(VENDOR_FILES):
+        return ["%s 下的文件是 %s，期望只有 %s——上游原文不再随包，多出来的要删掉"
+                % (VENDOR_DIR.relative_to(SKILL).as_posix(),
+                   "、".join(present) or "（空）", "、".join(VENDOR_FILES))]
     readme = (VENDOR_DIR / "README.md").read_text(encoding="utf-8")
     if VENDOR_PIN not in readme:
         return ["那目录的 README.md 里没钉住上游的 commit（%s）——上游改版之后，"
                 "读的人只能靠这一行看出它旧了" % VENDOR_PIN]
-    if "Apache" not in (VENDOR_DIR / "LICENSE").read_text(encoding="utf-8"):
-        return ["LICENSE 不是 Apache License 的全文——再分发要随附许可全文"]
-    for name in VENDOR_OURS:
+    problems = []
+    for name in VENDOR_FILES:
         text = (VENDOR_DIR / name).read_text(encoding="utf-8")
         if VENDOR_OURS_MARK not in text:
-            return ["%s 顶上没写明这一份不是上游原文（缺「%s」这句）——读的人会把它"
-                    "当成上游的，上游改版时就不知道该信谁" % (name, VENDOR_OURS_MARK)]
+            problems.append("%s 顶上没写明这一份不是上游原文（缺「%s」这句）——读的"
+                            "人会把它当成上游的，上游改版时就不知道该信谁"
+                            % (name, VENDOR_OURS_MARK))
+    skill_md = (SKILL / "SKILL.md").read_text(encoding="utf-8")
+    if DEP_MARK not in skill_md:
+        problems.append("SKILL.md 里没写装 `/skill-upper` 这一句——配置字段与命令参数"
+                        "在它那儿，没这一句，没装的人只能照着印象编")
+    for path in sorted(SKILL.rglob("*.md")):
+        rel = path.relative_to(SKILL).as_posix()
+        if rel.startswith(VENDORED):
+            continue
+        body = path.read_text(encoding="utf-8")
+        for gone in VENDOR_GONE:
+            if gone in body:
+                problems.append("%s 里还点着 %s——那一份已经不随包了，读的人会去找"
+                                "一个不存在的文件" % (rel, gone))
+    return problems
+
+
+def check_hook_alt_route():
+    """钩子被禁掉之后，常驻上下文的替代道写在第一节里。
+
+    上游只讲到「钩子一律不生效」为止，没讲改走哪条道。这一句删掉之后文档照样读得通，
+    只是写第七份的人碰到通用稿里的钩子注入（比如 SessionStart 钩子把一段文本注进
+    上下文）时，材料里找不到替代道，只能标「待确认」——实跑两份都是这么标的，而随包
+    那份基准是落成了的（走 `setup_steps` 往工作区根写一份 `CLAUDE.md`）。
+
+    查的是第一节那一段里有没有那个文件名（不是全文——第二节讲工作区、第六节讲
+    `setup_steps`，都另有各自主张）。
+    """
+    text = (VENDOR_DIR / "usage-notes.md").read_text(encoding="utf-8")
+    parts = text.split(HOOK_SECTION, 1)
+    if len(parts) < 2:
+        return ["usage-notes.md 里找不到第一节（找的是以「%s」起头的那一行）"
+                % HOOK_SECTION]
+    first = parts[1].split("\n## ", 1)[0]
+    if HOOK_ALT_MARK not in first:
+        return ["usage-notes.md 第一节里没写钩子被禁掉之后常驻上下文的替代道（工作区根"
+                "目录那份 `%s`）——上游只讲到钩子不生效为止；缺了这一句，写第七份的人"
+                "碰到通用稿里的钩子注入只能标「待确认」" % HOOK_ALT_MARK]
     return []
 
 
@@ -407,7 +462,10 @@ def main():
         ("讲落盘的正文没让「选了哪个方案」进六份", check_scheme_not_in_six),
         ("第七份的「跑不了原样的那几条」：模板说了事实从哪来、范本里有这一段",
          check_impl_gap_section),
-        ("skill-up 的参考文档随包（五个文件都在，上游三份、自己写的两份各标明）", check_vendored),
+        ("skill-up 的参考文档：只剩自己写的两份，依赖写死在 SKILL.md 里，"
+         "删掉的文件名不再被点到", check_vendored),
+        ("钩子被禁掉之后，常驻上下文的替代道（工作区根那份 `CLAUDE.md`）写在第一节里",
+         check_hook_alt_route),
         ("第七份里的报告落在 `runs/`，仓库根的 .gitignore 也盖得住", check_runs_dir_ignored),
         ("第七份里不贴配置原文：范本第七节里没有 yaml 围栏", check_no_config_pasted),
     ]
