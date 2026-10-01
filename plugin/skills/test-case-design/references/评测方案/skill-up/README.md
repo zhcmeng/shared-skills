@@ -9,7 +9,7 @@
 
 **配置字段怎么填、命令怎么用，不在这里。**那在 `/skill-upper` 技能里（`~/.claude/skills/skill-upper/SKILL.md` 与它 `references/` 下那几份）。写第七份之前先确认它装着，没装就让用户装。
 
-**上游那两份给人看的手册不随任何技能发**（上游仓库 `docs/zh/guide/` 下的 `writing-evals.md` 与 `cli-reference.md`，是文档站的内容）。从前这里随包带着它们，现在不带了：配置与命令那两块 `/skill-upper` 的参考文档覆盖得住——实测过，只给那一份参考、不给这里，写第七份的人照样把字段与命令写对。**它没写到的收在 `usage-notes.md` 里**：第五到七节是查漏补上的，第一到三节照上游源码读出来、第四节出自上游文档站的 `windows.md`、第一节里那条 `CLAUDE.md` 出自 Claude Code 自己的行为——这几类也都不在 `/skill-upper` 那儿。
+**上游那两份给人看的手册不随任何技能发**（上游仓库 `docs/zh/guide/` 下的 `writing-evals.md` 与 `cli-reference.md`，是文档站的内容）——配置与命令那两块 `/skill-upper` 的参考文档覆盖得住：实测过，只给那一份参考、不给这里，写第七份的人照样把字段与命令写对。**它没写到的收在 `usage-notes.md` 里**：第五到七节是查漏补上的，第一到三节照上游源码读出来、第四节出自上游文档站的 `windows.md`、第一节里那条 `CLAUDE.md` 出自 Claude Code 自己的行为——这几类也都不在 `/skill-upper` 那儿。
 
 **出处**：<https://github.com/zhcmeng/skill-up>，钉住的版本是 `main @ 7f1ff9b8e2d7c654728de526867f2f7e7b78ea51`（2026-09-29）。上游没有发布 tag，所以按 commit 钉。上面两份都对着这一个版本；另外机器上装的发布版是 `v0.12.0`（2026-09-18），`usage-notes.md` 里哪几条是在那一份上当场核过的，文末列着——两个号会各走各的，见那一份文末。
 
