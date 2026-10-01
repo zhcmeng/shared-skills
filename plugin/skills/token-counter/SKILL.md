@@ -1,6 +1,6 @@
 ---
 name: token-counter
-description: 当用户需要精确计算 DeepSeek 文本或文件的 token 数量时使用（触发词：算token、token量、token数、token计数、几个token、DeepSeek 计费/API 预算、这个文件多少token）。支持两种输入：一段文本、一个文件（.md/.txt/代码等 UTF-8 文本）。只精确覆盖 DeepSeek 官方 tokenizer（当前 V4），不覆盖 Claude 等其他模型。
+description: 当用户要算一段文本或一个文件的 token 数，或问某次 API 调用大概多少 token、多少预算时使用（触发词：算token、token量、token数、token计数、几个token、计费、API 预算、这个文件多少token）。支持两种输入：一段文本、一个文件（.md/.txt/代码等 UTF-8 文本）。用户点名别的模型（Claude 这类）时也照样用它——怎么答在技能正文里写着，别绕开它另去找一个数顶上。精确计数的范围只有 DeepSeek 官方 tokenizer（当前 V4）。
 ---
 
 # DeepSeek Token 精确计数
