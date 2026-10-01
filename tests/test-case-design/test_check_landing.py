@@ -313,7 +313,12 @@ def check_from_place_table():
 
 
 def check_not_yet():
-    """落点表上写着「还没落成」，命令行上也没给路径——说清楚，别当成「对得上」。"""
+    """落点表上写着「还没落成」，命令行上也没给路径——说清楚，别当成「对得上」。
+
+    退出码是 3，与 2 分开：2 管的是「用法不对、读不到东西」，那是调用方自己用错了；
+    「还没落成」是产出的正常状态，只是没有可对照的成品。两件事挤在同一个码上时，
+    调用方分不出是自己用错了还是这批本来就没落成，只能去读脚本才知道——所以分开。
+    """
     root = Path(tempfile.mkdtemp(prefix="check-landing-notyet-"))
     try:
         make(root, (CASE, "| 成品 | 落的是哪些条目 |\n|:---|:---|\n| `{ART}` | TC-1 与它的覆盖项、TM-1、TP-1、DATA-1、ENV-1 |",
@@ -321,8 +326,8 @@ def check_not_yet():
         code, out = run_landing(root, [])
     finally:
         shutil.rmtree(root, ignore_errors=True)
-    if code != 2:
-        return ["退出码 %s，期望 2" % code]
+    if code != 3:
+        return ["退出码 %s，期望 3" % code]
     if "还没落成" not in out:
         return ["输出里没提「还没落成」：%s" % out.strip()[:200]]
     return []

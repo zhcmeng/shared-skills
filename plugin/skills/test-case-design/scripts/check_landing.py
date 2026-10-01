@@ -12,7 +12,9 @@
 不给成品路径时，从测试用例规格说明的「成品落点」表里取（那种情况按跑命令时的当前目录
 解路径）。成品路径给目录就整个目录走一遍，给文件就只看那一份。
 
-退出码：0 全过；1 有错；2 用法不对、读不到产出目录，或成品还没落成。
+退出码：0 全过；1 有错；2 用法不对或读不到产出目录；3 产出里写着「还没落成」，
+没有可对照的成品——那不是错，是这一批还没落成，调用方跳过就行。3 与 2 分开，是为了
+让调用方不用读这份脚本就知道遇上的是哪一种：2 是自己用错了，3 是本来就没得对。
 
 两条方向相反的检查，外加一条引用检查：
 
@@ -117,13 +119,16 @@ def defined_ids(texts):
 def place_paths(texts):
     """从测试用例规格说明的「成品落点」表里取成品路径。
 
-    返回 (路径列表, 说明)；表没见着、或者只写了「还没落成」时路径列表为空，
-    说明里写清是哪一种。表里的路径按当前目录解——与命令行给路径时一样。
+    返回 (路径列表, 说明, 是不是「还没落成」)；表没见着、或者只写了「还没落成」时
+    路径列表为空，说明里写清是哪一种。第三个元素单独回一个标志，因为「还没落成」与
+    另外两种「没拿到路径」不是一回事：它的退出码不一样（3 对 2，见 main）——调用方
+    只看码就该知道该跳过还是该报错，不必去认说明那句话。表里的路径按当前目录解——
+    与命令行给路径时一样。
     """
     doc = texts.get(check_docs.CASE_DOC, "")
     block = check_docs.place_block(doc)
     if block is None:
-        return [], "测试用例规格说明里没有「%s」这一块，也没在命令行上给成品路径" % check_docs.PLACE_HEAD
+        return [], "测试用例规格说明里没有「%s」这一块，也没在命令行上给成品路径" % check_docs.PLACE_HEAD, False
 
     paths = []
     for head, body in check_docs.tables(block):
@@ -134,10 +139,10 @@ def place_paths(texts):
             if len(row) > i and row[i]:
                 paths.append(row[i].strip("`").strip())
     if paths:
-        return paths, ""
+        return paths, "", False
     if NOT_YET in block:
-        return [], "成品落点表上写着「%s」" % NOT_YET
-    return [], "「成品落点」那一块里没有成品落点表"
+        return [], "成品落点表上写着「%s」" % NOT_YET, True
+    return [], "「成品落点」那一块里没有成品落点表", False
 
 
 def scan(paths, root):
@@ -362,11 +367,16 @@ def main():
     impl = read_impl(root)
 
     paths = list(sys.argv[2:])
-    reason = ""
+    reason, not_yet = "", False
     if not paths:
-        paths, reason = place_paths(texts)
+        paths, reason, not_yet = place_paths(texts)
     if not paths:
         print("没拿到成品路径：%s。" % (reason or "命令行上没给，产出里也没写"))
+        if not_yet:
+            # 这不是错：产出可以先于成品进仓库（技能允许先出六份，落成是后来的事）。
+            # 单独给一个退出码，调用方（比如仓库那份检查）不用读这份脚本就知道该跳过。
+            print("这一批的成品还没落成，没有可对照的东西——落成之后回来把那张表填上，再跑一遍。")
+            return 3
         print("把成品路径写在命令后面，或者在测试用例规格说明的「成品落点」表里填上——"
               "两份都填了，就不用每次在命令行上抄一遍。")
         return 2

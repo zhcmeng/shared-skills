@@ -12,6 +12,10 @@
 # 落成对照要在仓库根下跑、且不给成品路径：那样它按测试用例规格说明的「成品落点」表去取
 # 成品，顺带把那张表也验了——表里的路径写错时，它报「读不到」。
 #
+# 只有成品已经落成的批次才跑落成对照：产出可以先于成品进仓库（技能允许先出六份），
+# 那种批次没有可对照的东西，跑出来只有一句「还没落成」，记成失败就成了假警报。
+# 分法是 check_landing 自己的退出码：3 就是「还没落成」，见下面那段循环。
+#
 # watch 声明整个 evals/，不只产出那一层：产出在 `evals/<批>/test-case-design/` 下，
 # 成品（用例配置与批次配置）在它上一级，只声明产出那一层的话，单改成品不会触发。
 # watch: evals/ plugin/skills/test-case-design/ tests/test-case-design/
@@ -32,6 +36,21 @@ tcd_run() {   # tcd_run <在哪个目录跑> <说明> <命令...>
   fail "${desc}"
 }
 
+# 跑一条子命令，退出码当返回值；输出落在 $tcd_log，要打的时候自己 cat。
+#
+# 别写成 `st="$(tcd_try ...)"`：那样整个函数跑在子 shell 里，它设的 $tcd_log 传不出来
+# （verify.sh 头上记着同一类坑），调用方 cat 到的是个空变量。就写成两句：
+# `tcd_try ...; st=$?`。
+#
+# 与 tcd_run 的分工：tcd_run 把非 0 一律当失败，适合「要么过要么坏」的命令；
+# check_landing 退几各有各的意思（0 对上了、1 有错、2 用错了、3 还没落成），
+# 得让调用方分着看，所以另走这一条。
+tcd_try() {   # tcd_try <在哪个目录跑> <命令...>
+  local where="$1"; shift
+  tcd_log="$(scratch_file)"
+  ( cd "$where" && "$@" ) > "$tcd_log" 2>&1
+}
+
 if ! command -v python >/dev/null 2>&1; then
   echo "提示：没找到 python，跳过 test-case-design 这条链子的检查（测试与两个检查器都是 python 写的）"
 else
@@ -47,8 +66,18 @@ else
     tcd_name="$(basename "$(dirname "$tcd_root")")"
     tcd_run "$REPO_ROOT" "${tcd_name} 的六份自检（check_docs）" \
       python "${tcd_scripts}/check_docs.py" "$tcd_root"
-    tcd_run "$REPO_ROOT" "${tcd_name} 的落成对照（check_landing）" \
-      python "${tcd_scripts}/check_landing.py" "$tcd_root"
+    tcd_try "$REPO_ROOT" python "${tcd_scripts}/check_landing.py" "$tcd_root"
+    tcd_st=$?
+    case "$tcd_st" in
+      0) ;;   # 编号在两边对得上
+      3) # 这一批的成品还没落成，没有可对照的东西。产出的正常状态，不是错。
+         # 跳过时要说一声：不说的话输出里少一行，看着像这一批查过了。
+         echo "提示：${tcd_name} 的成品还没落成，跳过落成对照（落成之后回来填上那张表）" ;;
+      *) echo "── ${tcd_name} 的落成对照（check_landing）：输出 ──"
+         cat "$tcd_log"
+         echo "── 输出到此 ──"
+         fail "${tcd_name} 的落成对照（check_landing）" ;;
+    esac
   done
 
   # 一份产出都没扫到，说明这条链子空了。别放行：静默跳过等于这个模块永远不会跑，
