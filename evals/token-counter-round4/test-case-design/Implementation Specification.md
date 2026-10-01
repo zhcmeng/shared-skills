@@ -11,7 +11,7 @@
 | 通用稿的编号 | 本方案里落在哪 | 说明 |
 |:---|:---|:---|
 | TM-1、TM-2、TM-3 | 不落成盘上能跑的东西；靠它们导出的覆盖项号在盘上留痕 | 模型是设计那一层的产物，这一套方案里没有对应的配置项。三门技术各建一个模型，导出的覆盖项落在下一行那些注释里 |
-| TCOV-1、TCOV-2、TCOV-3、TCOV-4、TCOV-5、TCOV-6、TCOV-7、TCOV-8、TCOV-9、TCOV-10、TCOV-11、TCOV-12、TCOV-13、TCOV-14、TCOV-15、TCOV-16、TCOV-17、TCOV-18、TCOV-19、TCOV-20、TCOV-21、TCOV-22、TCOV-23、TCOV-24、TCOV-25、TCOV-26、TCOV-27、TCOV-28、TCOV-29、TCOV-30、TCOV-31、TCOV-32、TCOV-33、TCOV-34 | `cases/` 下覆盖它的那几条用例配置里，输入与判据上方那几行注释 | 一条覆盖项出现在覆盖它的每一条用例的配置里，对应关系照 `Test Case Specification.md` 的对应表。**TCOV-16 判为不可行，盘上一个字都不出现**——设计稿里就写着从分母里剔除，不是落的时候漏了 |
+| TCOV-1、TCOV-2、TCOV-3、TCOV-4、TCOV-5、TCOV-6、TCOV-7、TCOV-8、TCOV-9、TCOV-10、TCOV-11、TCOV-12、TCOV-13、TCOV-14、TCOV-15、TCOV-16、TCOV-17、TCOV-18、TCOV-19、TCOV-20、TCOV-21、TCOV-22、TCOV-23、TCOV-24、TCOV-25、TCOV-26、TCOV-27、TCOV-28、TCOV-29、TCOV-30、TCOV-31、TCOV-32、TCOV-33、TCOV-34 | `cases/` 下覆盖它的那几条用例配置里，输入与判据上方那几行注释 | 一条覆盖项出现在覆盖它的每一条用例的配置里，对应关系照测试用例规格说明的对应表。**TCOV-16 判为不可行，盘上一个字都不出现**——设计稿里就写着从分母里剔除，不是落的时候漏了 |
 | TC-1、TC-2、TC-3、TC-4、TC-5、TC-6、TC-7、TC-8、TC-9、TC-10、TC-11、TC-12、TC-13、TC-14、TC-15、TC-16 | `cases/` 下 16 个用例配置，一条用例一个文件 | 文件名照 `scripts/issue_ids.py --case-dirs` 打出来的那串加 `.yaml`。执行位次就在文件名里（`tp01-01` 那一段），字母序等于执行顺序，不另外排 |
 | TP-1、TP-2、TP-3 | 常规批那一份批次配置 `eval.yaml` 的 `cases.files` 那一段 | 三条规程共 15 条用例，按规程内位次连排列在同一份配置里，不再分段——一份配置就是一批 |
 | TP-4 | 干净解释器批那一份批次配置 `eval-clean-interpreter.yaml` | 单独一份。它要一个没装引擎的解释器，而「装不装引擎」只能整批配一次，与其余三条规程合不进同一批 |
