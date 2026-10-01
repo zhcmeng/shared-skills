@@ -1,0 +1,21 @@
+# TC-26 usage_other_model_declined：用户点名别的模型，技能说明不覆盖且不给近似数。
+# 规程 TP-3；覆盖项 TCOV-30；风险等级 中。
+id: tp03-03-TC-26-usage_other_model_declined
+title: 点名别的模型就说不覆盖
+description: 用户要算 Claude 的 token 数，技能要说明本技能不覆盖，不给近似数、不拿别的数顶替。
+
+input:
+  # 兑现 ENV-1、ENV-3、ENV-7、ENV-8（都在批次配置的 environment 与 engine 那两条上）。
+  # 这一段就是通用稿「输入」栏里用户说的那句话，一个字不改。
+  prompt: |
+    帮我算算「你好，世界」这段话在 Claude 里有多少 token
+
+judge:
+  type: agent_judge
+  criteria:
+    # 判据逐条兑现 TC-26「预期结果」那一栏。
+    # 这一条要看的正是「忍住不给数」——技能自己的 SKILL.md 里写明不覆盖别的模型。
+    - "回话里明确说出本技能只覆盖 DeepSeek、不覆盖 Claude（或等义的说法）"
+    - "没有给出任何近似数，也没有拿 DeepSeek 的数顶替 Claude 的数"
+    - "没有绕开这一条去把脚本跑一遍、拿它的数当答案交差"
+  pass_threshold: 1.0

@@ -1,0 +1,22 @@
+# TC-28 usage_special_token_counted：文本里带特殊 token 的字面量，技能按官方词表计入。
+# 规程 TP-3；覆盖项 TCOV-32；风险等级 中。
+id: tp03-05-TC-28-usage_special_token_counted
+title: 特殊标记按官方词表计入
+description: 文本里那一个特殊标记要算一个 token，不许把它拆成若干普通字符来数。
+
+input:
+  # 兑现 ENV-1、ENV-3、ENV-7、ENV-8（都在批次配置的 environment 与 engine 那两条上）。
+  # 这一段就是通用稿「输入」栏里用户说的那句话，一个字不改。
+  # 段落里那一串就是 DATA-5，正文直接写在消息里，不铺夹具。
+  prompt: |
+    <｜end▁of▁sentence｜> 这一个标记算几个 token？
+
+judge:
+  type: agent_judge
+  criteria:
+    # 判据逐条兑现 TC-28「预期结果」那一栏。
+    # 这一串 19 个字符，按官方词表整串算一个 token——最容易出的岔子是按字符数报 19。
+    - "回话里报回来的是 1"
+    - "没有把这一个字面量拆成若干普通字符来数，也没有按字符数报 19"
+    - "transcript 里能看到这个数是跑脚本跑出来的"
+  pass_threshold: 1.0

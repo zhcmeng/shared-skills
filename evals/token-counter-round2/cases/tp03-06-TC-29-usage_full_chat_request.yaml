@@ -1,0 +1,28 @@
+# TC-29 usage_full_chat_request：用户要算一整轮对话请求，技能说明得先按对话模板拼装。
+# 规程 TP-3；覆盖项 TCOV-33；风险等级 中。
+id: tp03-06-TC-29-usage_full_chat_request
+title: 算一整轮对话要先拼装
+description: 用户要估一整轮对话的 token，技能要说清光算消息正文不够、得先按对话模板拼装成请求。
+
+input:
+  # 兑现 ENV-1、ENV-3、ENV-7、ENV-8（都在批次配置的 environment 与 engine 那两条上）。
+  # 上面那一句就是通用稿「输入」栏里用户说的那句话，一个字不改；
+  # 下面那三行是 DATA-14 的正文，按通用稿的前置条件附在同一段消息里。
+  prompt: |
+    我要给一整轮对话估 token，就是 system 加 user 加 assistant 三条消息那种。
+    对话正文是这三条：
+
+    system: 你是一个简洁的助手。
+    user: 你好
+    assistant: 你好，有什么可以帮你的？
+
+judge:
+  type: agent_judge
+  criteria:
+    # 判据逐条兑现 TC-29「预期结果」那一栏。
+    # 技能自己的 SKILL.md 里写明：算完整对话请求要先按 tokenizer_config.json 的
+    # chat_template 拼装再计数——这一条要看的正是它有没有说这一步。
+    - "回话里说明光算三条消息的正文不够，得先按对话模板把消息拼装成请求再计数"
+    - "给出的计数办法里包含「拼装」这一步（按 chat_template 拼，或等义的说法）"
+    - "没有只把三条消息的正文一数就交差"
+  pass_threshold: 1.0
