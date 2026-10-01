@@ -1,0 +1,45 @@
+schema_version: v1alpha1
+
+# 这一份落的是运行二（干净解释器批）：TP-7 的 TC-27，一条用例。
+# 单拆一份配置的理由见实施方案规格说明：ENV-6 那个空解释器只能整批配一次。
+#
+# 跑这一批之前先把运行一跑掉（规程里 TC-27 排在 TC-28 之前）——
+# 两条用例互不依赖，先后不影响各自的结论。
+
+environment:
+  type: none
+  setup_steps:
+    # ENV-3：宿主机的 CPython 版本不低于 3.9、且是 64 位。
+    - run: python -c "import sys; assert sys.version_info[:2] >= (3, 9), 'need 3.9+'; assert sys.maxsize > 2**32, 'need 64-bit'"
+    # ENV-6：现建一个没装引擎的解释器。每一轮开跑前清掉重建，
+    # 免得上一轮装上去的引擎留下来，这一条就白跑了。
+    - run: python -c "import pathlib, shutil, subprocess, sys; p = pathlib.Path(r'C:/Study/shared-skills/evals/token-counter-round6/.clean-venv'); shutil.rmtree(p, ignore_errors=True); subprocess.check_call([sys.executable, '-m', 'venv', str(p)])"
+    # 确认它里面确实没有引擎——装上了就说明上一步没清干净，这一条的前提不成立。
+    - run: python -c "import pathlib, subprocess; py = pathlib.Path(r'C:/Study/shared-skills/evals/token-counter-round6/.clean-venv/Scripts/python.exe'); r = subprocess.run([str(py), '-c', 'import tokenizers'], capture_output=True); assert r.returncode != 0, 'clean venv already has tokenizers'"
+
+# ENV-4、ENV-9：被测技能整个目录装进工作区的 .claude/skills/token-counter/，
+# 随技能分发的 tokenizer.json 与 wheels/ 跟着一起进去。
+skills:
+  - source: local_path
+    path: ../plugin/skills/token-counter
+
+engine:
+  name: claude_code
+
+cases:
+  files:
+    - token-counter-round6/cases/tp07-01-TC-27-first_run_installs_then_counts.yaml
+  # 只有一条用例，没有并发这回事。
+  parallelism: 1
+  defaults:
+    expect:
+      exit_code: 0
+    timeout_seconds: 600
+
+judge:
+  type: agent_judge
+  model: anthropic/claude-sonnet-5
+  # 判据落在「要读执行过程」那一层：要判它装的是哪一份引擎，得读 transcript。
+
+report:
+  formats: [json, html]

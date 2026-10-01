@@ -1,0 +1,20 @@
+# TP-5；TC-23 asks_api_cost；覆盖项 TCOV-17、TCOV-35；风险等级 高。
+# 这一条兑现的模型：TM-4。
+
+id: tp05-03-TC-23-asks_api_cost
+title: 问调用成本时报出数并点明缓存命中那件事
+description: 用户问 token 量又问预算，技能报出数，并说清离线算不出缓存命中。
+
+input:
+  # 兑现 ENV-1、ENV-2、ENV-3、ENV-4、ENV-8、ENV-9；DATA-1 第 1 段原样接在请求后面。
+  prompt: |-
+    这段话调 DeepSeek 接口大概花多少 token、多少预算？DeepSeek tokenizer counts exactly.
+
+judge:
+  type: agent_judge
+  criteria:
+    # 判据逐条兑现 TC-23「预期结果」那一栏。
+    - "答话里报出 tokens: 8"
+    - "点明离线算不出缓存命中"
+    - "点明计费以接口返回的用量为准"
+  pass_threshold: 1.0

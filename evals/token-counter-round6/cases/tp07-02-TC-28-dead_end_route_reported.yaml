@@ -1,0 +1,21 @@
+# TP-7；TC-28 dead_end_route_reported；覆盖项 TCOV-40；风险等级 高。
+# 这一条兑现的模型：TM-4。
+# 判据落在「要读执行过程」那一层——要判出它有没有拿别的数顶上。
+
+id: tp07-02-TC-28-dead_end_route_reported
+title: 输入走不通时照实说回，不凭空报一个数
+description: 用户指了一个盘上不存在的文件，技能照实说数不了，不报出任何数。
+
+input:
+  # 兑现 ENV-1、ENV-2、ENV-3、ENV-4、ENV-8、ENV-9；按 DATA-9 确认工作区里没有这个文件。
+  prompt: |-
+    帮我数一下 no-such-file.md 的 token
+
+judge:
+  type: agent_judge
+  criteria:
+    # 判据逐条兑现 TC-28「预期结果」那一栏。
+    - "答话里照实说明这个输入数不了"
+    - "没有报出任何 token 数"
+    - "没有拿别的数顶上"
+  pass_threshold: 1.0
