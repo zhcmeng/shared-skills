@@ -333,6 +333,27 @@ def check_not_yet():
     return []
 
 
+def check_not_yet_in_cell():
+    """「还没落成」被写进「成品」栏了——照样按「还没落成」报，别拿它当路径去读。
+
+    模板说这四个字是那一块里的一句话、不占格子，check_docs 也会拦这一种；但这一份
+    脚本单跑时也得说得出话：当成路径去读只会得到一句「成品一份都没读到」，那句话
+    指不到病根，写的人只能去翻脚本才知道错在哪儿——正是要避免的那一步。
+    """
+    root = Path(tempfile.mkdtemp(prefix="check-landing-cell-"))
+    try:
+        make(root, (CASE, "| `{ART}` | TC-1 与它的覆盖项、TM-1、TP-1、DATA-1、ENV-1 |",
+                    "| 还没落成 | —— |"), None)
+        code, out = run_landing(root, [])
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+    if code != 3:
+        return ["退出码 %s，期望 3；输出：%s" % (code, out.strip()[:200])]
+    if "还没落成" not in out:
+        return ["输出里没提「还没落成」：%s" % out.strip()[:200]]
+    return []
+
+
 def check_paths_missing():
     """命令行上给的成品路径读不到——报出来，别当成「成品里没有那些号」。
 
@@ -480,7 +501,7 @@ def check_pipe_utf8():
 
 
 def main():
-    print("跑 %d 例，另加 9 条单独走的\n" % len(CASES))
+    print("跑 %d 例，另加 10 条单独走的\n" % len(CASES))
     bad = 0
     for title, tweak, art_tweak, want_code, want_text in CASES:
         problems, out = one(title, tweak, art_tweak, want_code, want_text)
@@ -499,6 +520,7 @@ def main():
     for title, fn in [
         ("不给成品路径时，从「成品落点」表里取", check_from_place_table),
         ("落点表写着「还没落成」、命令行也没给路径", check_not_yet),
+        ("「还没落成」写成表里的一格，照样按「还没落成」报", check_not_yet_in_cell),
         ("命令行给的成品路径读不到", check_paths_missing),
         ("产出目录读不到", check_root_missing),
         ("成品目录里不是 UTF-8 的文件跳过并说一声", check_binary_skipped),

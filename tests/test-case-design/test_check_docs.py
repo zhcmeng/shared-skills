@@ -362,6 +362,11 @@ CASES = [
      (CASE, "| 成品 | 落的是哪些条目 |\n|:---|:---|\n"
       "| `tests/demo/test_demo.py` | TC-1 与它的覆盖项、TM-1、TP-1、DATA-1、ENV-1 |",
       "还没落成。"), (), 0, "落成之后回来把表填上"),
+    ("「还没落成」写成表里的一格——它是那句话，不是一格；格子会被落成对照当成成品路径去读",
+     (CASE, "| 成品 | 落的是哪些条目 |\n|:---|:---|\n"
+      "| `tests/demo/test_demo.py` | TC-1 与它的覆盖项、TM-1、TP-1、DATA-1、ENV-1 |",
+      "| 成品 | 落的是哪些条目 |\n|:---|:---|\n| 还没落成 | —— |"), (), 1,
+     "不占表里的一格"),
 
     # 「执行器」「改动文件」两栏：取值写死，每条规程都要有。
     ("规程缺「执行器」栏",
@@ -761,6 +766,61 @@ def check_env_word_scope():
     return []
 
 
+def check_rules():
+    """`--rules` 不带产出目录也能跑，把判据按它检查时用的同一份来源打出来。
+
+    这条命令是给写产出的人看的：想确认「它会拒绝什么」，跑它就行，不必去读那份
+    一千多行的脚本。所以要盯住两件事——
+
+    一、**同一份来源**：两张词表得是现解析的（与检查时同一份），脚本里的栏位与取值
+    也得跟着常量走。词表改了、解析坏了、常量改了名，这里就红。
+    二、**打全**：两张表里的词、写死的取值、那几栏，一个不少地打出来；漏一个，
+    看的人就以为没这条规矩。
+    """
+    buf = io.StringIO()
+    old = sys.argv
+    sys.argv = ["check_docs.py", "--rules"]
+    try:
+        with contextlib.redirect_stdout(buf):
+            code = check_docs.main()
+    except Exception as exc:  # noqa: BLE001
+        code = None
+        buf.write("\n脚本自己崩了：%r" % (exc,))
+    finally:
+        sys.argv = old
+    out = buf.getvalue()
+    problems = []
+    if code != 0:
+        problems.append("退出码 %s，期望 0；输出：%s" % (code, out.strip()[:200]))
+    for w in check_docs.banned_words():
+        if w not in out:
+            problems.append("「必须照写的几个词」表里的「%s」没打出来" % w)
+    for w in check_docs.scheme_words():
+        if w not in out:
+            problems.append("「六份里不许出现的东西」表里的「%s」没打出来" % w)
+    for w in check_docs.EXECUTORS + check_docs.CHANGES:
+        if w not in out:
+            problems.append("写死的取值「%s」没打出来" % w)
+    for w in list(check_docs.DOCS) + [check_docs.IMPL_DOC]:
+        if w not in out:
+            problems.append("六份（含第七份）里的「%s」没打出来" % w)
+    # 节标题：脚本按标题认块，标题写错等于那一块白写，所以这几处也得打出来。
+    # 第一版漏了这一段，探针跑下来人家正是为这个去翻源码的（它的原话：
+    # 「check the validator's expected section names so the documents land right the
+    # first time」）——表头打了、节标题没打，等于把最要紧的一半留在源码里。
+    for w in (check_docs.COVER_HEAD, check_docs.PLACE_HEAD, check_docs.BATCH_HEAD,
+              check_docs.USER_HEAD, check_docs.MODEL_HEAD,
+              check_docs.IMPL_MAP_HEAD, check_docs.IMPL_SCHEME_MARK,
+              check_docs.PROC_ORDER_FIELD, check_docs.NAME_COL,
+              check_docs.CASE_DIR_COL) + tuple(check_docs.IMPL_BLOCKS):
+        if w not in out:
+            problems.append("节标题（或那一栏的名字）「%s」没打出来" % w)
+    for w in ("覆盖项", "对应表"):
+        if w not in out:
+            problems.append("用例规格说明五块里的「%s」没打出来" % w)
+    return problems
+
+
 def main():
     print("跑 %d 例\n" % len(CASES))
     bad = 0
@@ -851,6 +911,17 @@ def main():
     print()
     title = "环境名那三个词都在 SKILL.md 的表里列着（两处别分叉）"
     problems = check_env_word_scope()
+    if problems:
+        bad += 1
+        print("[失败] %s" % title)
+        for p in problems:
+            print("       %s" % p)
+    else:
+        print("[通过] %s" % title)
+
+    print()
+    title = "`--rules` 不带产出目录也能跑，把判据按同一份来源打全"
+    problems = check_rules()
     if problems:
         bad += 1
         print("[失败] %s" % title)

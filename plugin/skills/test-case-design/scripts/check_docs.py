@@ -5,8 +5,13 @@
 用法：
 
     python check_docs.py <产出目录>
+    python check_docs.py --rules        把「它会拒绝什么」打出来，不用产出目录
 
 退出码：0 全过；1 有错；2 用法不对或读不到文件。
+
+`--rules` 是给写产出的人看的一条命令：禁用词、认哪几栏、哪些取值写死了，一次打全
+（内容按下面说的同一份来源现取，与检查时用的是一份）。**要确认它会拒绝什么，跑这条
+命令就行，不必读这份脚本的源码**——读了也只是把这些常量与两张表再认一遍。
 
 管的都是机械项：编号连不连续、栏目齐不齐、引用指不指得到、对应表有没有留空、
 枚举出的英文名合不合形制、禁用词有没有漏进来。判断性的东西（模型建得对不对、
@@ -773,6 +778,22 @@ def check_place(text, rep):
                           "每一类条目的编号在成品里怎么出现" % PLACE_HEAD)
         return
     if NOT_YET in block:
+        # 那四个字得是这一块里的一句话，不能占「成品」那一栏：占了一栏，落成对照就把
+        # 那一格当成一个成品路径去读，读不到退 2、只打一句「成品一份都没读到」——那句
+        # 话指不到这儿来，写的人只能去翻 check_landing.py 才知道错在哪儿。在这一步拦
+        # 住，报的话里写清该写成什么样。只认「成品」栏，与 place_paths 认的是同一格。
+        bad = []
+        for head, body in tables(block):
+            if not all(c in head for c in PLACE_COLS):
+                continue
+            i = head.index(PLACE_COLS[0])
+            bad += [row[i] for row in body if len(row) > i and NOT_YET in row[i]]
+        if bad:
+            rep.err(CASE_DOC, "「%s」表的「%s」栏里写着「%s」——这四个字是那一块里的"
+                              "一句话，不占表里的一格；成品还没落成时那一块不列表，"
+                              "写一句「%s」就行"
+                    % (PLACE_HEAD, PLACE_COLS[0], NOT_YET, NOT_YET))
+            return
         rep.ok("「%s」那一块写着「%s」——落成之后回来把表填上，再跑一遍落成对照"
                % (PLACE_HEAD, NOT_YET))
         return
@@ -1283,12 +1304,102 @@ def prefer_utf8(stream):
         reconfigure(encoding="utf-8")
 
 
+def print_rules():
+    """把这份脚本会拒绝什么打出来——判据按它检查时用的同一份来源现取。
+
+    这张清单是给写产出的人看的：想确认「哪些词不许写、认哪些节标题、认哪几栏、哪些
+    取值写死了」，跑这一条就行，不必去读这份一千多行的脚本。**同一份来源**是要紧的
+    ——两张词表现解析（与检查时调的是同一个函数），标题、栏位与取值直接引下面那些
+    常量；表改了或常量改了，这里跟着变，不会打出一份与检查时对不上的说法。
+
+    判断性的东西不在这里打：模型建得对不对、覆盖项取全没有、用例导得够不够，那是给
+    人看的，脚本本来就不管。
+    """
+    banned = banned_words()
+    scheme = scheme_words()
+    if len(banned) < 5 or len(scheme) < SCHEME_WORDS_MIN:
+        print("没能从 SKILL.md 的两张词表解析出禁用词（只拿到 %d 个与 %d 个）。"
+              % (len(banned), len(scheme)))
+        print("多半是那两张表的写法变了，去 %s 看一眼。" % SKILL_MD)
+        return 2
+    env = [w for w in scheme if w in ENV_WORDS]
+    rest = [w for w in scheme if w not in ENV_WORDS]
+
+    print("check_docs.py 会拒绝什么——下面是它检查时用的同一份来源，不必读它的源码。\n")
+
+    print("【查哪几份】")
+    print("  六份通用稿，缺一份报错：")
+    for name in DOCS:
+        print("    " + name)
+    print("  第七份按需产出：产出目录里有 %s 才查它，没有整组跳过。\n" % IMPL_DOC)
+
+    print("【禁用词】两张表都从 SKILL.md 现解析——改表就是改判据")
+    print("  一、「必须照写的几个词」表右列，六份里出现即报错，%d 个：" % len(banned))
+    print("     " + "、".join(banned))
+    print("  二、「六份里不许出现的东西」表左列，分两档：")
+    print("     六份全查，%d 个：%s" % (len(rest), "、".join(rest)))
+    print("     除 %s 外查五份，%d 个：%s（那一份记的是过程，照实写环境名不算违规）"
+          % (DECISION_DOC, len(env), "、".join(env)))
+    print("  三、技能点名不许带出产出的，%d 个：%s\n" % (len(LEAKED), "、".join(LEAKED)))
+
+    print("【认哪几栏】定义处 = 编号打头的那一行、加粗的 **唯一标识符**、或章节标题；")
+    print("           只在正文里提一句不算定义。下面这些栏是脚本点名要有的")
+    print("           （表里还可以有别的栏，比如编号、英文名、前置条件）：")
+    for label, cols in [
+        ("覆盖项", COV_COLS),
+        ("用例", CASE_COLS),
+        ("数据项", DATA_COLS),
+        ("环境项", ENV_COLS),
+        ("决策", DEC_COLS),
+        ("模型的「依据 → 模型」表", TRACE_COLS),
+        ("覆盖项 ↔ 用例对应表", MAP_COLS),
+        ("覆盖率自检", COVER_COLS),
+        ("成品落点", PLACE_COLS),
+        ("各批落到哪", BATCH_COLS),
+        ("第七份的对账表", IMPL_MAP_COLS),
+    ]:
+        print("  %s：%s" % (label, " | ".join(cols)))
+    print("  测试模型、测试规程不写成宽表，所以没有固定栏：模型用加粗字段，规程写在两列表里。\n")
+
+    print("【认哪些节标题】块是按标题认的：标题里没有这几个词，那一块就等于没写")
+    print("  %s 分五块，顶层小节标题里要含：覆盖项、测试用例、对应表、%s、%s"
+          % (CASE_DOC, COVER_HEAD, PLACE_HEAD))
+    print("    （五块之外的顶层小节只提示、不判错）")
+    print("  %s 末尾另起一节：%s——栏：%s" % (PROC_DOC, BATCH_HEAD, " | ".join(BATCH_COLS)))
+    print("    这一节里落成评测用例的行（「执行器」栏是 %s）另要一栏：%s"
+          % ("、".join(EVAL_EXECUTORS), CASE_DIR_COL))
+    print("  %s 分两块：%s | %s" % (DECISION_DOC, USER_HEAD, MODEL_HEAD))
+    print("  模型的加粗字段、规程的两列表左栏：唯一标识符、%s、%s"
+          % (NAME_COL, PROC_ORDER_FIELD))
+    print("  第七份：一节「%s」；每个方案一节，标题里含「%s」；每节两块：%s\n"
+          % (IMPL_MAP_HEAD, IMPL_SCHEME_MARK, "、".join(IMPL_BLOCKS)))
+
+    print("【写死的取值与形制】")
+    print("  「执行器」栏：%s——后面可以带一句括号说明" % " / ".join(EXECUTORS))
+    print("  「改动文件」栏：%s" % " / ".join(CHANGES))
+    print("  「英文名」栏：%s（小写字母起头，只含小写字母、数字、下划线；不许拿编号起头）"
+          "；六类条目都要有这一栏，决策除外" % NAME_RE.pattern)
+    print("  「用例目录名」栏：%s" % CASE_DIR_RE.pattern)
+    print("  决策依据分两块：「%s」（可以直接改）与「%s」（只增不改）；「依据的来源」栏"
+          "填「%s」的那几条归前一块" % (USER_HEAD, MODEL_HEAD, USER_SRC))
+    print("  「成品落点」那一块：成品还没落成就写一句「%s」——是那一块里的一句话，"
+          "不占表里的一格，也不许整块不写\n" % NOT_YET)
+
+    print("【退出码】0 全过；1 有错；2 用法不对或读不到文件。")
+    print("【其余判据】编号怎么编、各栏怎么填、各块什么次序：references/文档模板.md")
+    print("【这里不管】模型建得对不对、覆盖项取全没有、用例导得够不够——那是人看的。")
+    return 0
+
+
 def main():
     # 在解析参数之前：用法写错、读不到目录时那几句提示也是中文
     prefer_utf8(sys.stdout)
     prefer_utf8(sys.stderr)
+    if len(sys.argv) == 2 and sys.argv[1] == "--rules":
+        return print_rules()
     if len(sys.argv) != 2:
         print("用法：python check_docs.py <产出目录>")
+        print("      python check_docs.py --rules     把判据打出来（不用产出目录）")
         return 2
     root = Path(sys.argv[1])
     if not root.is_dir():
