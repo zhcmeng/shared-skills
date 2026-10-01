@@ -4,7 +4,7 @@
 #
 #   bash checks/verify.sh                    跑全部
 #   bash checks/verify.sh notify             只跑文件名里带 notify 的模块
-#   bash checks/verify.sh --changed          只跑被本次改动影响到的模块（按暂存区挑，改完自己跑用）
+#   bash checks/verify.sh --changed          只跑被本次改动影响到的模块（按工作区与暂存区一起挑，改完自己跑用）
 #   bash checks/verify.sh --changed --list   只列出会跑哪些模块，不真跑
 #
 # 模块是被 source 进同一个 shell 的，共享这里定义的 fail / scratch_dir /
@@ -130,11 +130,28 @@ if [ "$by_changed" -eq 1 ]; then
   if [ -n "${VERIFY_CHANGED_FROM:-}" ]; then
     changed="$(cat "$VERIFY_CHANGED_FROM" 2>/dev/null)"
   else
+    # 这三条是并集，缺一条就有整类改动看不见。原先只有第一条（暂存过的），后两条
+    # 没有，表现是「改完自己跑 --changed」在还没 git add 的时候报「本次改动没有匹配到
+    # 任何检查模块」、放行退出 0 —— 而那时候手上恰恰全是这两类改动，静默，正是这个仓库
+    # 一直在防的那类失败。
+    #
     # -c core.quotePath=false 不能省：git 默认把非 ASCII 路径转义成
     # "plugin/hooks/\344\270\255\346\226\207.txt"（带引号、八进制），声明的路径是
     # 原样中文，一条都对不上——表现是改了中文名文件却一个模块都不跑、放行退出 0。
     # 本仓库中文文件名很多，这个坑踩得到（80 里造了小仓库钉住它）。
-    changed="$(git -C "$REPO_ROOT" -c core.quotePath=false diff --cached --name-only 2>/dev/null)"
+    #
+    #   diff --cached   暂存过的
+    #   diff            改了还没暂存的
+    #   ls-files --others --exclude-standard   从没进过 git 的新文件（新技能、新产出一整批
+    #                   就是这种）。--exclude-standard 不能省：少了它 runs/、__pycache__
+    #                   这些被忽略的目录会涌进来，--changed 就退化成跑全套。
+    changed="$(
+      {
+        git -C "$REPO_ROOT" -c core.quotePath=false diff --cached --name-only
+        git -C "$REPO_ROOT" -c core.quotePath=false diff --name-only
+        git -C "$REPO_ROOT" -c core.quotePath=false ls-files --others --exclude-standard
+      } 2>/dev/null
+    )"
   fi
 
   # 夹具自己被动过（入口、模块，任何 checks/ 下的东西）：跑全套，不是只跑某一个。

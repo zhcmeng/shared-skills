@@ -87,14 +87,24 @@ expect_pick "改入口自己" "checks/verify.sh" "10-session-start.sh" "40-notif
 #
 # 没拿真仓库试：得往暂存区里塞东西，会搅乱当时正要提交的内容。这里造个小仓库、把真
 # 入口拷进去，跑的是同一份代码。
+#
+# 三种改动分开验，一种一个模块，互不干扰（改动落在各自 watch 的目录下）：
+#   一、改了并暂存     —— 原先只有这一条路能看见
+#   二、改了没暂存     —— 只读 diff --cached 时整批看不见
+#   三、从没进过 git 的新文件 —— 同上；新技能、新产出一整批就是这种
+# 二与三是最要紧的：「改完自己跑 --changed」的时候，手上恰恰全是这两类，还没 git add。
+# 看不见的表现是打印「本次改动没有匹配到任何检查模块」然后退出 0，一路绿灯。
 if ! command -v git >/dev/null 2>&1; then
   echo "提示：没找到 git，跳过真 git 挑模块的验证"
 else
   gits="$(scratch_dir)"
-  mkdir -p "${gits}/checks/verify.d" "${gits}/plugin/hooks"
+  mkdir -p "${gits}/checks/verify.d" "${gits}/plugin/hooks" "${gits}/src" "${gits}/docs"
   cp "$entry" "${gits}/checks/verify.sh"
-  printf '# watch: plugin/\n' > "${gits}/checks/verify.d/10-x.sh"
+  printf '# watch: plugin/\n' > "${gits}/checks/verify.d/10-a.sh"
+  printf '# watch: src/\n'    > "${gits}/checks/verify.d/20-b.sh"
+  printf '# watch: docs/\n'   > "${gits}/checks/verify.d/30-c.sh"
   printf 'x\n' > "${gits}/plugin/hooks/中文.txt"
+  printf 'x\n' > "${gits}/src/中文.txt"
   (
     cd "$gits" || exit 1
     git init -q .
@@ -102,14 +112,51 @@ else
     git config user.name t
     git add -A
     git commit -qm init
-    printf 'y\n' > "plugin/hooks/中文.txt"
-    git add "plugin/hooks/中文.txt"
   ) >/dev/null 2>&1
 
-  out_git="$(cd "$gits" && bash checks/verify.sh --changed --list 2>&1)"
+  git_pick() {   # 在小仓库里跑真入口，要回它会挑哪些模块
+    ( cd "$gits" && bash checks/verify.sh --changed --list 2>&1 )
+  }
+  git_change() {   # git_change <文件> <内容> [--stage]
+    local f="$1" body="$2"
+    ( cd "$gits" && printf '%s\n' "$body" > "$f" && { [ "${3:-}" != "--stage" ] || git add "$f"; } ) >/dev/null 2>&1
+  }
+
+  # 一、改了并暂存：中式文件名没被转义，声明按原样对得上
+  git_change "plugin/hooks/中文.txt" y --stage
+  out_git="$(git_pick)"
   case "$out_git" in
-    *10-x.sh*) ;;
-    *) fail "改非 ASCII 路径的文件：没挑中 10-x.sh（实际挑了：${out_git:-无}）" ;;
+    *10-a.sh*) ;;
+    *) fail "改了并暂存（非 ASCII 路径）：没挑中 10-a.sh（实际挑了：${out_git:-无}）" ;;
+  esac
+
+  # 二、改了没暂存
+  git_change "src/中文.txt" y
+  out_git="$(git_pick)"
+  case "$out_git" in
+    *20-b.sh*) ;;
+    *) fail "改了没暂存：没挑中 20-b.sh（实际挑了：${out_git:-无}）" ;;
+  esac
+
+  # 三、从没进过 git 的新文件
+  git_change "docs/新文件.txt" z
+  out_git="$(git_pick)"
+  case "$out_git" in
+    *30-c.sh*) ;;
+    *) fail "未跟踪的新文件：没挑中 30-c.sh（实际挑了：${out_git:-无}）" ;;
+  esac
+
+  # 被忽略的文件不该把模块勾起来：--exclude-standard 少了这一条，runs/、__pycache__
+  # 这些会涌进来，--changed 就退化成跑全套（那还不如直接跑全套，至少不假装挑过）。
+  # 先把上一条留下的未跟踪文件收掉，让 docs/ 底下只剩这一个被忽略的文件——
+  # 不收掉的话 30-c.sh 会因为上一条被勾中，这一条就问不出想问的事。
+  rm -f "${gits}/docs/新文件.txt"
+  printf 'docs/被忽略的.txt\n' > "${gits}/.gitignore"
+  git_change "docs/被忽略的.txt" w
+  ( cd "$gits" && git add .gitignore ) >/dev/null 2>&1
+  out_git="$(git_pick)"
+  case "$out_git" in
+    *30-c.sh*) fail "被忽略的文件不该勾中 30-c.sh，却勾中了（实际挑了：${out_git:-无}）" ;;
   esac
 fi
 

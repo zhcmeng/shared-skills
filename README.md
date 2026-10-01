@@ -279,12 +279,16 @@ bypass permissions（跳过权限确认）**——那个模式默认会引导模
 ## 维护
 
 - **校验脚本**：`bash checks/verify.sh` 跑全部，`bash checks/verify.sh --changed` 只跑被本次改动
-  影响到的模块（按暂存区挑，快得多），`bash checks/verify.sh notify` 只跑文件名含该关键词的模块。
+  影响到的模块（按工作区与暂存区一起挑：暂存的、改了没暂存的、从没进过 git 的新文件都算，
+  快得多），`bash checks/verify.sh notify` 只跑文件名含该关键词的模块。
   脚本拆在 `checks/verify.d/` 下，一个模块管一件事，入口只负责按序加载和汇总：
   `10-session-start`（注入文本、polyglot 两个分支）、`20-statusline-sync`、`25-rules-sync`、
   `26-adhd-flag`（给上游插件建常驻标记文件）、`30-statusline-smoke`、`40-notify`（判定）、
   `50-notify-render`、`60-wiring`（hooks.json 接线）、`70-version-consistency`、
-  `80-module-picker`（`--changed` 挑得对不对这件事本身）。
+  `80-module-picker`（`--changed` 挑得对不对这件事本身）、`90-test-case-design`
+  （`evals/` 下各套产出的六份自检与落成对照）。
+  这份名单会过期（90 就是后加的），以各模块文件头的 `# watch:` 声明为准——那一行写着这块
+  盯哪些路径，也就是「改了哪儿该跑哪一块」的答案。
   加校验就加模块，别往入口里塞
 - **抬版本号**：**交付前抬一次**——要推到远端、要让别人（或你另一个会话）拿到这批内容时，把
   `plugin/.claude-plugin/plugin.json` 与 `.claude-plugin/marketplace.json` 里的版本号一起抬上去，两处必须一致。
