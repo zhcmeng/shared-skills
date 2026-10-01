@@ -66,6 +66,7 @@ claude --settings '{"disableAllHooks":true}' --session-id <id> -p --permission-m
 - **`judge.type: agent_judge` 时 `judge.model` 必填。**不写会当场被驳回，话是 `judge.model is required when judge.type is agent_judge`——这一句 `judge-types.md` 的例子底下没写，只列了字段。**写在批次那一层就够，用例那一层不写也认**：用例级的判官继承批次那一层（实测，九条用例级只写 `criteria`，全过了校验）。
 - **判据按条计分，`pass_threshold` 是过线的比例。**三条判据过了两条就是 66.7%（实测：第一轮里有一条判据写得过严，那条用例判 FAIL 66.7%）。要「每条判据都得成立」就显式写 `1.0`——不写时的默认值没试过。
 - **报告格式要显式列。**`result.json` 一直会写；要 HTML 得在 `report.formats` 里把 `html` 列上，不列就不出。已经跑过的那几轮想补一份 HTML，用 `report` 子命令从 `result.json` 生成，不必重跑（实测，`v0.12.0`）。
+- **判官那次回话要能直接当 JSON 读，包在代码围栏里不算。**判官偶尔把结果写成 ` ```json ` 围起来的块，也有时干脆回一句中文散文（不吐 JSON）——两种情况都是第一次解析失败，话是 `invalid JSON response`，skill-up 会重试一次。重试过得去就没事；赶不上用例超时（`cases.defaults.timeout_seconds`，默认 300 秒）那一条就报 ERROR。**报告末尾那行是三档——`passed / failed / errors`——ERROR 不是「被测那边没过」**：被判官这一次意外拖住、整条用例拿不到结论而已，重跑一遍通常就有结论了（实测，`v0.12.0`：头一轮九条里一条 ERROR、另有两条的第一次失败而重试通过）。
 
 第一到三节、第六节与第七节的东西它同样没写——那几节是照上游**源码**读出来的，本来就哪份文档都没有；第四节出自上游文档站的 `windows.md`，那一页也不随技能发。
 

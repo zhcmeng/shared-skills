@@ -80,6 +80,18 @@ COV_COLS = ["唯一标识符", "描述", "风险等级", "可追溯性"]
 # 风险等级是「需要时写」——按模板这三栏都不必逐条出现，故不列。
 CASE_COLS = ["目标", "输入", "预期结果"]
 
+# 文档模板第四节：用例表里那一栏「判据落在哪一层」——写这条用例的判据得看着什么才判得了。
+# 写在用例上而不是规程上：同一条规程里两种都有是常事。这一栏决定用例落成什么形式，
+# 也是「各批落到哪」分批的依据——落在输出上的归可跑测试，要读执行过程的归评测用例。
+# 一栏漏了、取值写错，都不会有人喊：落成那一步才发现，那时候通用稿已经定了稿。
+LAYER_COL = "判据落在哪一层"
+LAYERS = ("落在输出上", "要读执行过程")
+# 「执行器」栏与这一栏是同一件事的两面：脚本跑的规程，判据只能落在命令、退出码与盘上的
+# 文件上；靠模型跑的那两种（控制器、子代理），判据要读一轮执行过程。对不上就是有一处
+# 写错了，而分批正是按这两栏分的——错了会把一条要读过程的用例落成一段跑命令的代码。
+EXECUTOR_LAYER = {"脚本": ("落在输出上",), "控制器": ("要读执行过程",),
+                  "子代理": ("要读执行过程",)}
+
 # 文档模板第九节：决策依据文档分两块写，一行一条决策，栏目写死。
 # 第一块「用户决策」装「用户给的」那几条——用户拍板的，可以直接改；第二块「模型决策」
 # 装其余几条——只增不改。块名由脚本认，所以在这里定死；这两块分得对不对是机械项：
@@ -241,6 +253,22 @@ def scheme_words():
     return words
 
 
+def split_row(line):
+    """把一行表格切成单元格：`\\|` 是转义的竖线，属于格里，不当分隔符。
+
+    不认转义的话，一格里有 `\\|`（写命令行的地方常事，比如 `cat x \\| python y.py`），
+    它后面那几栏整个往前错一位——`row[i]` 拿到的是隔壁栏的内容，读出来的是另一个
+    意思，还不报错。这个错位一直躲着：以前按位置读的只有第一栏（编号）与第二栏
+    （英文名），都在转义点的前面。
+    """
+    s = line.strip()
+    if s.startswith("|"):
+        s = s[1:]
+    if s.endswith("|") and not s.endswith("\\|"):
+        s = s[:-1]
+    return [c.strip().replace("\\|", "|") for c in re.split(r"(?<!\\)\|", s)]
+
+
 def tables(text):
     """切出 Markdown 表格，返回 [(表头, [数据行, ...]), ...]。
 
@@ -262,7 +290,7 @@ def tables(text):
     for block in blocks:
         if len(block) < 2:
             continue
-        rows = [[c.strip() for c in r.strip("|").split("|")] for r in block]
+        rows = [split_row(r) for r in block]
         if not all(re.fullmatch(r":?-{2,}:?", c) for c in rows[1]):
             continue
         parsed.append((rows[0], rows[2:]))
@@ -337,6 +365,28 @@ def check_name_col(head, body, rep, where, label):
         if not row:
             continue
         check_name(row[i] if i < len(row) else "", rep, where, row[0])
+
+
+def case_layers(parsed):
+    """用例表里的 {用例号: 「判据落在哪一层」栏的值}。
+
+    只认带这一栏的用例表；没有这一栏的表整个跳过。没有这一栏是「写产出的时候还没
+    这一栏」还是「这一版漏了」，脚本分不出来，由 check_case 那一处按「全篇都没这一栏」
+    报一条提示——产出是更早的版本上写的，照旧；新写的补上。
+    """
+    out = {}
+    for head, body in pick_all(parsed, CASE_COLS):
+        if LAYER_COL not in head:
+            continue
+        i = head.index(LAYER_COL)
+        for row in body:
+            if not row:
+                continue
+            m = re.fullmatch(r"TC-(\d+)", row[0])
+            if m:
+                out.setdefault(int(m.group(1)),
+                               row[i].strip() if i < len(row) else "")
+    return out
 
 
 def case_names(parsed):
@@ -526,12 +576,47 @@ def check_case(text, rep, tms, datas, envs):
         check_name_col(head, body, rep, CASE_DOC, "覆盖项清单")
     for head, body in case_tables:
         check_name_col(head, body, rep, CASE_DOC, "用例表")
+    # 用例表里那三栏逐行不能空。空着一格是静默的：读的人当它是「没写」，
+    # 落成的人当它是「随便」，一条用例到落成那一步就散了。
+    blanks = []
+    for head, body in case_tables:
+        for row in body:
+            if len(row) < len(head):
+                rep.err(CASE_DOC, "用例表有一行栏数不够：%s" % " | ".join(row))
+                continue
+            for col in CASE_COLS:
+                if not row[head.index(col)]:
+                    blanks.append((row[0], col))
+    for name, col in sorted(blanks):
+        rep.err(CASE_DOC, "用例 %s 的「%s」栏是空的——模板第四节里这三栏逐条都要写"
+                % (name, col))
     tcs = defined(parsed, text, CASE_COLS, "TC-")
     bad = check_contiguous(sorted(tcs), "TC-")
     if bad:
         rep.err(CASE_DOC, bad)
     elif tcs:
         rep.ok("用例 TC-1 至 TC-%d 都有定义处，编号连续" % len(tcs))
+
+    # 「判据落在哪一层」那一栏：栏在不在、取值对不对。取值写错是静默的——落成那一步
+    # 才发现判据落错了地方，那时候通用稿已经定了稿。栏整个不在时只提示：更早的版本上
+    # 没有这一栏，那时候写下的产出不该因此多出一条错。
+    layers = case_layers(parsed)
+    if any(LAYER_COL in head for head, _ in case_tables):
+        wrong = {n: v for n, v in layers.items() if not v.startswith(LAYERS)}
+        for n in sorted(wrong):
+            rep.err(CASE_DOC, "用例 TC-%d 的「%s」栏取值不在给定的两个里：%s"
+                              "——只能是 %s" % (n, LAYER_COL, wrong[n],
+                                            "、".join(LAYERS)))
+        blank = sorted(n for n, v in layers.items() if not v)
+        for n in blank:
+            rep.err(CASE_DOC, "用例 TC-%d 的「%s」栏是空的" % (n, LAYER_COL))
+        if not wrong and not blank:
+            rep.ok("「%s」栏 %d 条用例都填了，取值都在给定的两个里"
+                   % (LAYER_COL, len(layers)))
+    elif case_tables:
+        rep.warn(CASE_DOC, "用例表里没有「%s」这一栏（模板第四节要这一栏）——"
+                           "这一栏决定用例落成什么形式；产出是在更早的版本上写的就"
+                           "照旧，新写的补上" % LAYER_COL)
 
     # 对应表
     head, body = pick(parsed, MAP_COLS)
@@ -982,11 +1067,13 @@ def proc_cases(text):
     return order, mentioned, bad_head
 
 
-def check_proc(text, rep, tcs, datas, envs, names):
+def check_proc(text, rep, tcs, datas, envs, names, layers=None):
     """测试规程规格说明：规程编号连续；栏齐；用例排得进去也排得全。
 
     names：从测试用例规格说明里取的 {用例号: 英文名}，转给 check_batches 对
     「用例目录名」那一栏的最后一段。
+    layers：从同一份取来的 {用例号: 「判据落在哪一层」栏的值}，用来与「执行器」
+    栏对——两栏分处两份文档，却是同一件事的两面，见 EXECUTOR_LAYER 那一段。
     """
     parsed = tables(text)
 
@@ -1013,6 +1100,7 @@ def check_proc(text, rep, tcs, datas, envs, names):
     for value in proc_names:
         check_name(value, rep, PROC_DOC, "规程")
 
+    executors = None
     for label, allowed in (("执行器", EXECUTORS), ("改动文件", CHANGES)):
         values = field_values(text, label)
         if len(values) != len(tps):
@@ -1025,6 +1113,8 @@ def check_proc(text, rep, tcs, datas, envs, names):
                     % (label, value, "、".join(allowed)))
         if not surplus:
             rep.ok("「%s」栏 %d 条规程都填了" % (label, len(values)))
+            if label == "执行器":
+                executors = values
 
     for n in sorted({int(m) for m in re.findall(r"TC-(\d+)", text)}):
         if n not in tcs:
@@ -1036,6 +1126,29 @@ def check_proc(text, rep, tcs, datas, envs, names):
     # 两边各写一份，迟早一边认得出、一边认不出。
     order, scheduled, bad_head = proc_cases(text)
     check_batches(text, rep, set(tps), order, names)
+
+    # 「执行器」栏与用例那一栏「判据落在哪一层」对不对得上（见 EXECUTOR_LAYER）。
+    # 两栏分处两份文档，说的却是同一件事的两面，而分批正是按这两栏分的：错了会把
+    # 一条要读过程的用例落成一段跑命令的代码。
+    #
+    # 只查一个方向：脚本跑的规程，排的用例一条都不许是「要读执行过程」——脚本读不回
+    # 「它跑起来一路做了什么」。反过来不查：控制器排的用例里混着「落在输出上」是常事
+    # （一条用例被两条规程各排一次，两条的执行器可以不一样），且按分批的规矩，
+    # 控制器与子代理本来就整条归评测用例那一批。
+    if layers and executors:
+        for tp, value in zip(sorted(tps), executors):
+            if not value.startswith("脚本"):
+                continue
+            off = [tc for tc in order.get(tp, [])
+                   if layers.get(tc) and not layers[tc].startswith("落在输出上")]
+            if off:
+                rep.err(PROC_DOC, "TP-%d 的「执行器」是「脚本」，它排的这几条用例"
+                                  "「%s」栏写的却是「要读执行过程」：%s——脚本读不回"
+                                  "「它跑起来一路做了什么」，这样的判据它判不了；"
+                                  "要么把执行器改成控制器或子代理，要么把判据落到"
+                                  "命令、退出码与盘上的文件上"
+                        % (tp, LAYER_COL, brief(off, "TC-")))
+
     if bad_head:
         rep.err(PROC_DOC, "这些规程的标题没以编号起头，认不出规程的边界：%s"
                           "——标题写成「TP-N 目标」的样子（编号紧跟 # 之后，前头不加序号）"
@@ -1404,6 +1517,11 @@ def print_rules():
     print("【写死的取值与形制】")
     print("  「执行器」栏：%s——后面可以带一句括号说明" % " / ".join(EXECUTORS))
     print("  「改动文件」栏：%s" % " / ".join(CHANGES))
+    print("  用例表的 %s 三栏逐行都要写：哪一格空着都报错——空着是静默的，读的人当它"
+          "「没写」，落成的人当它「随便」" % " / ".join(CASE_COLS))
+    print("  「%s」栏：%s——栏在就逐条查取值；栏整个不在时只提示（更早的版本上没有"
+          "这一栏）。「执行器」是「脚本」的规程排的用例一条都不许是「%s」"
+          % (LAYER_COL, " / ".join(LAYERS), LAYERS[1]))
     print("  「英文名」栏：%s（小写字母起头，只含小写字母、数字、下划线；不许拿编号起头）"
           "；六类条目都要有这一栏，决策除外" % NAME_RE.pattern)
     print("  「用例目录名」栏：%s" % CASE_DIR_RE.pattern)
@@ -1468,6 +1586,7 @@ def main():
     # 用例与规程要跨文档查引用，所以定义处先都算出来，再逐份检查
     tcs = defined(tables(texts.get(CASE_DOC, "")), texts.get(CASE_DOC, ""), CASE_COLS, "TC-")
     tc_names = case_names(tables(texts.get(CASE_DOC, "")))
+    tc_layers = case_layers(tables(texts.get(CASE_DOC, "")))
     tcovs = set(defined(tables(texts.get(CASE_DOC, "")), texts.get(CASE_DOC, ""),
                         COV_COLS, "TCOV-"))
     datas = set(defined(tables(texts.get(DATA_DOC, "")), texts.get(DATA_DOC, ""),
@@ -1490,7 +1609,7 @@ def main():
 
     if PROC_DOC in texts:
         print("\n[%s]" % PROC_DOC)
-        check_proc(texts[PROC_DOC], rep, set(tcs), datas, envs, tc_names)
+        check_proc(texts[PROC_DOC], rep, set(tcs), datas, envs, tc_names, tc_layers)
 
     # 数据项与环境项有没有人用——两份引用文档都在才判。
     # 「成品落点」那一块不算引用：它记的是成品落在哪，里面顺带列到几个编号是常事，
