@@ -199,6 +199,14 @@ CASES = [
     ("基线：六类编号在成品里都找得到", None, None, 0, "编号在两边对得上"),
     ("成品里漏了模型编号 TM-1", None, ("TM-1 里的", "模型里的"), 1, "测试模型：这些条目定义了"),
     ("成品里漏了覆盖项编号 TCOV-1", None, ("\"\"\"TCOV-1：", "\"\"\""), 1, "测试覆盖项：这些条目定义了"),
+    ("判为不可行的覆盖项：成品里一处也不出现，也不算漏——它没有用例，本来就不落",
+     [(CASE, "| TCOV-1 | valid_class_a | 有效等价类：甲 | 高 | TM-1 |",
+       "| TCOV-1 | valid_class_a | 有效等价类：甲 | 高 | TM-1 |\n"
+       "| TCOV-2 | valid_class_b | 有效等价类：乙 | 高 | TM-1 |"),
+      (CASE, "| TCOV-1 | 有效等价类：甲 | TC-1 |",
+       "| TCOV-1 | 有效等价类：甲 | TC-1 |\n"
+       "| TCOV-2 | 有效等价类：乙 | 不可行，未导出用例 |")],
+     None, 0, "判为不可行的覆盖项 1 条"),
     ("成品里漏了数据项编号 DATA-1", None, ("按 DATA-1 取", "按那段文本取"), 1, "测试数据项：这些条目定义了"),
     ("成品里漏了环境项编号 ENV-1", None, ("ENV-1 就位", "环境就位"), 1, "测试环境项：这些条目定义了"),
     ("成品里漏了规程编号 TP-1", None, ("跑 TP-1 那条规程", "跑那条规程"), 1, "测试规程：这些条目定义了"),
@@ -266,10 +274,11 @@ def make(root, tweak, art_tweak):
     docs = dict(BASE)
     docs[check_docs.IMPL_DOC] = IMPL_TEXT
     if tweak:
-        name, old, new = tweak
-        if old not in docs[name]:
-            raise AssertionError("测试自己写错了：%s 里找不到要替换的那段" % name)
-        docs[name] = docs[name].replace(old, new)
+        # 一例要改两处时就传一列三元组；只改一处仍传那一个三元组本身
+        for name, old, new in ([tweak] if isinstance(tweak, tuple) else tweak):
+            if old not in docs[name]:
+                raise AssertionError("测试自己写错了：%s 里找不到要替换的那段" % name)
+            docs[name] = docs[name].replace(old, new)
     for name, text in docs.items():
         (root / name).write_text(text.replace("{ART}", art.as_posix()), encoding="utf-8")
     art.write_text((ART_TEXT.replace(*art_tweak) if art_tweak else ART_TEXT), encoding="utf-8")

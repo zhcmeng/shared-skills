@@ -4,10 +4,7 @@
 
 用法：
 
-    python check_landing.py <产出目录> [成品路径 ...]
-
-    python check_landing.py evals/token-counter/test-case-design
-    python check_landing.py evals/token-counter/test-case-design tests/ evals/token-counter/cases/
+    python check_landing.py <产出目录> <成品目录> [<成品目录> ...]
 
 不给成品路径时，从测试用例规格说明的「成品落点」表里取（那种情况按跑命令时的当前目录
 解路径）。成品路径给目录就整个目录走一遍，给文件就只看那一份。
@@ -25,7 +22,8 @@
 
   - 产出里定义过的条目，在成品里都要找得到——**这是这一条要管的主要毛病**：文档里
     写了 TM-6、TCOV-47、ENV-12，成品里一处也没提，两边就各说各的，拿编号搜不过去。
-    六类都查；决策（DEC-）不查这一条，它只在成品与产出有出入时才写，见下。
+    六类都查；决策（DEC-）不查这一条，它只在成品与产出有出入时才写，见下。判为不可行、
+    已从分母里剔除的覆盖项也不查——它们不会有用例，本来就不落。
   - 成品里出现的编号，在产出里都要有定义处——引了一个不存在的号，读的人会以为漏看了
     哪一份文档，其实是那个号写错了。七类都查，含 DEC-。
   - 引第七份（实施方案规格说明）的小节号，要指得到——`见 2.1 第 4 小节第 3 条` 这种话
@@ -206,15 +204,20 @@ def scan(paths, root):
     return "\n".join(parts), n, skipped, missing, dropped
 
 
-def check_forward(blob, ids, rep, partial=False):
+def check_forward(blob, ids, rep, partial=False, infeasible=()):
     """六类：定义了、成品里却一个也没出现的编号。
 
     `partial` 是分几批落成、这一块里还写着「还没落成」（见 place_paths）：这一条降成
     提示——还没落的那几处本来就查不到，报成错只会逼人把表一次填全，那就没有分批了。
     已经落成的那几处要是也落在这儿，就是真漏了，提示里说清这一点。
+
+    `infeasible` 是判为不可行、已从分母里剔除的覆盖项编号（check_docs.infeasible_covs）：
+    它们不会有用例，成品里本来就不该出现，不查这一条。
     """
     for label, prefix, _ in CLASSES:
-        nums = ids.get(prefix, set())
+        nums = set(ids.get(prefix, set()))
+        if prefix == "TCOV-":
+            nums -= set(infeasible)
         if not nums:
             continue
         seen = {int(m) for m in id_pattern(prefix).findall(blob)}
@@ -405,8 +408,8 @@ def main():
     # place_paths 一律跑一遍，哪怕命令行上给了成品路径：`partial` 说的是「成品落点」
     # 那一块里还写着「还没落成」——这一批只落了一部分，与路径从哪儿来不是一回事。
     # 模板要求成品写在上一层目录时把成品路径在本命令上一条条点出来，而那正是分批
-    # 落成时的常规写法；早先只在没给路径时才跑 place_paths，这条路就把降级整个绕掉
-    # 了，还没落成的那几处照样按错报。
+    # 落成时的常规写法：只看「命令行给没给路径」，这条常规写法就把降级整个绕掉了，
+    # 还没落成的那几处照样按错报。
     table_paths, reason, not_yet, partial = place_paths(texts)
     paths = list(sys.argv[2:]) or table_paths
     if not paths:
@@ -421,6 +424,11 @@ def main():
         return 2
 
     ids = defined_ids(texts)
+    # 判为不可行的覆盖项不会有用例，成品里本来就不该出现，正向对照要把它摘出去——
+    # 不摘的话它每一轮都报一条假错，而「这一条为什么不在成品里」产出里已经写清楚了
+    # （模板第八节给这一格定的写法：写「不可行」）。只影响正向那一条：反查照旧，
+    # 成品里真提到了它，产出里仍有定义处。认法只有一份，见 check_docs。
+    infeasible = check_docs.infeasible_covs(texts.get(check_docs.CASE_DOC, ""))
     total = sum(len(v) for prefix, v in ids.items() if prefix != DECISION[1])
     if total == 0:
         print("产出目录里一个条目都认不出来，先确认文档写没写、栏位对不对：%s" % root)
@@ -433,6 +441,10 @@ def main():
     if partial:
         print("「成品落点」那一块里还写着「%s」——这一遍按分批落成查：编号在成品里"
               "找不到的只算提示，已经落成的那一处漏了才要改。\n" % NOT_YET)
+    if infeasible:
+        print("对应表里判为不可行的覆盖项 %d 条（%s）：它们没有用例，本来就不落，"
+              "这一遍不查在不在成品里。\n"
+              % (len(infeasible), check_docs.brief(sorted(infeasible), "TCOV-")))
     for raw in missing:
         rep.err("成品路径", "读不到：%s" % raw)
     if dropped:
@@ -445,7 +457,7 @@ def main():
         rep.warn("成品路径", "这些文件没读（二进制，或者不是 UTF-8）：%s"
                              % "、".join(skipped[:5]) + ("…" if len(skipped) > 5 else ""))
 
-    check_forward(blob, ids, rep, partial)
+    check_forward(blob, ids, rep, partial, infeasible)
     print()
     check_backward(blob, ids, rep)
 

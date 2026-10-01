@@ -1,0 +1,29 @@
+# TP-1；TC-4 file_markdown_path；覆盖项 TCOV-2、TCOV-18、TCOV-25；风险等级 高。
+# 这一条兑现的模型：TM-1、TM-2。
+# 判据落在「要读执行过程」那一层——要判出报的是文件内容的值、不是那句请求本身的值。
+
+id: tp01-04-TC-4-file_markdown_path
+title: 给一个 .md 文件路径，按文件内容算
+description: 走文件那条道，报出的两样数按文件内容算，不是按那句请求本身算。
+
+input:
+  # 兑现 ENV-1、ENV-2、ENV-6、ENV-7；DATA-3 那份文件由 context.files 铺进工作区根。
+  prompt: |-
+    数一下这个文件有多少 token、多少字符：sample.md
+
+context:
+  # DATA-3：三段正文照测试数据需求的表下正文摆，不带字节顺序标记的 UTF-8，末尾一个换行。
+  files:
+    "sample.md": |
+      # 计数样本
+
+      这是一份用来试计数的小文件。
+
+judge:
+  type: agent_judge
+  criteria:
+    # 判据逐条兑现 TC-4「预期结果」那一栏。
+    - "回话里报出的 token 数是 13"
+    - "回话里报出的字符数是 23"
+    - "报出来的是文件内容的值，不是那句请求本身的值"
+  pass_threshold: 1.0

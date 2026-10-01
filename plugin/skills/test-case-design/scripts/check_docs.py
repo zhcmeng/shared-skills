@@ -74,6 +74,10 @@ ENV_COLS = ["唯一标识符", "测试环境项", "描述"]
 # 文档模板第八节的两张对应表
 TRACE_COLS = ["依据的出处", "模型编号", "说明"]
 MAP_COLS = ["覆盖项编号", "覆盖项描述", "覆盖它的用例编号"]
+# 「覆盖它的用例编号」那一格：还等着补用例的留空（下面按留空报错），判为不可行、
+# 已从分母里剔除的写这四个字（后面可以接一句原因）。两种「没有用例」意思不同——
+# 一种是欠着的，一种是结清的——写成一个样子，读的人分不出来，脚本也分不出来。
+INFEASIBLE = "不可行"
 # 文档模板第四节：覆盖项清单四栏
 COV_COLS = ["唯一标识符", "描述", "风险等级", "可追溯性"]
 # 用例那几栏里必查的三栏。前置条件可以全篇统一说明一次，可追溯性由对应表承接，
@@ -512,9 +516,11 @@ def check_model(text, rep):
         if len(row) < len(TRACE_COLS):
             rep.err(MODEL_DOC, "对应表有一行栏数不够：%s" % " | ".join(row))
             continue
-        n = re.search(r"TM-(\d+)", row[head.index("模型编号")])
-        if n:
-            listed.add(int(n.group(1)))
+        # 一行可以挂多个模型（`TM-1、TM-2`）：只取第一个的话，后一个静默地丢了，
+        # 下面那句「没进表」就把它报成漏——而它明明写在表里，照着报错去补会补出重复行。
+        found = re.findall(r"TM-(\d+)", row[head.index("模型编号")])
+        if found:
+            listed.update(int(x) for x in found)
         else:
             rep.err(MODEL_DOC, "对应表有一行的「模型编号」栏不是 TM- 编号：%s" % row[0])
         for name in ("依据的出处", "说明"):
@@ -528,6 +534,29 @@ def check_model(text, rep):
     if tms and set(tms) == listed:
         rep.ok("每个模型都进了「依据 → 模型」表")
     return set(tms)
+
+
+def infeasible_covs(text):
+    """对应表里判为不可行、已从分母里剔除的覆盖项：{编号}。
+
+    认法：那一格写着「不可行」，且一个 TC- 编号都没有。check_landing.py 也从这里取
+    ——这些覆盖项不会有用例，成品里本来就不该出现，正向对照得先把它们摘出去。两边
+    各认一份的话，迟早一边说「判过不可行了」、一边说「漏了」。
+    """
+    head, body = pick(tables(text), MAP_COLS)
+    out = set()
+    if head is None:
+        return out
+    for row in body:
+        if len(row) < len(MAP_COLS):
+            continue
+        m = COVER_ID.fullmatch(row[head.index("覆盖项编号")].strip())
+        if not m:
+            continue
+        cell = row[head.index("覆盖它的用例编号")]
+        if INFEASIBLE in cell and not re.search(r"TC-\d+", cell):
+            out.add(int(m.group(1)))
+    return out
 
 
 def check_case(text, rep, tms, datas, envs):
@@ -624,6 +653,7 @@ def check_case(text, rep, tms, datas, envs):
         rep.err(CASE_DOC, "末尾没有「覆盖项 ↔ 用例」对应表（表头应为：%s）" % " | ".join(MAP_COLS))
         return
     listed, empty, covered_ids = set(), [], set()
+    infeasible = infeasible_covs(text)
     for row in body:
         if len(row) < len(MAP_COLS):
             rep.err(CASE_DOC, "对应表有一行栏数不够：%s" % " | ".join(row))
@@ -640,15 +670,26 @@ def check_case(text, rep, tms, datas, envs):
         if not covered:
             empty.append(n)
             continue
-        for x in re.findall(r"TC-(\d+)", covered):
+        if n in infeasible:
+            continue          # 判过不可行了：不欠用例，原因写在「覆盖项描述」栏
+        found = re.findall(r"TC-(\d+)", covered)
+        if not found:
+            # 既没有编号、也没写「不可行」：这一格谁也读不懂——是还欠着用例，还是
+            # 判过不可行了？两种「没有用例」写成一个样子，读的人和脚本都分不出来。
+            rep.err(CASE_DOC, "TCOV-%d 那行的「覆盖它的用例编号」没有 TC- 编号、也没写「%s」"
+                              "——没有用例覆盖只有两种情形：判为不可行、已从分母里剔除的写"
+                              "「%s」，还等着补用例的留空" % (n, INFEASIBLE, INFEASIBLE))
+            continue
+        for x in found:
             if int(x) not in tcs:
                 rep.err(CASE_DOC, "TCOV-%d 引用了没有定义处的 TC-%s" % (n, x))
             covered_ids.add(int(x))
 
     if empty:
-        rep.err(CASE_DOC, "对应表留空 %d 行：%s ——留空表示这条覆盖项没有用例覆盖。"
-                          "完成准则要求 100%% 时这里不该有空行；准则更低时也要写明为什么留着"
-                % (len(empty), brief(empty, "TCOV-")))
+        rep.err(CASE_DOC, "对应表留空 %d 行：%s ——留空表示这条覆盖项还没有用例覆盖。"
+                          "完成准则要求 100%% 时这里不该有空行，回第 4 步补用例；"
+                          "准则更低、或者判为不可行已从分母里剔除的，写「%s」并说明为什么"
+                % (len(empty), brief(empty, "TCOV-"), INFEASIBLE))
     for n in sorted(set(tcovs) - listed):
         rep.err(CASE_DOC, "TCOV-%d 没进对应表" % n)
     for n in sorted(listed - set(tcovs)):
@@ -952,7 +993,10 @@ def check_coverage(text, rep):
             continue
         m = COVER_ID.fullmatch(row[map_head.index("覆盖项编号")].strip())
         if m:
-            covered[int(m.group(1))] = bool(row[map_head.index("覆盖它的用例编号")].strip())
+            # 「已被用例覆盖」认的是编号，不是「这一格有没有字」：判为不可行的那一格
+            # 写着「不可行」，有字，但它一条用例也没覆盖。
+            covered[int(m.group(1))] = bool(
+                re.search(r"TC-\d+", row[map_head.index("覆盖它的用例编号")]))
 
     listed, bad_rows = set(), 0
     for row in body:
@@ -1425,8 +1469,8 @@ def check_sections(texts, rep):
 def prefer_utf8(stream):
     """这一路输出被重定向走时，改成按 UTF-8 吐字节；真控制台不动。
 
-    和 pdf-to-md 那边的 `convert.prefer_utf8` 同一份逻辑，抄过来的（那边 doctor.py
-    里也是抄的）。Windows 中文版上标准流接的是管道时，Python 取的是区域
+    和 `issue_ids.py` 里那份是同一份逻辑——改就两处一起改，改岔了只会在其中一条
+    路上出乱码。`check_landing.py` 用的是这一份，不用另改。Windows 中文版上标准流接的是管道时，Python 取的是区域
     编码 cp936：中文落成 GBK 字节，而接住它的一方（Claude Code 的任务窗口、编辑器
     里的输出面板）一律按 UTF-8 解，屏幕上就是「���」——自检的结论成了乱码，等于
     没报。真控制台不切：那里的编码是 Python 按终端挑好的，换掉反而会花屏。
@@ -1519,6 +1563,9 @@ def print_rules():
     print("  「改动文件」栏：%s" % " / ".join(CHANGES))
     print("  用例表的 %s 三栏逐行都要写：哪一格空着都报错——空着是静默的，读的人当它"
           "「没写」，落成的人当它「随便」" % " / ".join(CASE_COLS))
+    print("  对应表的「%s」栏：有两种「没有用例」——判为不可行、已从分母里剔除的写「%s」，"
+          "还等着补用例的留空（留空报错，因为它欠着）；既没编号也没写「%s」的报错，"
+          "那一格读不出是两种里的哪一种" % (MAP_COLS[2], INFEASIBLE, INFEASIBLE))
     print("  「%s」栏：%s——栏在就逐条查取值；栏整个不在时只提示（更早的版本上没有"
           "这一栏）。「执行器」是「脚本」的规程排的用例一条都不许是「%s」"
           % (LAYER_COL, " / ".join(LAYERS), LAYERS[1]))

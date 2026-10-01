@@ -1,0 +1,26 @@
+# TP-4；TC-16 first_run_installs_bundled_engine；覆盖项 TCOV-15、TCOV-18、TCOV-25、TCOV-33；风险等级 高。
+# 这一条兑现的模型：TM-1、TM-2、TM-3。
+# 判据落在「要读执行过程」那一层——要判出装引擎那一步走的是哪一份，得读那一轮的执行过程。
+
+id: tp04-01-TC-16-first_run_installs_bundled_engine
+title: 干净解释器上首次运行，先装上随技能打包的那一份
+description: 目标机没装引擎，脚本先装上随技能打包的那一份（离线，不联网去取），再照常出数，不需要用户再问一次。
+
+input:
+  # 兑现 ENV-1、ENV-2、ENV-3、ENV-4、ENV-5、ENV-7；DATA-1 第 2 段原样接在请求后面。
+  # ENV-5 那个解释器没有别的办法指认：它的路径由 eval-clean-interpreter.yaml 的
+  # environment.setup_steps 建出来，消息里把这个路径原样给被测那边——这是前置条件，
+  # 不是叫它去装什么；装不装、装哪一份，仍由它自己判。
+  # DATA-7 就是那个干净解释器目录本身：跑之前现建、跑完整个删掉，不逐个卸包。
+  prompt: |-
+    用 C:/Study/shared-skills/evals/token-counter-round4/.clean-venv/Scripts/python.exe 这个 Python 数一下这段有多少 token、多少字符：你好，世界。这是一段纯中文的文本。
+
+judge:
+  type: agent_judge
+  criteria:
+    # 判据逐条兑现 TC-16「预期结果」那一栏。
+    - "回话里报出的 token 数是 11"
+    - "回话里报出的字符数是 17"
+    - "装引擎那一步走的是随技能打包的那一份：装的是技能目录里 wheels/ 下的本地包，没有联网去取"
+    - "装完之后照常计数，没有让用户再问一次"
+  pass_threshold: 1.0
