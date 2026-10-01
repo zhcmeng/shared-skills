@@ -13,11 +13,11 @@ skills/download-md-images/
 └── scripts/     两个脚本：认引用、下图
 ```
 
-两个脚本的测试不在这里，在仓库根的 `tests/download-md-images/` 下。
+两个脚本的测试不在这里，在开发这个技能的仓库的 `tests/download-md-images/` 下。
 
 ## 改脚本
 
-改 `scripts/` 下的两个脚本，改完在仓库根跑：
+改 `scripts/` 下的两个脚本，改完在开发仓库的根下跑：
 
 ```
 python tests/download-md-images/test_download_md_images.py

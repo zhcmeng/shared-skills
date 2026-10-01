@@ -371,7 +371,7 @@ def run(tasks, args):
 def prefer_utf8(stream):
     """这一路输出被重定向走时，改成按 UTF-8 吐字节；真控制台不动。
 
-    本机（Windows 中文版）上标准流接的是管道时，Python 取的是区域编码
+    Windows 中文版上标准流接的是管道时，Python 取的是区域编码
     cp936：中文进度落成 GBK 字节，而接住它的一方（Claude Code 的任务窗口、
     编辑器里的输出面板）一律按 UTF-8 解，屏幕上就是「���」。
     UTF-8 是重定向场合的通行默认（Python 自己的 UTF-8 模式也是这个取向），

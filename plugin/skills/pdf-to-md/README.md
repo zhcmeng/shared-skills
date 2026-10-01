@@ -20,11 +20,11 @@ skills/pdf-to-md/
     └── doctor-sample.pdf    上面那份打印出来的，体检时真转它
 ```
 
-四个脚本的测试不在这里，在仓库根的 `tests/pdf-to-md/` 下。装着技能发出去的东西里不含测试。
+四个脚本的测试不在这里，在开发这个技能的仓库的 `tests/pdf-to-md/` 下。装着技能发出去的东西里不含测试。
 
 ## 改脚本
 
-改 `scripts/` 下任一脚本，改完在仓库根跑：
+改 `scripts/` 下任一脚本，改完在开发仓库的根下跑：
 
 ```
 uv run --with requests --with lxml --with tabulate python tests/pdf-to-md/test_pdf_to_md.py

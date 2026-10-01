@@ -22,7 +22,7 @@ POLL_INTERVAL = 3.0
 IMAGE_RETRY_ATTEMPTS = 2
 IMAGE_RETRY_DELAY = 1.0
 
-# 三个开关照官方示例给 False，也不给使用者开口子——本机没试过打开的效果
+# 三个开关照官方示例给 False，也不给使用者开口子——没试过打开的效果
 OPTIONAL_PAYLOAD = {
     "useDocOrientationClassify": False,
     "useDocUnwarping": False,
