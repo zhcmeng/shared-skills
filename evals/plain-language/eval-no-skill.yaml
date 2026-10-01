@@ -2,6 +2,17 @@
 # 这一档判的是「rules.md 注进上下文之后，落笔时按不按它写」；技能会不会被唤起不在这批用例里判。
 # 相对路径的基准是 evals/，见 eval.yaml 开头那段说明。
 # ENV-5 的注入由下面 setup_steps 那条命令做，与运行一同一条道；见 2.1 第 4 小节第 4 条。
+#
+# 模型（TM）：这一批只有 TC-8，用到 TM-4（整条链）。
+#
+# 环境项（ENV）落在哪儿：
+#   ENV-2：下面 report 那一段，加上这条用例的 judge.context——取当轮的回复、执行的命令、盘上改动的前后差别。
+#   ENV-3：这条用例的 judge 那段上方。
+#   ENV-4：这条用例起一块可写工作区，夹具铺进去（下面 context.repo_fixture 那一项）。
+#   ENV-5：上面那条 setup_steps 命令。
+#   ENV-6：这条用例起一个能重来、能隔离的工作目录——框架新建，跑完就删。
+#   ENV-7：被测那侧的执行环境就是跑 skill-up 的这台机器（environment.type: none）。
+# ENV-1（把技能整套交出去）这一批不用：这一档不装技能。
 schema_version: v1alpha1
 
 environment:

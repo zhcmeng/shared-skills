@@ -1,5 +1,9 @@
 # 落到 evals/plain-language/cases/tp03-01-TC-3-scope_of_review.yaml
-# TP-3 / TC-3（高风险；覆盖项 TCOV-16 至 TCOV-18、TCOV-20、TCOV-23）
+# TP-3 / TC-3（高风险）
+# TM：TM-1、TM-2
+# TCOV：TCOV-16、TCOV-17、TCOV-18、TCOV-20、TCOV-23
+# DATA：DATA-3（样本，按它备一份可写副本）、DATA-9（下面那条用户消息）
+# ENV：ENV-1、ENV-2、ENV-3、ENV-4、ENV-5、ENV-6、ENV-7
 id: tp03-01-TC-3-scope_of_review
 title: 图注、脚注、mermaid 里的文字要审，frontmatter 不审
 description: 给一份审的范围文档的路径；要审的两处改掉、不审的一处没动，代码块那一处只记实际行为
@@ -25,6 +29,7 @@ expect:
     - "我没有权限"
     - "路径不存在"
 
+# ENV-3：这一条的判据就在下面 criteria 里（八条各一份，从用例规格说明的「预期结果」栏压出来）；判定只看当轮产出与盘上的改动。
 judge:
   type: agent_judge
   model: anthropic/claude-sonnet-4-6

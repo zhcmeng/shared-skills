@@ -1,5 +1,9 @@
 # 落到 evals/plain-language/cases/tp04-01-TC-6-file_nothing_to_fix.yaml
-# TP-4 / TC-6（高风险；覆盖项 TCOV-31、TCOV-36）
+# TP-4 / TC-6（高风险）
+# TM：TM-3、TM-4
+# TCOV：TCOV-31、TCOV-36
+# DATA：DATA-4（样本，按它备一份可写副本）、DATA-12（下面那条用户消息）
+# ENV：ENV-1、ENV-2、ENV-3、ENV-4、ENV-5、ENV-6、ENV-7
 id: tp04-01-TC-6-file_nothing_to_fix
 title: 一处问题都没有的文件，一个字不动
 description: 给一份通篇平实中文的文档的路径；跑完那份文件逐字节没变，回复里说「这段没有需要改的地方」
@@ -25,6 +29,7 @@ expect:
     - "我没有权限"
     - "路径不存在"
 
+# ENV-3：这一条的判据就在下面 criteria 里（八条各一份，从用例规格说明的「预期结果」栏压出来）；判定只看当轮产出与盘上的改动。
 judge:
   type: agent_judge
   model: anthropic/claude-sonnet-4-6

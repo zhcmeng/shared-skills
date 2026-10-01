@@ -1,6 +1,10 @@
 # 落到 evals/plain-language/cases/tp05-01-TC-7-file_blocked_reports_where.yaml
-# TP-5 / TC-7（中风险；覆盖项 TCOV-30、TCOV-33、TCOV-37）
-# 两轮一条用例：第一轮那个路径本来就不存在，第二轮那份没有写权限（见 DATA-15）。
+# TP-5 / TC-7（中风险）
+# TM：TM-3、TM-4
+# TCOV：TCOV-30、TCOV-33、TCOV-37
+# DATA：DATA-13（下面那两条用户消息，一轮一条）、DATA-15（第二轮的只读样本，铺在夹具里）
+# ENV：ENV-1、ENV-2、ENV-3、ENV-4、ENV-5、ENV-6、ENV-7
+# 两轮一条用例：第一轮那个路径本来就不存在，第二轮那份没有写权限。
 id: tp05-01-TC-7-file_blocked_reports_where
 title: 改不动的文件：读不到的说清路径，写不进去的说清卡在哪
 description: 两轮：第一轮给一个本来就不存在的路径，回复里说清是哪个路径读不到；第二轮给一份没有写权限的样本，说清卡在哪、把改好的文本一并给出
@@ -27,6 +31,7 @@ constraints:
 expect:
   exit_code: 0
 
+# ENV-3：这一条的判据就在下面 criteria 里（八条各一份，从用例规格说明的「预期结果」栏压出来）；判定只看当轮产出与盘上的改动。
 judge:
   type: agent_judge
   model: anthropic/claude-sonnet-4-6

@@ -1,5 +1,9 @@
 # 落到 evals/plain-language/cases/tp08-01-TC-8-ambient_writing_stays_plain.yaml
-# TP-8 / TC-8（中风险；覆盖项 TCOV-38）
+# TP-8 / TC-8（中风险）
+# TM：TM-4
+# TCOV：TCOV-38
+# DATA：DATA-14（下面那条用户消息）
+# ENV：ENV-2、ENV-3、ENV-4、ENV-5、ENV-6、ENV-7（不装技能，所以不用 ENV-1）
 # 这一条跑在运行二：不装技能，只把 rules.md 注进上下文。
 id: tp08-01-TC-8-ambient_writing_stays_plain
 title: 常驻注入之下直接写东西
@@ -19,6 +23,7 @@ constraints:
 expect:
   exit_code: 0
 
+# ENV-3：这一条的判据就在下面 criteria 里（八条各一份，从用例规格说明的「预期结果」栏压出来）；判定只看当轮产出与盘上的改动。
 judge:
   type: agent_judge
   model: anthropic/claude-sonnet-4-6

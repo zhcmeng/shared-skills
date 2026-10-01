@@ -1,5 +1,9 @@
 # 落到 evals/plain-language/cases/tp01-01-TC-1-fix_only_what_should_change.yaml
-# TP-1 / TC-1（高风险；覆盖项 TCOV-1 至 TCOV-13、TCOV-21、TCOV-22、TCOV-25 至 TCOV-27、TCOV-32、TCOV-35）
+# TP-1 / TC-1（高风险）
+# TM：TM-1、TM-2、TM-3、TM-4
+# TCOV：TCOV-1、TCOV-2、TCOV-3、TCOV-4、TCOV-5、TCOV-6、TCOV-7、TCOV-8、TCOV-9、TCOV-10、TCOV-11、TCOV-12、TCOV-13、TCOV-21、TCOV-22、TCOV-25、TCOV-26、TCOV-27、TCOV-32、TCOV-35
+# DATA：DATA-1（样本，按它备一份可写副本）、DATA-7（下面那条用户消息）
+# ENV：ENV-1、ENV-2、ENV-3、ENV-4、ENV-5、ENV-6、ENV-7
 id: tp01-01-TC-1-fix_only_what_should_change
 title: 该改的改掉、不该动的一个字没动
 description: 给一份混合文档的路径，逐句审并直接改原文件；改完该改的都改了、照原样写的那些一个字没动
@@ -25,6 +29,7 @@ expect:
     - "我没有权限"
     - "路径不存在"
 
+# ENV-3：这一条的判据就在下面 criteria 里（八条各一份，从用例规格说明的「预期结果」栏压出来）；判定只看当轮产出与盘上的改动。
 judge:
   type: agent_judge
   model: anthropic/claude-sonnet-4-6

@@ -1,5 +1,9 @@
 # 落到 evals/plain-language/cases/tp02-01-TC-2-quotes_kept_and_glossed.yaml
-# TP-2 / TC-2（高风险；覆盖项 TCOV-14、TCOV-15、TCOV-19、TCOV-24）
+# TP-2 / TC-2（高风险）
+# TM：TM-1、TM-2
+# TCOV：TCOV-14、TCOV-15、TCOV-19、TCOV-24
+# DATA：DATA-2（样本，按它备一份可写副本）、DATA-8（下面那条用户消息）
+# ENV：ENV-1、ENV-2、ENV-3、ENV-4、ENV-5、ENV-6、ENV-7
 id: tp02-01-TC-2-quotes_kept_and_glossed
 title: 引文原样留着，后面补中文
 description: 给一份引文文档的路径；引文本身一字不动，每句原句后面补该句的中文
@@ -25,6 +29,7 @@ expect:
     - "我没有权限"
     - "路径不存在"
 
+# ENV-3：这一条的判据就在下面 criteria 里（八条各一份，从用例规格说明的「预期结果」栏压出来）；判定只看当轮产出与盘上的改动。
 judge:
   type: agent_judge
   model: anthropic/claude-sonnet-4-6

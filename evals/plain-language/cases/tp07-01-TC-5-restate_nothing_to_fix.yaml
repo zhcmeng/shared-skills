@@ -1,5 +1,9 @@
 # 落到 evals/plain-language/cases/tp07-01-TC-5-restate_nothing_to_fix.yaml
-# TP-7 / TC-5（高风险；覆盖项 TCOV-29）
+# TP-7 / TC-5（高风险）
+# TM：TM-3
+# TCOV：TCOV-29
+# DATA：DATA-6（上一条回答那段文字）、DATA-11（下面那条用户消息）
+# ENV：ENV-1、ENV-2、ENV-3、ENV-4、ENV-5、ENV-6、ENV-7
 # DATA-6 的全文接在用户消息里：skill-up 的多轮只收 user 角色，塞不进一条 assistant 消息。
 # 这里有一处保真度折扣，见实施方案 2.1 第 4 小节第 3 条。
 id: tp07-01-TC-5-restate_nothing_to_fix
@@ -32,6 +36,7 @@ constraints:
 expect:
   exit_code: 0
 
+# ENV-3：这一条的判据就在下面 criteria 里（八条各一份，从用例规格说明的「预期结果」栏压出来）；判定只看当轮产出与盘上的改动。
 judge:
   type: agent_judge
   model: anthropic/claude-sonnet-4-6

@@ -142,4 +142,4 @@ TCOV-1 至 TCOV-22 照 TM-1 导出（判的是一段文字里各类片段怎么�
 
 | 成品 | 落的是哪些条目 |
 |:---|:---|
-| 还没落成 | 这一批将来按测试规程规格说明的「各批落到哪」落成评测用例，落在 `evals/plain-language/cases/` 下（一条用例一个目录，`prompt.md` 加 `graders/` 里的判据文件）。目录名照测试规程规格说明的「各批落到哪」那一栏，形如 `tp01-01-TC-1-fix_only_what_should_change`；同一套用例落成可跑测试时，这一块改填那些路径。要落的是 TC-1 至 TC-8 与它们的覆盖项 TCOV-1 至 TCOV-38、TM-1 至 TM-4、TP-1 至 TP-8、DATA-1 至 DATA-14、ENV-1 至 ENV-7 |
+| `evals/plain-language/cases/` | 八条用例配置，文件名照测试规程规格说明的「各批落到哪」那一栏，形如 `tp01-01-TC-1-fix_only_what_should_change.yaml`；六类编号都写在每条配置开头的注释里，一条一个号。落的是 TC-1 至 TC-8 与它们的覆盖项 TCOV-1 至 TCOV-38、TM-1 至 TM-4、TP-1 至 TP-8、DATA-1 至 DATA-15、ENV-1 至 ENV-7。这一批另有两份批次配置，与用例配置同放在评测材料根下，条目编号与用例配置里那些是同一批 |
