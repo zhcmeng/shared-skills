@@ -4,6 +4,8 @@
 
 **配置原文不在这份里。**照着「一、通用稿的编号落到哪」那张表和里面的落成约定，把配置文件写到 `evals/plain-language/` 下——那是落成那一步做的事，这一步只把话写死。
 
+**平台层面的事不在这份里**——工作区、差集、技能怎么装、相对路径的基准、会话怎么拼、常驻注入为什么走得通：那些在 `/skill-upper` 与同目录的 `usage-notes.md` 里。
+
 方案按节分。本次只有 skill-up 一节（第二节）。将来比别的评测方案，在那后面另起一节，六份通用稿一个字不用动。
 
 ## 一、通用稿的编号落到哪
@@ -14,7 +16,7 @@
 |:---|:---|:---|
 | ENV-1、ENV-2、ENV-3 | 运行一的 `eval.yaml` 里 `skills[].path`；两次运行的 `report.artifacts` 与各条 `judge.context`；各条用例的 `judge.criteria` | 三条的值都由 2.1 第 2、3 小节写死：技能只装 `SKILL.md` 与 `rules.md`；回复看 `final_message`、盘上改动看 `workspace_diff`；判据是各条用例「预期结果」栏的散文压成条目，连「判的时候留个心」那些操作提示一并写进去 |
 | ENV-4 | 夹具 `evals/plain-language/fixtures/repos/subject/` | 每条用例各把这个目录的内容铺进自己那份临时工作区；原始夹具全程不动。五份样本就摆在这棵树里，铺进去之后权限跟原始样本一致（TC-7 那份是只读的） |
-| ENV-5 | 两次运行的 `environment.setup_steps`——从绝对路径读 `rules.md` 写进工作区的 `CLAUDE.md`；见 2.1 第 4 小节第 4 条 | 钩子那条道在本方案里走不通：skill-up 起 claude 时带 `--settings '{"disableAllHooks":true}'`，钩子一律不生效 |
+| ENV-5 | 两次运行的 `environment.setup_steps`——从绝对路径读 `rules.md` 写进工作区的 `CLAUDE.md`；见 2.1 第 4 小节第 4 条 | 钩子那条道在本方案里走不通 |
 | ENV-6、ENV-7 | 同一个临时工作区 | 见 2.1 第 2 小节：跑完就删，重试与迭代各起一个，ENV-6 要的「每跑一条之前清干净」由框架自己保证；ENV-7 要的那处执行环境就是建这个目录的机器（本机 Windows），样本副本也在这一处 |
 | DATA-1、DATA-2、DATA-3、DATA-4、DATA-5、DATA-6、DATA-7、DATA-8、DATA-9、DATA-10、DATA-11、DATA-12、DATA-13、DATA-14 | 各条用例配置的正文——`input.prompt`，TC-7 那条走 `input.turns`；DATA-5、DATA-6 另接在用户消息前面 | 十四条样本文本，一条对一条落进它那条用例。落法一样，并成一行写，号列全。DATA-5、DATA-6 另有一处保真度折扣，见 2.1 第 4 小节第 3 条 |
 | DATA-15 | 夹具里 `…/cases/tp05-01-TC-7-file_blocked_reports_where/fixture/只读样本.md` | 没有写权限的文档样本；权限靠工作树带过去，**git 不存这个属性**，重新克隆之后要在工作树里重设一次（`chmod 444`），见 2.1 第 2 小节 |
@@ -24,7 +26,7 @@
 - **用例配置的文件名**：`python scripts/issue_ids.py <产出目录> --case-dirs` 打出来是什么就写什么，后面加 `.yaml`——八条就是 `tp01-01-TC-1-fix_only_what_should_change.yaml` 这样。
 - **配置里面用注释带编号**：每条用例的输入上方、每条判据上方，写出它兑现的 `TP-`／`TC-`／`TCOV-`／`DATA-`／`ENV-` 号，一条一个号、不写范围。
 
-**相对路径的基准是 `evals/`。**skill-up 找技能根的办法是：从 `eval.yaml` 所在目录往上找带 `SKILL.md` 的目录；找不到就退到「`eval.yaml` 所在目录的上一层」。技能在 `plugin/skills/plain-language/` 下、评测材料在 `evals/plain-language/` 下，两处不在一块，所以上面那条「往上找」永远找不到，每次都退一步——配置摆在 `evals/plain-language/` 里，退一步正好是 `evals/`，基准就是它。于是每一条相对路径都带 `plain-language/` 这个前缀：`skills[].path` 写 `../plugin/skills/plain-language`、`cases.files` 写 `plain-language/cases/...`、`context.repo_fixture` 写 `plain-language/fixtures/repos/subject`。每次跑都会打一条 `SKILL.md not found ... falling back to ...\evals` 的警告，是上面那一步退让的正常产物，不是错。
+**相对路径的基准是 `evals/`。**技能与评测材料不在一棵树里，skill-up 找不到技能根，退让到 `eval.yaml` 所在目录的上一层——正好是 `evals/`（退让规则见 `usage-notes.md` 第七节）。所以每条相对路径都带 `plain-language/` 前缀：`skills[].path` 写 `../plugin/skills/plain-language`、`cases.files` 写 `plain-language/cases/...`、`context.repo_fixture` 写 `plain-language/fixtures/repos/subject`。跑起来会打一条 `SKILL.md not found ... falling back to` 的警告，是那一步退让的正常产物，不是错。
 
 表里那一栏是**从评测材料根算起**的相对路径（`eval.yaml`、`cases/…`）。这七份文档自己住在评测材料根下的 `test-case-design/` 里，落成的配置、用例、夹具、报告摆在它的上一级，与产出目录并列——不从一个算。
 
@@ -39,11 +41,11 @@
 - **运行一**：装技能，跑 TP-1 至 TP-7（TC-1 至 TC-7），配置是 `eval.yaml`。
 - **运行二**：不装技能，跑 TP-8（TC-8），配置是 `eval-no-skill.yaml`。
 
-分两次的理由：技能配在 `eval.yaml` 这一层，一条用例一层配不了——skill-up 的用例配置里没有按用例的 `skills` 字段。TC-8 那一档要的正是「`rules.md` 已经在上下文里、但技能没被唤起」，装不装技能是两次运行的分别。八条测试规程落成八条用例配置，技能本身一个字不改。
+技能只能配在 `eval.yaml` 那一层，一条用例一层配不了，所以分两次（见 `usage-notes.md` 第三节）。TC-8 那一档要的正是「`rules.md` 已经在上下文里、但技能没被唤起」，装不装技能是两次运行的分别。八条测试规程落成八条用例配置，技能本身一个字不改。
 
 **2. 工作区怎么来**
 
-每条用例开跑前，skill-up 自己在系统临时目录下新建一个空的 `skill-up-<随机数>` 当工作区，跑完删掉；重试与迭代各起一个。ENV-6 要的「能重来、能隔离」由框架自己保证，不靠人记得重建——**不用 `--workspace`**。
+每条用例各起一个干净的临时工作区，跑完删掉——ENV-6 要的「能重来、能隔离」由框架自己保证，不靠人记得重建，**不用 `--workspace`**。
 
 这个空目录里只进三样东西，一样都不来自本仓库的工作树：
 
@@ -51,23 +53,23 @@
 2. **技能**：随后装到 `.claude/skills/plain-language/`，照 `include` 只装 `SKILL.md` 与 `rules.md`（运行二不装这一档）。
 3. **夹具**：最后把 `evals/plain-language/fixtures/repos/subject/` 这棵子树的**内容**铺到工作区根上，由 `context.repo_fixture: plain-language/fixtures/repos/subject` 指定。五份样本摆在这棵树里，位置照 DATA-7 至 DATA-14 那几条消息写的。
 
-顺序是实测的：`setup_steps` 跑在夹具铺进来**之前**。所以夹具里不许有 `CLAUDE.md`——放了会把注入冲掉。
+**夹具里不许放 `CLAUDE.md`**——放一份同名的会把注入冲掉（见 `usage-notes.md` 第六节）。
 
-**只读那份样本的权限靠工作树带过去。**skill-up 铺夹具是逐字节写文件、连原文件的权限一起带上（`none` 这一档的 `UploadDir` 保留源文件的模式位），所以 DATA-15 在工作树里设成只读，铺进工作区之后还是只读——TC-7 判据⑤要的「写不进去」这个前提才成立。**git 不存这个属性**（它只存执行位），重新克隆仓库之后那份文件又变回可写的，跑之前要在工作树里重设一次：
+**只读那份样本的权限靠工作树带过去**，TC-7 判据⑤要的「写不进去」这个前提才成立。**git 不存这个属性**，重新克隆之后那份文件又变回可写的，跑之前要在工作树里重设一次：
 
 ```bash
 chmod 444 "C:/Study/shared-skills/evals/plain-language/fixtures/repos/subject/evals/plain-language/cases/tp05-01-TC-7-file_blocked_reports_where/fixture/只读样本.md"
 ```
 
-没设成只读就跑，agent 会把它改掉，判据⑤判不过，屏幕上看不出是环境没摆对——所以这条要在跑之前自己核一眼。
+没设成只读就跑，agent 会把它改掉，判据⑤判不过，屏幕上看不出是环境没摆对——跑之前自己核一眼。
 
-**差集要开 `context.git.init`。**工作区是新建的空目录，不是 git 仓库，不开这一项差集会被**静默**省掉——不报错、不中断，只在判官材料的清单里留一行 `workspace_diff: omit`。开了之后，基线是在夹具与注入都到位之后拍的，所以差集里只剩被测 agent 改的东西。用到 `workspace_diff` 的五条（TC-1、TC-2、TC-3、TC-6、TC-7）都带这一项；另外三条不带，因为它们的判据不看盘上改动，带了也是白拍。
+**差集要开 `context.git.init`。**不开会被**静默**省掉，判官材料的清单里留一行 `workspace_diff: omit`。基线在夹具与注入都到位之后拍，差集里只剩被测 agent 改的东西。用到 `workspace_diff` 的五条（TC-1、TC-2、TC-3、TC-6、TC-7）都带这一项；另外三条不带，它们的判据不看盘上改动，带了也是白拍。
 
-**判据进不来。**skill-up 装技能时无条件跳过 `evals/` 这棵子树（`internal/agent/skill.go` 里写死的那条），与 `include`、`exclude` 无关；工作区又是个新建的空目录，不是仓库副本。判据、六份设计稿、技能源码一个字节都到不了被测 agent 手里。先前那套摆法是拿仓库副本当工作区，为的是让样本路径指得到；那个目的现在由夹具顶上，而夹具只带样本、不带别的，代价小得多。
+**判据进不来。**判据、六份设计稿、技能源码一个字节都到不了被测 agent 手里：装技能时 `evals/` 那棵子树一律跳过，工作区又是个新建的空目录，不是仓库副本。
 
 **3. 判据两层怎么落**
 
-通用稿的判据分两层，本方案里：机械层用 `expect` 门槛（零花费的前置闸门，不过就不跑判官），语义层用 `judge`。八条都用 `agent_judge`，没有一条改用 `rule_based` 或 `script`：判的都是「改了哪几处、哪几处一个字没动、回复里说了什么」，落不到命令、退出码或盘上文件上。
+机械层用 `expect` 门槛，语义层用 `judge`。八条都用 `agent_judge`，没有一条改用 `rule_based` 或 `script`：判的都是「改了哪几处、哪几处一个字没动、回复里说了什么」，落不到命令、退出码或盘上文件上。
 
 逐条看：
 
@@ -88,32 +90,28 @@ chmod 444 "C:/Study/shared-skills/evals/plain-language/fixtures/repos/subject/ev
 
 **4. 消息与上下文怎么渲染**
 
-**第 1 条：技能怎么被唤起。**消息里的 `/shared-skills:plain-language` 渲染成 `/plain-language`。skill-up 只把技能目录装到 `.claude/skills/<技能名>/`，没有装插件这条道，带插件前缀唤起不来。
+**第 1 条：技能怎么被唤起。**消息里的 `/shared-skills:plain-language` 渲染成 `/plain-language`。
 
-**第 2 条：样本路径。**按工作区里的相对路径原样给（`evals/plain-language/cases/<用例名>/fixture/样本.md`）。这个路径在新工作区里指得到，靠的是夹具照同一串路径把样本摆进去，不再靠「工作区是本仓库的副本」。这一串路径是**工作区里**的路径，跟本仓库现在的 `cases/` 底下摆什么无关——那儿现在只有 `<用例名>.yaml`，样本只住在夹具里。
+**第 2 条：样本路径。**按工作区里的相对路径原样给（`evals/plain-language/cases/<用例名>/fixture/样本.md`）。这个路径在新工作区里指得到，靠的是夹具照同一串路径把样本摆进去。这一串路径是**工作区里**的路径，跟本仓库现在的 `cases/` 底下摆什么无关——那儿现在只有 `<用例名>.yaml`，样本只住在夹具里。
 
-**第 3 条：TC-4、TC-5 的「上一条回答」。**按甲路径渲染——把 DATA-5、DATA-6 的全文接在用户消息前面，写成「你上一条回答我读不懂：<那段全文>。重讲一遍」。
+**第 3 条：TC-4、TC-5 的「上一条回答」。**把 DATA-5、DATA-6 的全文接在用户消息前面，**两条各自保留 DATA-10、DATA-11 的措辞**：TC-4 是「你上一条回答我读不懂：<DATA-5 全文>。重讲一遍」，TC-5 是「这段我看不懂：<DATA-6 全文>。重讲一遍」——**不要两条套同一个模板**，TC-5 那句「这段」要跟判据里「这段没有需要改的地方」指同一段。这是一处**保真度折扣**：真跑时那段文字该是对话历史里的一条独立消息，渲染之后成了同一条用户消息里的一段引用（机制见 `usage-notes.md` 第七节）。所以判据里不要写「上一条回答在哪」，只判「重讲的那段正文」。
 
-这里有一处**保真度折扣**，读判据的时候要知道：真跑时那段文字是对话历史里的一条独立消息；渲染之后，它变成同一条用户消息里的一段引用。原因是 skill-up 的多轮对话只收 `user` 角色，塞不进一条 assistant 消息。受影响的是「上一条回答在哪」这件事——判据里不要写它；不受影响的是「重讲的那段正文」——判据里判的正是这个，照旧。
+**这处折扣值多少，量过。**三种摆法都跑过：出货这条跑五次，五次判不过（最近一次 45.5%）；把 **TC-5 那句**换成「你上一条回答我看不懂」，跑三次，三次不过；让它第一轮先把那段原样复述一遍再说「这段我看不懂，重讲一遍」——那样那段就**真的**是它自己的上一条回答，折扣绕开了——跑三次，过一次。**TC-5 判不过这笔账要分两半记**：一半是这处折扣（绕开之前 100% 挂，绕开之后 67% 挂），一半是真的行为缺口——`SKILL.md` 里「原文没问题就说『这段没有需要改的地方』，不硬凑」那句是写着的，但它只有约三分之一的时候照做。这是被测技能的问题，不是摆法问题；改技能要抬版本号，本次没动。**备选**：这两条本方案不跑，等 skill-up 支持注入 assistant 轮次再补。
 
-**这处折扣值多少，量过。**三种摆法都跑过：出货这一条（DATA-6 接在用户消息里）跑五次，五次判不过（最近一次 45.5%，11 条判据过 5 条，挂的六条是同一件事的六种说法）；把用户消息的措辞换成「你上一条回答我看不懂」、让「这段」明确指回上一条回答，跑三次，三次不过；让 agent 第一轮先把那段文字原样复述一遍、第二轮才说「这段我看不懂，重讲一遍」——这样那段文字就**真的**是它自己的上一条回答，折扣被绕开——跑三次，过一次。**TC-5 判不过这笔账因此要分两半记**：一半是这处折扣（绕开之前 100% 挂，绕开之后 67% 挂），一半是真的行为缺口——`SKILL.md` 里「原文没问题就说『这段没有需要改的地方』，不硬凑」那句是写着的，但它只有约三分之一的时候照做。这是被测技能的问题，不是这条用例的摆法问题；改技能要抬版本号，本次没动。
-
-**备选（丁）**：这两条本方案不跑，等 skill-up 支持注入 assistant 轮次再补。上面第三种摆法能绕开折扣，代价是多一轮、且第一轮的复述未必逐字，出货的仍是甲路径。
-
-**第 4 条：ENV-5 的注入怎么摆。**走「项目根目录的 `CLAUDE.md`」这条道，写进两次运行各自的 `environment.setup_steps`——一条 `cat "<绝对路径>" >> CLAUDE.md`。Claude Code 起会话时会读项目根目录的 `CLAUDE.md`，它与 SessionStart 钩子一样，是会话开头的常驻上下文。
+**第 4 条：ENV-5 的注入怎么摆。**走「项目根目录的 `CLAUDE.md`」这条道，写进两次运行各自的 `environment.setup_steps`——一条 `cat "<绝对路径>" >> CLAUDE.md`。
 
 **两次运行开跑前都会接**，因为只给运行二接会让运行一那七条没有常驻注入——与测试环境需求里「其余七条规程跑的时候 `rules.md` 同样已经注入」对不上，也与真实用法对不上（真实使用者那里规则本来就常驻，技能另外也在）。两次都接，八条的差别才回到「用不用 skill」这一件事上。
 
-命令里那条路径是**绝对路径，写死在本机**，换机器要改。相对路径在这里用不了：`setup_steps` 在工作区里跑，而那个时刻工作区还是个空目录，没有可作基准的东西。命令由 skill-up 自己找的 Git Bash 跑（`internal/platform/shell_windows.go`）；机器上没有 Git Bash 会退到 cmd.exe，那条命令里的 `cat` 与 `>>` 就不成立了。
+那条路径是**绝对路径，写死在本机**，换机器要改：那一刻工作区还是个空目录，相对路径没有可作基准的东西。命令还要挑一个找得着 bash 的写法（见 `usage-notes.md` 第四节）。
 
-另有三条道试过、都不走：不用钩子（skill-up 拼的命令带 `--settings '{"disableAllHooks":true}'`，钩子一律不生效）；不用 `claude -p --append-system-prompt`（skill-up 没有传额外参数的口子，这条命令行它拼不出来）；不把 `rules.md` 接在用户消息前面（那样它就成了这一条消息里的内容，不再是被测的那个常驻注入，而 TC-8 判的正是常驻注入之下的落笔）；不在夹具里放一份命名成 `CLAUDE.md` 的副本（那一份会跟真仓库那份各自漂移，改了 `rules.md` 忘了同步夹具，跑出来的结论就不作数——从绝对路径读真仓库那份，只有一份源）。
+这条道是筛剩下的：钩子一律不生效；额外参数接不上去；夹具里放副本会跟真仓库那份各自漂移；接在用户消息前面不再是常驻上下文（TC-8 判的正是常驻注入之下的落笔）——四条都不合 ENV-5 要的那件事，见 `usage-notes.md` 第一节。
 
 **第 5 条：TC-7 的两轮怎么发。**这一条用 `input.turns` 发两条用户消息，一轮一条（其余七条用 `input.prompt` 发一条）。判据按轮分开写：判官拿到的材料是完整 transcript 加上最后一条回复，第一轮那条回复要从 transcript 里取——判据第一条明写了这件事。
 
 **5. 跑不了原样的那几条**
 
 - TC-4、TC-5：第 4 小节第 3 条那处折扣。其余四条（TC-1、TC-2、TC-3、TC-6）与设计稿一致，没有出入。
-- TC-7：**这一条走两轮**，其余七条一轮。第一轮那个路径本来就不存在（与设计稿一致，不用另摆什么）；第二轮那份只读样本按 DATA-15 摆在工作树里，权限靠工作树带过去（见第 2 小节）。两轮合在一条用例里，是因为两路的触发方式与失败形状相同，分开只是把同一条链再走一遍。这条用例的前身在实测里暴露过一次口径问题：那一轮给的是不存在的路径，判据却要求「回复里把改好的文本一并给出」——那份文档不存在，没有正文可附，判据必然判不过。拆成两轮正是为了把这个口径钉死：读不到那一档只判「说清是哪个路径」，给正文那一档才判「把改好的文本一并给出」。
+- TC-7：**这一条走两轮**，其余七条一轮。第一轮那个路径本来就不存在（与设计稿一致，不用另摆什么）；第二轮那份只读样本按 DATA-15 摆在工作树里，权限靠工作树带过去（见第 2 小节）。两轮合在一条用例里，是因为两路的触发方式与失败形状相同，分开只是把同一条链再走一遍。这条用例的前身在实测里暴露过一次口径问题——给的是不存在的路径，判据却要求「把改好的文本一并给出」，没有正文可附，必然判不过。拆成两轮正是为了把这个口径钉死：读不到那一档只判「说清是哪个路径」，给正文那一档才判「把改好的文本一并给出」。
 - TC-8：这一档不经 skill，跑法与其余七条不同——不装技能，只靠常驻注入的那份 `rules.md`。这是设计稿里就写着的，不是折扣。
 
 ### 2.2 怎么跑、报告落在哪
@@ -122,14 +120,14 @@ chmod 444 "C:/Study/shared-skills/evals/plain-language/fixtures/repos/subject/ev
 
 ```powershell
 $ts = Get-Date -Format "yyyy-MM-dd-HHmm"
-C:/Study/skill-up/bin/skill-up.exe run C:/Study/shared-skills/evals/plain-language/eval.yaml --output-dir "C:/Study/shared-skills/evals/plain-language/runs/$ts"
-C:/Study/skill-up/bin/skill-up.exe run C:/Study/shared-skills/evals/plain-language/eval-no-skill.yaml --output-dir "C:/Study/shared-skills/evals/plain-language/runs/$ts"
+C:/Users/Administrator/.local/bin/skill-up.exe run C:/Study/shared-skills/evals/plain-language/eval.yaml --output-dir "C:/Study/shared-skills/evals/plain-language/runs/$ts"
+C:/Users/Administrator/.local/bin/skill-up.exe run C:/Study/shared-skills/evals/plain-language/eval-no-skill.yaml --output-dir "C:/Study/shared-skills/evals/plain-language/runs/$ts"
 ```
 
-两条命令落进同一个目录，各成一回：运行一先跑，是 `iteration-1/`；运行二接着跑，是 `iteration-2/`。`--iteration` 默认自动追加 `iteration-N/`，它数的是**这个输出目录下跑过几回**，不看跑的是哪份配置。哪一回是哪个，报告里认得出：`result.json` 的 `start_time` 与 `requested_configuration` 记着这一回跑的是哪份配置，每条用例的目录名（`tp01-01-TC-1-fix_only_what_should_change` 这样）本身带着规程号与用例号，而运行二只有 `eval-no-skill.yaml` 里列的那一条 TP-8。
+两条命令落进同一个目录，各成一回：运行一是 `iteration-1/`，运行二是 `iteration-2/`（`--iteration` 默认怎么追加见 `/skill-upper` 的 `cli.md`）。哪一回是哪个，报告里认得出：`result.json` 的 `start_time` 与 `requested_configuration` 记着跑的是哪份配置，每条用例的目录名本身带着规程号与用例号，而运行二只有 `eval-no-skill.yaml` 里列的那一条 TP-8。
 
-**一批一个时间戳，后跑的盖不掉先跑的。**再跑一批（改完配置复跑、隔天再跑）就另取一次当前时刻，落进新的 `runs/<时间戳>/`，前几批的报告原样留着。
+**一批一个时间戳，后跑的盖不掉先跑的。**再跑一批就另取一次当前时刻，落进新的 `runs/<时间戳>/`，前几批的报告原样留着。
 
-跑之前不用手工摆任何东西：工作区由 skill-up 新建，夹具与 `rules.md` 的注入由配置里的 `context.repo_fixture` 与 `environment.setup_steps` 各做各的（2.1 第 2 小节、第 4 小节第 4 条）。两次运行之间也不用复位——它们的工作区是两个互不相干的临时目录。
+跑之前不用手工摆任何东西：工作区由 skill-up 新建，夹具与 `rules.md` 的注入由配置里的 `context.repo_fixture` 与 `environment.setup_steps` 各做各的。两次运行之间也不用复位——它们的工作区是两个互不相干的临时目录。
 
-`--output-dir` 落在 `plugin/` 外面，报告与事件日志不进 git：`.gitignore` 里那条 `evals/*/runs/` 把整个 `runs/` 盖住了，`evals/` 下另外几套评测材料的报告也走同一条。
+`--output-dir` 落在 `plugin/` 外面，报告与事件日志不进 git：`.gitignore` 里那条 `evals/*/runs/` 把整个 `runs/` 盖住了。

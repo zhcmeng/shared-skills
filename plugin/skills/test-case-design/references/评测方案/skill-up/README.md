@@ -9,10 +9,10 @@
 
 **配置字段怎么填、命令怎么用，不在这里。**那在 `/skill-upper` 技能里（`~/.claude/skills/skill-upper/SKILL.md` 与它 `references/` 下那几份）。写第七份之前先确认它装着，没装就让用户装。
 
-**上游那两份给人看的手册不随任何技能发**（上游仓库 `docs/zh/guide/` 下的 `writing-evals.md` 与 `cli-reference.md`，是文档站的内容）。从前这里随包带着它们，现在不带了：配置与命令那两块 `/skill-upper` 的参考文档覆盖得住——实测过，只给那一份参考、不给这里，写第七份的人照样把字段与命令写对。**它没写到的收在 `usage-notes.md` 里**：第五、六节是这次查漏补上的，第一到三节照上游源码读出来、第四节出自上游文档站的 `windows.md`、第一节里那条 `CLAUDE.md` 出自 Claude Code 自己的行为——这几类也都不在 `/skill-upper` 那儿。
+**上游那两份给人看的手册不随任何技能发**（上游仓库 `docs/zh/guide/` 下的 `writing-evals.md` 与 `cli-reference.md`，是文档站的内容）。从前这里随包带着它们，现在不带了：配置与命令那两块 `/skill-upper` 的参考文档覆盖得住——实测过，只给那一份参考、不给这里，写第七份的人照样把字段与命令写对。**它没写到的收在 `usage-notes.md` 里**：第五到七节是查漏补上的，第一到三节照上游源码读出来、第四节出自上游文档站的 `windows.md`、第一节里那条 `CLAUDE.md` 出自 Claude Code 自己的行为——这几类也都不在 `/skill-upper` 那儿。
 
-**出处**：<https://github.com/zhcmeng/skill-up>，钉住的版本是 `main @ 7f1ff9b8e2d7c654728de526867f2f7e7b78ea51`（2026-09-29）。上游没有发布 tag，所以按 commit 钉。上面两份都对着这一个版本。
+**出处**：<https://github.com/zhcmeng/skill-up>，钉住的版本是 `main @ 7f1ff9b8e2d7c654728de526867f2f7e7b78ea51`（2026-09-29）。上游没有发布 tag，所以按 commit 钉。上面两份都对着这一个版本；另外机器上装的发布版是 `v0.12.0`（2026-09-18），`usage-notes.md` 里有三处是在那一份上当场核过的——两个号会各走各的，见 `usage-notes.md` 文末。
 
-**怎么更新**：`usage-notes.md` 的第一到三节与第六节是照上游**源码**读出来的结论，每条注了出处（源码文件与行号）；第四节照上游文档站的 `docs/zh/guide/windows.md`、第五节照同站那两份 guide 写的，没从源码核；第一节里那条 `CLAUDE.md` 是 Claude Code 自己的行为，照它那边的文档核。**都要照原处重核一遍再改**——上游改了实现或改了那几页，它不会自己报警，只会说错话。改完把钉的 commit 换成新那一个，两处都要换：这一节这一行、`usage-notes.md` 顶上。
+**怎么更新**：`usage-notes.md` 的第一到三节、第六节与第七节是照上游**源码**读出来的结论，每条注了出处（源码文件与行号）；第四节照上游文档站的 `docs/zh/guide/windows.md`、第五节照同站那两份 guide 写的，没从源码核；第一节里那条 `CLAUDE.md` 是 Claude Code 自己的行为，照它那边的文档核。**都要照原处重核一遍再改**——上游改了实现或改了那几页，它不会自己报警，只会说错话。改完把钉的 commit 换成新那一个，两处都要换：这一节这一行、`usage-notes.md` 顶上。
 
 **许可**：这一目录里没有上游原文，因此不附上游许可。插件整体的许可见仓库根。

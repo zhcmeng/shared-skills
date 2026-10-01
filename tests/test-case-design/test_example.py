@@ -6,7 +6,7 @@
 
 `references/` 下那几份是填不准时照抄的东西——范本等于这套栏目的事实定义，模板等于
 各栏的写法定义。它们自己要是跟自己定的规矩对不上，照抄的人就跟着错，而且错在技能
-自己身上。十一条：
+自己身上。十二条：
 
 1. 范本拆成七份产出，喂给 check_docs.py 要零错零提示；
 2. 技能自己的文字里不许出现它自己列进「容易写成」右列的词；
@@ -26,7 +26,10 @@
 10. 第七份里不贴配置原文——范本里一个 yaml 围栏都没有；
 11. `usage-notes.md` 第一节里写着钩子被禁掉之后常驻上下文的替代道（工作区根目录那份
     `CLAUDE.md`）——上游只讲到钩子不生效为止，缺了这一句，写第七份的人碰到通用稿里
-    的钩子注入只能标「待确认」。
+    的钩子注入只能标「待确认」；
+12. `usage-notes.md` 里另外几条查漏补上的事实（命令行的口子、夹具的权限位、`skills`
+    配在哪一层、夹具里的同名 `CLAUDE.md`、路径退让、多轮只收 `user`）各在各的那一节
+    里——每条都是实跑量出来的，缺了它落成那一步就在那一处走岔，且不报错。
 """
 
 import contextlib
@@ -387,6 +390,64 @@ def check_hook_alt_route():
     return []
 
 
+# 下面这些事实是查漏补上的：上游那几份参考文档里一条都没有，删掉之后文档照样
+# 读得通，只是写第七份的人会照着印象编——而编出来的东西看不出是编的。
+#
+# 每一条都是实跑量出来的：缺了它，落成那一步就在那一处走岔，且不报错。
+# 记号挑的是源码符号或定死的措辞，不挑整句——整句一改措辞就误报。
+USAGE_FACTS = [
+    ("## 一、一次运行里，被测那边是怎么起的",
+     "buildClaudePrintCmd",
+     "命令行是拼死的，没有传额外参数的口子——写第七份的人会去试 --append-system-prompt"),
+    ("## 一、一次运行里，被测那边是怎么起的",
+     "不进当轮消息",
+     "常驻上下文只剩 `CLAUDE.md` 一条道——不点明这一条，会把「接在用户消息前面」当成等价摆法"),
+    ("## 二、工作区",
+     "UploadDir",
+     "铺夹具是逐字节写、连源文件的权限位一起带——这是只读样本能带进工作区的依据"),
+    ("## 二、工作区",
+     "git 不存权限位",
+     "重新克隆之后只读属性会丢，跑之前要在工作树里重设一次"),
+    ("## 三、技能是怎么装进去的",
+     "一条用例一层没有这个字段",
+     "`skills` 只能配在 `eval.yaml` 那一层——要「有的装有的不装」只能拆两份配置"),
+    ("## 六、`environment.setup_steps` 在 `type: none` 下照样跑",
+     "夹具里就不许放同名的",
+     "夹具排在 `setup_steps` 之后，放一份同名的 `CLAUDE.md` 会把注入冲掉"),
+    ("## 七、路径怎么算、消息怎么拼",
+     "FindSkillDir",
+     "相对路径的基准会退让到 `eval.yaml` 的上一层——不按实际退让的那一层算，路径全错"),
+    ("## 七、路径怎么算、消息怎么拼",
+     'role must be "user"',
+     "多轮只收 `user` 角色——「让它读到上一条回答」塞不进去，只能接在用户消息里"),
+]
+
+
+def check_usage_notes_facts():
+    """那一节里那几条事实都还在。
+
+    查法与 `check_hook_alt_route` 同一路：先按标题切出那一节，再在那一节里找记号
+    （不在全文找——同一个词常在别节另有主张，全文找会把「写在别处」当成「写在这一处」）。
+    """
+    text = (VENDOR_DIR / "usage-notes.md").read_text(encoding="utf-8")
+    sections = {}
+    for head, _mark, _why in USAGE_FACTS:
+        if head in sections:
+            continue
+        parts = text.split(head, 1)
+        sections[head] = parts[1].split("\n## ", 1)[0] if len(parts) > 1 else None
+    problems = []
+    for head, mark, why in USAGE_FACTS:
+        body = sections[head]
+        if body is None:
+            problems.append("usage-notes.md 里找不到这一节（找的是以「%s」起头的那一行）"
+                            "——缺了整节，底下几条也就都没了" % head)
+        elif mark not in body:
+            problems.append("usage-notes.md 的「%s」里没写「%s」：%s"
+                            % (head.lstrip("# "), mark, why))
+    return problems
+
+
 # 第七份的 2.3 说报告落在哪。报告不进 git 这件事由仓库根那条 .gitignore 兜着——
 # 两处分叉的后果是静默的：文档说着「不进 git」，报告却跟着提交上去。
 RUNS_DIR = "runs/"
@@ -466,6 +527,8 @@ def main():
          "删掉的文件名不再被点到", check_vendored),
         ("钩子被禁掉之后，常驻上下文的替代道（工作区根那份 `CLAUDE.md`）写在第一节里",
          check_hook_alt_route),
+        ("usage-notes.md 里那几条查漏补上的事实，各在各的那一节里",
+         check_usage_notes_facts),
         ("第七份里的报告落在 `runs/`，仓库根的 .gitignore 也盖得住", check_runs_dir_ignored),
         ("第七份里不贴配置原文：范本第七节里没有 yaml 围栏", check_no_config_pasted),
     ]
