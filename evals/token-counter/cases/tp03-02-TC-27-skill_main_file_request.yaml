@@ -1,0 +1,30 @@
+# 落到 cases/tp03-02-TC-27-skill_main_file_request.yaml
+# TP-3
+# TC-27
+# TM-4
+# TCOV-47
+# DATA-16、DATA-2（chinese_file 按 DATA-2 的字节摆在夹具里，逐字节铺进工作区）
+# ENV-1、ENV-2、ENV-3、ENV-7、ENV-8
+#
+# 判据从测试用例规格说明的「预期结果」栏压出来。
+id: tp03-02-TC-27-skill_main_file_request
+title: 一句数文件的请求走完整条链
+description: 把 DATA-16 那条消息原样发进会话；答话里报出那份文件的 token 数 3
+
+context:
+  # 夹具：按 DATA-2 摆好的 chinese_file，逐字节写、连权限位一起带进工作区
+  repo_fixture: token-counter/fixtures/samples
+
+input:
+  prompt: |
+    算一下这个文件的 token：chinese_file
+
+judge:
+  type: agent_judge
+  model: anthropic/claude-sonnet-4-6
+  criteria:
+    # 覆盖 TCOV-47（主场景走完）
+    - "答话里报出 token 数 3。"
+    # 覆盖 TCOV-47
+    - "过程记录里能看到脚本被跑了起来，交进去的是那份文件的路径（chinese_file）。"
+  pass_threshold: 1.0

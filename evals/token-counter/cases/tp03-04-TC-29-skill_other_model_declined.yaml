@@ -1,0 +1,28 @@
+# 落到 cases/tp03-04-TC-29-skill_other_model_declined.yaml
+# TP-3
+# TC-29
+# TM-4
+# TCOV-24、TCOV-25、TCOV-48
+# DATA-18
+# ENV-1、ENV-2、ENV-3、ENV-7
+#
+# 判据从测试用例规格说明的「预期结果」栏压出来；措辞不限，判的是意思有没有。
+id: tp03-04-TC-29-skill_other_model_declined
+title: 点名别的模型时说明不覆盖、不给近似数
+description: 把 DATA-18 那条消息原样发进会话；答话里说明本技能不覆盖那个模型，不给它任何 token 数
+
+input:
+  prompt: |
+    数一下冒号后面这一整行文本在 Claude 上大概是多少 token：你好，世界
+
+judge:
+  type: agent_judge
+  model: anthropic/claude-sonnet-4-6
+  criteria:
+    # 覆盖 TCOV-48（点名别的模型这个备选场景）、TCOV-24（说明不覆盖）
+    - "答话里明确说明本技能不覆盖那个模型（Claude）；措辞不限，判的是这个意思有没有。"
+    # 覆盖 TCOV-25（不许拿别的数冒充）
+    - "答话里没有出现以那个模型（Claude）为名的 token 数。"
+    # 覆盖 TCOV-25
+    - "没有绕开本技能从别处拿一个估算数冒充——没有用别处的数顶上、也没有给出近似估算。"
+  pass_threshold: 1.0

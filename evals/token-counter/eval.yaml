@@ -1,0 +1,60 @@
+# 批二·第一轮：技能层常规九条（TP-3）。用例：TC-26 至 TC-31、TC-33 至 TC-35。
+#
+# 相对路径的基准是 evals/：skill-up 从本配置所在目录往上找带 SKILL.md 的目录（最多 10 层），
+# 找不到就退到「配置所在目录的上一层」。这份配置就在 evals/token-counter/ 下，
+# 所以基准是 evals/，下面每条相对路径都带 token-counter/ 这个前缀。
+# 依据：实施方案规格说明的「一、通用稿的编号落到哪」与 2.1、2.2。
+#
+# 环境项（ENV）落在哪儿：
+#   ENV-1、ENV-2：environment.type: none——测试与评测都在跑测的这台机器上。
+#   ENV-3：skills 那一段——技能按使用者机器上装好的样子装进工作区（.claude/skills/token-counter/）。
+#   ENV-7：report.artifacts 取 transcript；各条用例的判官上下文取默认的 standard。
+#   ENV-8：框架每条用例各建一个空工作区——夹具铺在里面，跑完就删。
+#   ENV-4、ENV-5、ENV-6 不在这份配置里：它们是脚本批那几条用的，
+#   批二这边靠开跑前的两处确认照看（见实施方案 2.2）。
+#
+# 编号在盘上怎么留痕：每份用例配置的文件头与判据上方都带编号（照「落成约定」，
+# 一条一个号、连字符原样写）；这一份不新编任何号。
+schema_version: v1alpha1
+
+environment:
+  type: none
+
+mcp:
+  servers: []
+
+skills:
+  - source: local_path
+    path: ../plugin/skills/token-counter
+
+engine:
+  name: claude_code
+
+cases:
+  files:
+    - token-counter/cases/tp03-01-TC-26-skill_main_text_request.yaml
+    - token-counter/cases/tp03-02-TC-27-skill_main_file_request.yaml
+    - token-counter/cases/tp03-03-TC-28-skill_tokens_only_reply.yaml
+    - token-counter/cases/tp03-04-TC-29-skill_other_model_declined.yaml
+    - token-counter/cases/tp03-05-TC-30-skill_cost_caliber.yaml
+    - token-counter/cases/tp03-06-TC-31-skill_full_request_assembled.yaml
+    - token-counter/cases/tp03-07-TC-33-skill_special_token_kept.yaml
+    - token-counter/cases/tp03-08-TC-34-skill_missing_path_reply.yaml
+    - token-counter/cases/tp03-09-TC-35-skill_undecodable_file_reply.yaml
+  defaults:
+    timeout_seconds: 600
+    max_turns: 12
+    # 先筛：会话本身跑挂了就不花判官那份钱
+    expect:
+      exit_code: 0
+  # 先按 1 串着跑（报告好读）；各条用例各有各的工作区，要提速再改大
+  parallelism: 1
+  retry_policy:
+    max_retries: 0
+
+benchmark:
+  enabled: false
+
+report:
+  formats: [json, html]
+  artifacts: [transcript]

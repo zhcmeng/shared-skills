@@ -1,0 +1,27 @@
+# 落到 cases/tp03-06-TC-31-skill_full_request_assembled.yaml
+# TP-3
+# TC-31
+# TM-4
+# TCOV-26、TCOV-50
+# DATA-20
+# ENV-1、ENV-2、ENV-3、ENV-7
+#
+# 判据从测试用例规格说明的「预期结果」栏压出来。不判拼装出来的字节与哪份模板
+# 逐字相同，也不写死拼装后的 token 数——依据点名的那份模板文件不随技能分发。
+id: tp03-06-TC-31-skill_full_request_assembled
+title: 估完整对话请求时先拼装再计数
+description: 把 DATA-20 那条消息原样发进会话；过程记录里交进脚本的是拼装后的整段请求，答话里报出的数比原文单算的大
+
+input:
+  prompt: |
+    我要把冒号后面这一整行作为 system 提示发给 DeepSeek，后面再接一句用户消息「今天天气怎么样」，估一下这次请求一共多少 token：你好，世界
+
+judge:
+  type: agent_judge
+  model: anthropic/claude-sonnet-4-6
+  criteria:
+    # 覆盖 TCOV-50（完整对话请求这个备选场景）、TCOV-26（先拼装再计数）
+    - "过程记录里交进脚本的是按对话模板拼装后的整段请求（带消息结构），不是那一行原文；不判拼装出来的字节与哪份模板逐字相同。"
+    # 覆盖 TCOV-26
+    - "答话里报出的数比那一行原文单算的数（3）大；不写死拼装后的 token 数。"
+  pass_threshold: 1.0

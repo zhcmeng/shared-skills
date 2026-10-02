@@ -1,0 +1,29 @@
+# 落到 cases/tp03-09-TC-35-skill_undecodable_file_reply.yaml
+# TP-3
+# TC-35
+# TM-4
+# TCOV-6、TCOV-27、TCOV-54
+# DATA-23、DATA-14（gbk_file 按 DATA-14 的字节摆在夹具里）
+# ENV-1、ENV-2、ENV-3、ENV-7、ENV-8
+#
+# 判据从测试用例规格说明的「预期结果」栏压出来；措辞不限，判的是意思有没有。
+id: tp03-09-TC-35-skill_undecodable_file_reply
+title: 文件解不了码时照实说数不了
+description: 把 DATA-23 那条消息原样发进会话（gbk_file 不是 UTF-8）；答话里照实说明数不了，不报任何数
+
+context:
+  repo_fixture: token-counter/fixtures/samples
+
+input:
+  prompt: |
+    数一下这个文件的 token：gbk_file
+
+judge:
+  type: agent_judge
+  model: anthropic/claude-sonnet-4-6
+  criteria:
+    # 覆盖 TCOV-54（输入走不通这个备选场景）、TCOV-6（解不了码）、TCOV-27（怎么收场）
+    - "答话里照实说明那份文件的内容不是 UTF-8、数不了；措辞不限。"
+    # 覆盖 TCOV-54、TCOV-27
+    - "答话里没有报出任何 token 数。"
+  pass_threshold: 1.0

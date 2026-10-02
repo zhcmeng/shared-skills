@@ -1,0 +1,31 @@
+# 落到 cases/tp04-01-TC-32-skill_clean_machine.yaml
+# TP-4
+# TC-32
+# TM-4
+# TCOV-47、TCOV-51
+# DATA-16、DATA-2（chinese_file 按 DATA-2 的字节摆在夹具里）
+# ENV-1、ENV-2、ENV-3、ENV-5、ENV-7、ENV-8
+#
+# 这一条的「干净解释器」由批次的 setup_steps 换（见 eval-clean-machine.yaml 的说明）：
+# 建 ENV-5 的干净解释器、确认它导不进引擎、往工作区根写一份 CLAUDE.md 让会话用它。
+# 判据从测试用例规格说明的「预期结果」栏压出来。
+id: tp04-01-TC-32-skill_clean_machine
+title: 目标机干净时，首次运行照常把整条链走完
+description: 在没装引擎的解释器上把 DATA-16 那条消息原样发进会话；首次运行先把引擎装上（离线、装的是技能副本 wheels/ 里那份包），随后脚本报数
+
+context:
+  repo_fixture: token-counter/fixtures/samples
+
+input:
+  prompt: |
+    算一下这个文件的 token：chinese_file
+
+judge:
+  type: agent_judge
+  model: anthropic/claude-sonnet-4-6
+  criteria:
+    # 覆盖 TCOV-47（主场景走完）
+    - "答话里报出 token 数 3。"
+    # 覆盖 TCOV-51（目标机干净这个备选场景）
+    - "过程记录里能看到首次运行先把引擎装上——装的是技能副本 wheels/ 里那份包、离线；随后脚本报数。"
+  pass_threshold: 1.0

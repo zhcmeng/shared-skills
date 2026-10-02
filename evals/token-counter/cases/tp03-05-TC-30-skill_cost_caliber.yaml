@@ -1,0 +1,28 @@
+# 落到 cases/tp03-05-TC-30-skill_cost_caliber.yaml
+# TP-3
+# TC-30
+# TM-4
+# TCOV-23、TCOV-49
+# DATA-19
+# ENV-1、ENV-2、ENV-3、ENV-7
+#
+# 判据从测试用例规格说明的「预期结果」栏压出来；「点明」这类判意思不判措辞。
+id: tp03-05-TC-30-skill_cost_caliber
+title: 问调用成本时报出数、并点明两处口径
+description: 把 DATA-19 那条消息原样发进会话；答话里报出 token 数 3，并点明离线算不出缓存命中、计费以接口返回的用量为准
+
+input:
+  prompt: |
+    数一下冒号后面这一整行，顺便看看发到 DeepSeek 上大概要花多少钱：你好，世界
+
+judge:
+  type: agent_judge
+  model: anthropic/claude-sonnet-4-6
+  criteria:
+    # 覆盖 TCOV-49（问调用成本这个备选场景）
+    - "答话里报出 token 数 3。"
+    # 覆盖 TCOV-23（点明两处口径）
+    - "答话里点明离线算不出缓存命中——它取决于服务端缓存状态；措辞不限。"
+    # 覆盖 TCOV-23
+    - "答话里点明计费以接口返回的用量为准；措辞不限。"
+  pass_threshold: 1.0

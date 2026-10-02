@@ -1,0 +1,26 @@
+# 落到 cases/tp03-07-TC-33-skill_special_token_kept.yaml
+# TP-3
+# TC-33
+# TM-4
+# TCOV-15、TCOV-53
+# DATA-21
+# ENV-1、ENV-2、ENV-3、ENV-7
+#
+# 判据从测试用例规格说明的「预期结果」栏压出来。
+id: tp03-07-TC-33-skill_special_token_kept
+title: 含特殊 token 的文本原样交进去、按词表计入
+description: 把 DATA-21 那条消息原样发进会话；答话里报出 token 数 1，过程记录里交进去的是原样的那一行
+
+input:
+  prompt: |
+    数一下冒号后面这一整行里有多少 token：<｜end▁of▁sentence｜>
+
+judge:
+  type: agent_judge
+  model: anthropic/claude-sonnet-4-6
+  criteria:
+    # 覆盖 TCOV-53（特殊 token 这个备选场景）；这一条同时兑现 TCOV-15（按词表计入）
+    - "答话里报出 token 数 1。"
+    # 覆盖 TCOV-15、TCOV-53
+    - "过程记录里交进脚本的是原样的那一行——那个特殊 token 没被转义、没被拆开、也没被剥离。"
+  pass_threshold: 1.0

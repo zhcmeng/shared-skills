@@ -63,11 +63,22 @@ wrapped="$(HOME="$test_home" bash "${HOOKS_DIR}/run-hook.cmd" session-start 2>/d
 # 所以这里必须真跑一次 cmd.exe，并且**比对输出而非退出码**——退出码会骗人。
 case "$(uname -s)" in
   MINGW*|MSYS*|CYGWIN*)
-    if ! command -v cmd.exe >/dev/null 2>&1; then
+    # 先按名字找；找不到就退到 %SYSTEMROOT%\System32 下那个——PATH 里不带 System32
+    # 的 shell（本仓库的检查就跑在其中一个上，实测 PATH 里只有 WindowsPowerShell
+    # 与 WindowsApps 两处）用名字找不到它，而它一直躺在那儿。两处都找不到才是真没有。
+    cmd_exe="$(command -v cmd.exe || true)"
+    if [ -z "$cmd_exe" ]; then
+      win_root="${SYSTEMROOT:-C:\\Windows}"
+      cand="$(cygpath -u "$win_root" 2>/dev/null || true)/System32/cmd.exe"
+      if [ -x "$cand" ]; then
+        cmd_exe="$cand"
+      fi
+    fi
+    if [ -z "$cmd_exe" ]; then
       fail "在 MSYS/MINGW 环境下找不到 cmd.exe，无法校验批处理分支"
     else
-      cmd_bin="cmd.exe"
-      command -v timeout >/dev/null 2>&1 && cmd_bin="timeout 20 cmd.exe"
+      cmd_bin="$cmd_exe"
+      command -v timeout >/dev/null 2>&1 && cmd_bin="timeout 20 $cmd_exe"
       # 必须在仓库根跑（批处理分支用相对路径 hooks 下的 run-hook.cmd）。
       # MSYS_NO_PATHCONV=1 必需：Git Bash 会把 /c 当路径改写（cygpath -w /c 得到 C:\），
       #   cmd.exe 于是丢掉 /c 开关、进交互模式。

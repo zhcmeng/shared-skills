@@ -63,7 +63,7 @@ claude --settings '{"disableAllHooks":true}' --session-id <id> -p --permission-m
 - **`--workspace <目录>`**：拿宿主机上一个现成目录当工作区用，跑完**不删**。只在 `environment.type: none`、`cases.parallelism: 1`、benchmark 关掉时能用。
 - **`--no-delete`**：跑完保留 skill-up 自己建的工作区或容器，便于调试。默认 `false`。与上一条不是一回事：这条留的是 skill-up 建的那个，上一条用的是你自己给的。
 - **`judge.context`**：判官拿到哪几样材料由它定，默认 `standard`——`final_message` 内联，`transcript` 与 `workspace_diff` 以文件引用给出；另有 `minimal`（省掉 transcript 与 diff、截断 final_message）。第二节那条「差集被静默省掉」说的就是这个 `workspace_diff`。
-- **`judge.type: agent_judge` 时 `judge.model` 必填。**不写会当场被驳回，话是 `judge.model is required when judge.type is agent_judge`——这一句 `judge-types.md` 的例子底下没写，只列了字段。**写在批次那一层就够，用例那一层不写也认**：用例级的判官继承批次那一层（实测，用例级只写 `criteria`，整批都过了校验）。
+- **`judge.type: agent_judge` 时 `judge.model` 必填。**不写会当场被驳回，话是 `judge.model is required when judge.type is agent_judge`——这一句 `judge-types.md` 的例子底下没写，只列了字段。**判官整块写在用例那一层**：`type`、`model`、`criteria`、`pass_threshold` 一起写全；批次那一层不写。这一条原先记成「写在批次那一层就够、用例级只写 `criteria`」，2026-10-02 实测把它推翻：批次那层写 `type` 与 `model`、用例那层写 `criteria` 与 `pass_threshold` 时整批被驳回，话是 `case <用例 id>: judge.criteria is required when judge.type is agent_judge`——用例那层写的 `criteria` 不算数。用例那层整块写全、批次那层不写，校验通过（本仓库 `evals/plain-language/` 与 `evals/token-counter/` 两批都按这个写法落，都在 `v0.12.0` 上过了）。
 - **判据按条计分，`pass_threshold` 是过线的比例。**三条判据过了两条就是 66.7%（实测：第一轮里有一条判据写得过严，那条用例判 FAIL 66.7%）。要「每条判据都得成立」就显式写 `1.0`——不写时的默认值没试过。
 - **报告格式要显式列。**`result.json` 一直会写；要 HTML 得在 `report.formats` 里把 `html` 列上，不列就不出。已经跑过的那几轮想补一份 HTML，用 `report` 子命令从 `result.json` 生成，不必重跑（实测，`v0.12.0`）。
 - **判官那次回话要能直接当 JSON 读，包在代码围栏里不算。**判官偶尔把结果写成 ` ```json ` 围起来的块，也有时干脆回一句中文散文（不吐 JSON）——两种情况都是第一次解析失败，话是 `invalid JSON response`，skill-up 会重试一次。重试过得去就没事；赶不上用例超时（`cases.defaults.timeout_seconds`，默认 300 秒）那一条就报 ERROR。**报告末尾那行是三档——`passed / failed / errors`——ERROR 不是「被测那边没过」**：被判官这一次意外拖住、整条用例拿不到结论而已，重跑一遍通常就有结论了（实测，`v0.12.0`：头一轮里一条 ERROR、另有两条第一次失败而重试通过）。
@@ -96,4 +96,4 @@ claude --settings '{"disableAllHooks":true}' --session-id <id> -p --permission-m
 
 第四节没注源码出处，照上游文档站的 `docs/zh/guide/windows.md` 核；第五节照同站的 `cli-reference.md` 与 `writing-evals.md` 核；第一节那条 `CLAUDE.md` 不是上游的说法，照 Claude Code 自己的行为核。第七节那两处有个便宜的核法：路径退让在任一份**找不到技能根**的配置上跑一遍 `skill-up validate`，屏幕上就会打出那条 `falling back` 的警告；只收 `user` 角色拿一份 `role: assistant` 的用例跑 `validate`，会被当场驳回。
 
-**已经在装着的 `v0.12.0` 上核过这几处**：第七节那两处（上面那两个便宜的核法，各跑一次就对上了）、第三节那条「用例那一层写了 `skills` 也不报错」、第四节那条「备齐 bash 与 Node 就起得来真实 agent」（2026-10-01，在原生 Windows 上整批跑通）、第五节那两条（`judge.model` 必填、`report.formats` 不写就不出 HTML）、第六节那两条（`setup_steps` 是批次级、每条用例各跑一遍；`cases.parallelism: 1` 串着跑）。其余各条只在源码那一版上读过，还没在二进制上逐条核。
+**已经在装着的 `v0.12.0` 上核过这几处**：第七节那两处（上面那两个便宜的核法，各跑一次就对上了）、第三节那条「用例那一层写了 `skills` 也不报错」、第四节那条「备齐 bash 与 Node 就起得来真实 agent」（2026-10-01，在原生 Windows 上整批跑通）、第五节那几条（`judge.model` 必填、`report.formats` 不写就不出 HTML；判官整块写在用例那一层那条 2026-10-02 在二进制上重核过，推翻了原先「批次那层写了就够」的记法）、第六节那两条（`setup_steps` 是批次级、每条用例各跑一遍；`cases.parallelism: 1` 串着跑）。其余各条只在源码那一版上读过，还没在二进制上逐条核。

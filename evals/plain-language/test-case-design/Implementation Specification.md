@@ -14,12 +14,12 @@
 
 | 通用稿的编号 | 本方案里落在哪 | 说明 |
 |:---|:---|:---|
-| TM-1、TM-2、TM-3、TM-4 | `evals/plain-language/cases/` 下那八条用例配置，写在每条开头的注释里 | 四个模型都只落这一处；号列全、不写范围 |
+| TM-1、TM-2、TM-3、TM-4 | `cases/` 下那八条用例配置，写在每条开头的注释里 | 四个模型都只落这一处；号列全、不写范围 |
 | TCOV-1、TCOV-2、TCOV-3、TCOV-4、TCOV-5、TCOV-6、TCOV-7、TCOV-8、TCOV-9、TCOV-10、TCOV-11、TCOV-12、TCOV-13、TCOV-14、TCOV-15、TCOV-16、TCOV-17、TCOV-18、TCOV-19、TCOV-20、TCOV-21、TCOV-22、TCOV-23、TCOV-24、TCOV-25、TCOV-26、TCOV-27、TCOV-28、TCOV-29、TCOV-30、TCOV-31、TCOV-32、TCOV-33、TCOV-34、TCOV-35、TCOV-36、TCOV-37、TCOV-38 | 同上 | 38 条覆盖项整批落一处，号列全、不写范围 |
 | TC-1、TC-2、TC-3、TC-4、TC-5、TC-6、TC-7、TC-8 | 同上，一条用例一份配置 | 八条用例各落一份，文件名见「各批落到哪」那一栏 |
 | TP-1、TP-2、TP-3、TP-4、TP-5、TP-6、TP-7、TP-8 | 同上，各条用例配置的注释，与它那条用例写在一起 | 八条规程一套落同一处，不分批；TP-8 那条在 `eval-no-skill.yaml` 那次运行里跑 |
 | ENV-1、ENV-2、ENV-3 | 运行一的 `eval.yaml` 里 `skills[].path`；两次运行的 `report.artifacts` 与各条 `judge.context`；各条用例的 `judge.criteria` | 三条的值都由 2.1 第 2、3 小节写死：技能只装 `SKILL.md` 与 `rules.md`；回复看 `final_message`、盘上改动看 `workspace_diff`；判据是各条用例「预期结果」栏的散文压成条目，连「判的时候留个心」那些操作提示一并写进去 |
-| ENV-4 | 夹具 `evals/plain-language/fixtures/repos/subject/` | 每条用例各把这个目录的内容铺进自己那份临时工作区；原始夹具全程不动。五份样本就摆在这棵树里，铺进去之后权限跟原始样本一致（TC-7 那份是只读的） |
+| ENV-4 | 夹具 `fixtures/repos/subject/` | 每条用例各把这个目录的内容铺进自己那份临时工作区；原始夹具全程不动。五份样本就摆在这棵树里，铺进去之后权限跟原始样本一致（TC-7 那份是只读的） |
 | ENV-5 | 两次运行的 `environment.setup_steps`——从绝对路径读 `rules.md` 写进工作区的 `CLAUDE.md`；见 2.1 第 4 小节第 4 条 | 钩子那条道在本方案里走不通 |
 | ENV-6、ENV-7 | 同一个临时工作区 | 见 2.1 第 2 小节：跑完就删，重试与迭代各起一个，ENV-6 要的「每跑一条之前清干净」由框架自己保证；ENV-7 要的那处执行环境就是建这个目录的机器（本机 Windows），样本副本也在这一处 |
 | DATA-1、DATA-2、DATA-3、DATA-4、DATA-5、DATA-6、DATA-7、DATA-8、DATA-9、DATA-10、DATA-11、DATA-12、DATA-13、DATA-14 | 各条用例配置的正文——`input.prompt`，TC-7 那条走 `input.turns`；DATA-5、DATA-6 另接在用户消息前面 | 十四条样本文本，一条对一条落进它那条用例。落法一样，并成一行写，号列全。DATA-5、DATA-6 另有一处保真度折扣，见 2.1 第 4 小节第 3 条 |

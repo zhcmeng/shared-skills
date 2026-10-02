@@ -1,0 +1,53 @@
+# 批二·第二轮：干净机器那一条（TP-4；TC-32），单独一批。
+#
+# 为什么单独一批：它要把会话里的解释器换成没装引擎的那个（ENV-5）；
+# environment 是批次级字段——混进第一轮那九条会连累它们。
+# cases.parallelism 必须取 1：并发时别的用例可能先把引擎装上，这一条就白跑了。
+#
+# 换解释器的落法（实施方案 2.1 第 8 条标着「待确认」的那条候选，第一次跑要先验）：
+# setup_steps 在会话起来之前做三件事——
+#   1. 建 ENV-5 的干净解释器：evals/token-counter/.clean-venv/（--clear 保证是新建的）；
+#   2. 确认它导不进引擎——导得进就整条用例报错，干净这个前提不成立；
+#   3. 往工作区根写一份 CLAUDE.md，让被测那边跑 Python 一律用干净那个解释器
+#      （把东西送进会话的道只有这一条：常驻、且不进当轮消息）。
+# 绝对路径写死在本机（同 evals/plain-language/ 那份配置的先例），换机器要改。
+#
+# 其余各项与第一轮同：skills、report 的取法见 eval.yaml 的头注；
+# 判官整块写在用例那一层（tp04-01 那份里），批次这一层不写。
+schema_version: v1alpha1
+
+environment:
+  type: none
+  setup_steps:
+    - run: python -m venv --clear "C:/Study/shared-skills/evals/token-counter/.clean-venv"
+    - run: '"C:/Study/shared-skills/evals/token-counter/.clean-venv/Scripts/python.exe" -c "import tokenizers" && exit 1 || exit 0'
+    - run: printf '%s\n' '本机没装 tokenizers 引擎。跑 Python 时一律用这个解释器：' 'C:/Study/shared-skills/evals/token-counter/.clean-venv/Scripts/python.exe' > CLAUDE.md
+
+mcp:
+  servers: []
+
+skills:
+  - source: local_path
+    path: ../plugin/skills/token-counter
+
+engine:
+  name: claude_code
+
+cases:
+  files:
+    - token-counter/cases/tp04-01-TC-32-skill_clean_machine.yaml
+  defaults:
+    timeout_seconds: 600
+    max_turns: 12
+    expect:
+      exit_code: 0
+  parallelism: 1
+  retry_policy:
+    max_retries: 0
+
+benchmark:
+  enabled: false
+
+report:
+  formats: [json, html]
+  artifacts: [transcript]
