@@ -20,8 +20,8 @@
 
 **分两组查。**六份通用稿是一组（`DOCS` 那份名单，缺一份就报错）；第七份《实施方案
 规格说明》（`IMPL_DOC`）按需产出，产出目录里有它时才另起一组——查它的骨架（导语、
-对账表、`方案：`节）、每个方案节里两块齐不齐与次序对不对、六类编号两个方向的对账
-（`IMPL_CLASSES`：模型、覆盖项、用例、规程、数据项、环境项）。没有它整组跳过，连
+`方案：`节、节里的对账表）、每个方案节里三块齐不齐与次序对不对、六类编号两个方向的
+对账（`IMPL_CLASSES`：模型、覆盖项、用例、规程、数据项、环境项）。没有它整组跳过，连
 提示都不报：分层之前留下的那几套产出不该因此多出一条错。
 
 第七份里**不贴配置原文**（配置由落成那一步写进盘里；抄一份到文档里就是第二份会
@@ -151,13 +151,16 @@ EVAL_EXECUTORS = ("控制器", "子代理")
 # 禁用词表本身从 SKILL.md 解析，不在这里再抄一份。
 LEAKED = ["references/", "GB/T", "TD1", "TD2", "TD3", "TD4"]
 
-# 第七份的骨架，照 references/文档模板.md 第十节：开头一句导语；一节「通用稿的
-# 编号落到哪」，里面一张两列表；每个方案一节，节里两块。两块按标题里的词认，
-# 不认死标题全文——「2.2 怎么跑、报告落在哪」这种写法要收得进来。
+# 第七份的骨架，照 references/文档模板.md 第十节：开头一句导语；每个方案一节，节里
+# 三块，按下面的先后排——「通用稿的编号落到哪」的对账表、说明、怎么跑与报告落在哪。
+# 块按标题里的词认，不认死标题全文——「1.2 怎么跑、报告落在哪」这种写法要收得进来。
+#
+# **对账表在方案节里面查**：一张表对一个方案，将来第二套方案另有自己的一张；摆在
+# 方案节外面时，两套方案的落点挤在同一张表里，或者后一套的落点没处放。
 IMPL_MAP_HEAD = "通用稿的编号落到哪"
 IMPL_MAP_COLS = ["通用稿的编号", "本方案里落在哪"]
 IMPL_SCHEME_MARK = "方案："
-IMPL_BLOCKS = ("说明", "怎么跑")
+IMPL_BLOCKS = ("编号落到哪", "说明", "怎么跑")
 
 # 对账表六类都收（模板第十节）：六份里定义过的每一条编号，这一份里都要给个落点。
 # 四类整批落在同一处是常事（一类一行、号列全），但「给了落点没有」这件事按号查，
@@ -1386,29 +1389,22 @@ def impl_block_heads(body):
 
 
 def check_impl(text, rep, ids):
-    """实施方案规格说明（第七份，按需产出）：骨架、两块、编号对账、出处。
+    """实施方案规格说明（第七份，按需产出）：骨架、三块、编号对账、出处。
 
     这一份**不定义任何编号**，只引用前六份的，所以在 DOCS 之外单查一组。对账**六类
     都查**（模板第十节的对账表六类都收），每类两个方向：这一份里写的编号都要指得到
     通用稿里的定义处；通用稿里定义过的每一条，在这一份里都要查得到一个落点——用不上
     的要写一行说明为什么。
 
+    对账表按方案各一张，**在方案节里面查**：表在节外面时，第二套方案起来就没处放。
+
     `ids` 是 {前缀: {号}}，六个前缀各定义过哪几号，由 main 从六份文档算好传进来。
     """
-    parsed = tables(text)
-
     # 导语：第一个 `##` 之前要有非标题、非空的行
     lead = [l for l in re.split(r"^## ", text, maxsplit=1, flags=re.M)[0].splitlines()
             if l.strip() and not l.startswith("#")]
     if not lead:
         rep.err(IMPL_DOC, "开头没有导语——先说清这一份是干什么的、与六份通用稿冲突时以谁为准")
-
-    maps = pick_all(parsed, IMPL_MAP_COLS)
-    if not maps:
-        rep.err(IMPL_DOC, "没有「%s」那张表（表头要含「%s」）"
-                % (IMPL_MAP_HEAD, " | ".join(IMPL_MAP_COLS)))
-    else:
-        rep.ok("「%s」那张表在，%d 行" % (IMPL_MAP_HEAD, sum(len(b) for _, b in maps)))
 
     schemes = impl_scheme_sections(text)
     if not schemes:
@@ -1422,13 +1418,22 @@ def check_impl(text, rep, ids):
         if missing:
             rep.err(IMPL_DOC, "%s 里缺这几块：%s" % (name, "、".join(missing)))
         elif at != sorted(at):
-            rep.err(IMPL_DOC, "%s 里两块的次序不对——要照「%s」这个先后排（按每个词"
+            rep.err(IMPL_DOC, "%s 里三块的次序不对——要照「%s」这个先后排（按每个词"
                               "第一次出现的小标题算）：现在 %s"
                     % (name, "」→「".join(IMPL_BLOCKS),
                        "、".join("%s 在第 %d 个" % (w, i + 1)
                                  for w, i in zip(IMPL_BLOCKS, at))))
         else:
-            rep.ok("%s 里两块都在，次序也对" % name)
+            rep.ok("%s 里三块都在，次序也对" % name)
+
+        maps = pick_all(tables(body), IMPL_MAP_COLS)
+        if not maps:
+            rep.err(IMPL_DOC, "%s 里没有「%s」那张表（表头要含「%s」）——对账表按方案"
+                              "各一张，放在方案节里"
+                    % (name, IMPL_MAP_HEAD, " | ".join(IMPL_MAP_COLS)))
+        else:
+            rep.ok("%s 里的「%s」表在，%d 行"
+                   % (name, IMPL_MAP_HEAD, sum(len(b) for _, b in maps)))
 
     dangling = []
     for prefix, label in IMPL_CLASSES:
@@ -1553,10 +1558,11 @@ def print_rules():
     print("  %s 分两块：%s | %s" % (DECISION_DOC, USER_HEAD, MODEL_HEAD))
     print("  模型的加粗字段、规程的两列表左栏：唯一标识符、%s、%s"
           % (NAME_COL, PROC_ORDER_FIELD))
-    print("  第七份：一节「%s」；每个方案一节，标题里含「%s」；每节两块：%s"
-          % (IMPL_MAP_HEAD, IMPL_SCHEME_MARK, "、".join(IMPL_BLOCKS)))
-    print("    第七份的对账表六类都收：%s——两个方向都查（引的编号要指得到定义处，"
-          "通用稿定义过的都要给落点）\n" % "、".join(p for p, _ in IMPL_CLASSES))
+    print("  第七份：每个方案一节，标题里含「%s」；每节三块，按这个先后排：%s"
+          % (IMPL_SCHEME_MARK, "、".join(IMPL_BLOCKS)))
+    print("    「%s」那张对账表在方案节里面（每套方案各一张）；六类都收：%s——两个"
+          "方向都查（引的编号要指得到定义处，通用稿定义过的都要给落点）\n"
+          % (IMPL_MAP_HEAD, "、".join(p for p, _ in IMPL_CLASSES)))
 
     print("【写死的取值与形制】")
     print("  「执行器」栏：%s——后面可以带一句括号说明" % " / ".join(EXECUTORS))
