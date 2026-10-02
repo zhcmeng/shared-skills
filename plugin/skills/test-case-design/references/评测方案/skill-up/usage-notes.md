@@ -27,7 +27,10 @@ claude --settings '{"disableAllHooks":true}' --session-id <id> -p --permission-m
 - 每条用例各起一个空的临时目录当工作区，跑完删掉；工作区由框架建，不由用例配置指定（要改用现成目录、或者跑完留着看，见第五节那两条 flag）。
 - 上一轮留下的东西不进下一轮。
 - **工作区不是 git 仓库时，`workspace_diff` 会被静默省掉**：不报错，报告里那一项空着，只在清单里留一行 `workspace_diff: omit`。要拿盘上改动作判据的用例，得让工作区先是 git 仓库，或者换一样判据。
+- **夹具侧不用自己 commit。**差集由 skill-up 自己算——会话前后各拍一次快照，比到行，不靠 git 的历史。**也 commit 不了**：`setup_steps` 跑在铺夹具之前（次序见第六节），那时工作区里还没有东西。所以设计稿里若写着「铺完夹具提交一次初始快照」，那一步落不成，去掉。
 - **铺夹具是逐字节写、连源文件的权限位一起带**（`type: none` 那一档，`UploadDir` 保留 mode）。工作树里设成只读的样本，铺进工作区之后还是只读。反过来，**git 不存权限位**（它只存执行位）——重新克隆之后只读属性会丢，跑之前要在工作树里重设一次。
+- **铺夹具会跳过名字以 `.` 开头的文件与目录。**夹具里的 `.claude/rules/` 连同同一批的 `pages/.gitkeep` 一起被跳过，一份都没铺进工作区（2026-10-02 实测）。要让它们进去，只能走用例配置的 `context.files` 逐条写，不指夹具目录。
+- **被测技能引用的工作区外文件，不会自己跟着来，得主动补。**落成时扫一遍被测技能文档里的引用路径（它的 `SKILL.md` 里写 `../../rules/…` 这类），逐个确认工作区里读得到；读不到的走 `context.files` 铺进去。**不补的代价是判据静默落空**：被测那边会如实报告「那个文件不存在」，而判据「照那份规则的格式标注」就没有可判的东西了（2026-10-02 实测）。
 
 ## 三、技能是怎么装进去的
 
@@ -37,7 +40,7 @@ claude --settings '{"disableAllHooks":true}' --session-id <id> -p --permission-m
 
 ## 四、Windows
 
-**skill-up 原生支持 Windows**，`skill-up.exe` 直接跑。`/skill-upper` 里那句「macOS and Linux only. Windows is not currently supported」管的是它自己 `install.sh` 那条安装道（只能 bash 跑），不是说整个工具——照那句判，会把环境白改成 WSL2。
+**skill-up 原生支持 Windows**，`skill-up.exe` 直接跑。`/skill-upper` 里那句「macOS and Linux only. Windows is not currently supported」管的是它自己 `install.sh` 那条安装道（只能 bash 跑），不是说整个工具——照那句判，会把环境白改成 WSL2。**`/skill-upper` 的 `references/install.md` 与本节冲突时，以本节为准**：那一句是照它自己的安装脚本写的，本节是实机跑出来的。
 
 能用的：
 
@@ -61,7 +64,7 @@ claude --settings '{"disableAllHooks":true}' --session-id <id> -p --permission-m
 `/skill-upper` 那几份覆盖了配置字段与命令参数，写第七份要用的它基本都有。下面这几条它没写，出自上游文档站那两份 guide（`cli-reference.md` 与 `writing-evals.md`）——写第七份时要知道有它们。
 
 - **`--workspace <目录>`**：拿宿主机上一个现成目录当工作区用，跑完**不删**。只在 `environment.type: none`、`cases.parallelism: 1`、benchmark 关掉时能用。
-- **`--no-delete`**：跑完保留 skill-up 自己建的工作区或容器，便于调试。默认 `false`。与上一条不是一回事：这条留的是 skill-up 建的那个，上一条用的是你自己给的。
+- **`--no-delete`**：跑完保留 skill-up 自己建的工作区或容器，便于调试。默认 `false`。与上一条不是一回事：这条留的是 skill-up 建的那个，上一条用的是你自己给的。**留下的工作区落在 `%TEMP%\skill-up-<随机数>`**（2026-10-02 实测）——跑完去那儿找，不用在仓库里翻。
 - **`judge.context`**：判官拿到哪几样材料由它定，默认 `standard`——`final_message` 内联，`transcript` 与 `workspace_diff` 以文件引用给出；另有 `minimal`（省掉 transcript 与 diff、截断 final_message）。第二节那条「差集被静默省掉」说的就是这个 `workspace_diff`。
 - **`judge.type: agent_judge` 时 `judge.model` 必填。**不写会当场被驳回，话是 `judge.model is required when judge.type is agent_judge`——这一句 `judge-types.md` 的例子底下没写，只列了字段。**判官整块写在用例那一层**：`type`、`model`、`criteria`、`pass_threshold` 一起写全；批次那一层不写。这一条原先记成「写在批次那一层就够、用例级只写 `criteria`」，2026-10-02 实测把它推翻：批次那层写 `type` 与 `model`、用例那层写 `criteria` 与 `pass_threshold` 时整批被驳回，话是 `case <用例 id>: judge.criteria is required when judge.type is agent_judge`——用例那层写的 `criteria` 不算数。用例那层整块写全、批次那层不写，校验通过（本仓库 `evals/plain-language/` 与 `evals/token-counter/` 两批都按这个写法落，都在 `v0.12.0` 上过了）。
 - **判据按条计分，`pass_threshold` 是过线的比例。**三条判据过了两条就是 66.7%（实测：第一轮里有一条判据写得过严，那条用例判 FAIL 66.7%）。要「每条判据都得成立」就显式写 `1.0`——不写时的默认值没试过。
@@ -87,6 +90,17 @@ claude --settings '{"disableAllHooks":true}' --session-id <id> -p --permission-m
 评测材料和被测技能不在一棵树里时，这条退让每次都走——基准因此是 `eval.yaml` 的上一层，不是技能根。写落成配置的人要按**实际退让到的那一层**算相对路径，别按文档那句理想的算；那条警告是正常产物，不是错。
 
 **多轮只收 `user` 角色。** `input.turns` 的每一条只能是用户消息——校验器写死（`internal/config/validator.go:130`，`role must be "user"`），配置结构里那个字段的注释也标着 `// user`（`internal/config/schema.go:310`）。所以要拿「被测那边自己上一条回答」当输入的用例（让它读到对话历史里它上一轮说过的话），**塞不进去**：只能把那段的全文接在用户消息里，或者多起一轮让它自己先说一遍。前一条是一处保真度折扣，判据要跟着避开「那段话在对话历史里」这件事。
+
+## 落成时撞见的新折扣往哪儿写
+
+落成那一步撞见的、这一份里没写的折扣（哪一样铺不进去、哪一处路径算歪了、哪一条其实落不成原样），照下面写回来：
+
+- **写进对应那一节**，不另起一节：工作区与夹具的事写第二节，命令与字段的事写第五节，Windows 的事写第四节。
+- **句末标实测日期与版本**，体例照这一份现有的：`（2026-10-02 实测，v0.12.0）`。
+- **在文末那张「已核过」清单里补一笔**——哪一条、什么时候、在哪个版本上核的。
+- **只有实测过的才写成事实**。没实测的标「待确认」——这一份旧了不会报错，只会说错话。
+
+写回之后，第七份「说明」那一块里引到这一份的话跟着核一遍：那里写着「与设计稿一致，没有出入」的条目，可能已经不是了。
 
 ## 换版本之后怎么重核
 

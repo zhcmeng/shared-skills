@@ -473,7 +473,9 @@ def main():
               "这一遍不查在不在成品里。\n"
               % (len(infeasible), check_docs.brief(sorted(infeasible), "TCOV-")))
     for raw in missing:
-        rep.err("成品路径", "读不到：%s" % raw)
+        rep.err("成品路径", "读不到：%s——路径要写全、按跑命令时的当前目录算；"
+                            "「%s」表里「%s」那一栏只写路径本身，说明文字挪到表下"
+               % (raw, check_docs.PLACE_HEAD, check_docs.PLACE_COLS[0]))
     if dropped:
         rep.warn("成品路径", "产出目录里那几份文档没算成品，跳过了 %d 份——"
                              "成品指落下来的代码与评测用例，文档自己不算" % dropped)

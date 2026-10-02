@@ -178,9 +178,9 @@ skill-up run eval.yaml
 
 ### 1.4 成品落点
 
-| 成品 | 落的是哪些条目 |
-|:---|:---|
-| `{ART}` | TC-1 与它的覆盖项、TM-1、TP-1、DATA-1、ENV-1 |
+| 成品 |
+|:---|
+| `{ART}` |
 """
 
 # 最小的一份成品：六类编号各出现一次，另带一处引第七份小节号的地方。名字写成真测试
@@ -339,8 +339,7 @@ def check_not_yet():
     """
     root = Path(tempfile.mkdtemp(prefix="check-landing-notyet-"))
     try:
-        make(root, (check_docs.IMPL_DOC, "| 成品 | 落的是哪些条目 |\n|:---|:---|\n"
-                          "| `{ART}` | TC-1 与它的覆盖项、TM-1、TP-1、DATA-1、ENV-1 |",
+        make(root, (check_docs.IMPL_DOC, "| 成品 |\n|:---|\n| `{ART}` |",
                     "还没落成。"), None)
         code, out = run_landing(root, [])
     finally:
@@ -361,9 +360,7 @@ def check_not_yet_in_cell():
     """
     root = Path(tempfile.mkdtemp(prefix="check-landing-cell-"))
     try:
-        make(root, (check_docs.IMPL_DOC,
-                    "| `{ART}` | TC-1 与它的覆盖项、TM-1、TP-1、DATA-1、ENV-1 |",
-                    "| 还没落成 | —— |"), None)
+        make(root, (check_docs.IMPL_DOC, "| `{ART}` |", "| 还没落成 |"), None)
         code, out = run_landing(root, [])
     finally:
         shutil.rmtree(root, ignore_errors=True)
@@ -378,6 +375,11 @@ def check_paths_missing():
     """命令行上给的成品路径读不到——报出来，别当成「成品里没有那些号」。
 
     一份也读不到时退出码是 2（这次没得可查），不是 1（产出没错）。
+
+    报的那句话还得说得出该往哪儿改：「读不到：<原文>」只把字符串抄回来，看的人
+    认不出是自己把路径写歪了、还是「成品落点」那一格多写了说明文字（2026-10-02
+    实测撞到的正是后者：格子里写成 `` `cases/`（13 个 `.yaml`） ``，整格读不到，
+    报出来的只有那一串）。
     """
     root = Path(tempfile.mkdtemp(prefix="check-landing-miss-"))
     try:
@@ -387,7 +389,7 @@ def check_paths_missing():
         shutil.rmtree(root, ignore_errors=True)
     if code != 2:
         return ["退出码 %s，期望 2" % code]
-    for want in ("读不到：", "成品一份都没读到"):
+    for want in ("读不到：", "成品一份都没读到", "那一栏只写路径本身"):
         if want not in out:
             return ["输出里没有「%s」：%s" % (want, out.strip()[:200])]
     return []
@@ -524,8 +526,8 @@ def check_note_not_not_yet():
     root = Path(tempfile.mkdtemp(prefix="check-landing-note-"))
     try:
         art = make(root, (check_docs.IMPL_DOC,
-                          "| `{ART}` | TC-1 与它的覆盖项、TM-1、TP-1、DATA-1、ENV-1 |",
-                          "| `{ART}` | TC-1 与它的覆盖项、TM-1、TP-1、DATA-1、ENV-1 |\n\n"
+                          "| `{ART}` |",
+                          "| `{ART}` |\n\n"
                           "注：成品还没落成就写「还没落成」——写成这一块里的一句话。"),
                    ("TCOV-1：TM-1 里的有效等价类。跑 TP-1 那条规程，按 DATA-1 取文本，ENV-1 就位。",
                     "TCOV-1：有效等价类。"))
@@ -570,9 +572,9 @@ def check_two_sections_merged():
 
 ### 2.4 成品落点
 
-| 成品 | 落的是哪些条目 |
-|:---|:---|
-| `{ART}` | TC-1 与它的覆盖项、TM-1、TP-1、DATA-1、ENV-1 |
+| 成品 |
+|:---|
+| `{ART}` |
 """
     root = Path(tempfile.mkdtemp(prefix="check-landing-twosect-"))
     try:
@@ -645,13 +647,12 @@ def check_partial_landing():
     # 成品里只留 TC-1 与 TCOV-1，其余四类一处不出现——正是「还没落成」要解释的缺口
     drop = ("TCOV-1：TM-1 里的有效等价类。跑 TP-1 那条规程，按 DATA-1 取文本，ENV-1 就位。",
             "TCOV-1：有效等价类。")
-    table = ("| 成品 | 落的是哪些条目 |\n|:---|:---|\n| `{ART}` | TC-1 |")
+    table = "| 成品 |\n|:---|\n| `{ART}` |"
 
     def run(block, with_path=False):
         root = Path(tempfile.mkdtemp(prefix="check-landing-partial-"))
         try:
-            art = make(root, (check_docs.IMPL_DOC, "| 成品 | 落的是哪些条目 |\n|:---|:---|\n"
-                                     "| `{ART}` | TC-1 与它的覆盖项、TM-1、TP-1、DATA-1、ENV-1 |",
+            art = make(root, (check_docs.IMPL_DOC, "| 成品 |\n|:---|\n| `{ART}` |",
                                      block), drop)
             return run_landing(root, [art] if with_path else [])
         finally:
@@ -727,9 +728,9 @@ def check_block_level_four():
     four = IMPL_TEXT.replace("### 1.4 成品落点", "#### 1.4 成品落点") + """
 #### 1.5 收尾
 
-| 成品 | 落的是哪些条目 |
-|:---|:---|
-| `没有这一份/成品.py` | 这一节不是成品落点，随便举了个名字 |
+| 成品 |
+|:---|
+| `没有这一份/成品.py` |
 """
     root = Path(tempfile.mkdtemp(prefix="check-landing-level4-"))
     try:

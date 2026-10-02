@@ -180,9 +180,9 @@ skill-up run eval.yaml
 
 ### 1.4 成品落点
 
-| 成品 | 落的是哪些条目 |
-|:---|:---|
-| `tests/demo/test_demo.py` | TC-1 与它的覆盖项、TM-1、TP-1、DATA-1、ENV-1 |
+| 成品 |
+|:---|
+| `tests/demo/test_demo.py` |
 """
 
 # 两个方案节：第一套四块齐全，第二套的对账表在、成品落点缺——切块要是切到下一个
@@ -242,12 +242,12 @@ IMPL_CASES = [
      (IMPL, "| ENV-1 | `eval.yaml` 的 `skills[].path` | 装技能那一条 |",
       "| ENV-1 | `eval.yaml` 的 `skills[].path` | 装技能那一条 |\n| ENV-9 | 别处 | 悬空 |"),
      (), {IMPL: IMPL_TEXT}, 1, "引了没有定义处的环境项：ENV-9"),
-    # 只在「成品落点」那一块的摘要行里出现的号照样要报：这一块只从「通用稿定义了、
-    # 这一份里没给落点」那个方向里摘掉（它不算落点记录），反方向照全文算。那一行是
+    # 只在「成品落点」那一块的摘要句里出现的号照样要报：这一块只从「通用稿定义了、
+    # 这一份里没给落点」那个方向里摘掉（它不算落点记录），反方向照全文算。那一句是
     # 人手写的，手滑写一个不存在的号（用例只到 TC-1，这里写了 TC-9）得有人管。
-    ("只在成品落点那一行里写了一个没有定义处的用例号",
-     (IMPL, "| `tests/demo/test_demo.py` | TC-1 与它的覆盖项",
-      "| `tests/demo/test_demo.py` | TC-1、TC-9 与它们的覆盖项"),
+    ("只在成品落点那一块里写了一个没有定义处的用例号",
+     (IMPL, "| `tests/demo/test_demo.py` |",
+      "| `tests/demo/test_demo.py` |\n\n这一批还落了 TC-9 那条用例。"),
      (), {IMPL: IMPL_TEXT}, 1, "引了没有定义处的用例：TC-9"),
     ("通用稿里定义了的环境项，在第七份里没给落点",
      (IMPL, "| ENV-1 | `eval.yaml` 的 `skills[].path` | 装技能那一条 |\n", ""),
@@ -279,27 +279,26 @@ IMPL_CASES = [
      (IMPL, "### 1.4 成品落点", "### 1.4 收尾"), (), {IMPL: IMPL_TEXT}, 1,
      "!缺这几块"),
     ("成品落点表有一行空栏",
-     (IMPL, "| `tests/demo/test_demo.py` | TC-1 与它的覆盖项、TM-1、TP-1、DATA-1、ENV-1 |",
-      "| `tests/demo/test_demo.py` |  |"), (), {IMPL: IMPL_TEXT}, 1, "表有一行有空栏"),
+     (IMPL, "| `tests/demo/test_demo.py` |", "|  |"), (), {IMPL: IMPL_TEXT}, 1,
+     "表有一行有空栏"),
     # 块标题写成四级时，切尾要按它自己的级数切。只切 `^#{1,3}` 的话切不动紧随其后的
     # 那个四级小节，把它的内容吞进这一块：那一节里写的话就成了「这一块里的话」——
     # 这里那句「还没落成」正是这么被读成这一批落了一部分（打一句错的通过语）。
     ("块写成四级标题：切尾按块标题自己的级数切，别把后面那节的话吞进来",
      (IMPL, "### 1.4 成品落点", "#### 1.4 成品落点\n\n"
-      "| 成品 | 落的是哪些条目 |\n|:---|:---|\n"
-      "| `tests/demo/test_demo.py` | TC-1 与它的覆盖项、TM-1、TP-1、DATA-1、ENV-1 |\n\n"
+      "| 成品 |\n|:---|\n"
+      "| `tests/demo/test_demo.py` |\n\n"
       "#### 1.5 收尾\n\n这一批还没落成。"), (), {IMPL: IMPL_TEXT}, 0,
      "!还写着「还没落成」"),
     ("「还没落成」占进「成品」那一格——格子会被落成对照当成成品路径去读",
-     (IMPL, "| `tests/demo/test_demo.py` | TC-1 与它的覆盖项、TM-1、TP-1、DATA-1、ENV-1 |",
-      "| 还没落成 | —— |"), (), {IMPL: IMPL_TEXT}, 1, "不占表里的一格"),
+     (IMPL, "| `tests/demo/test_demo.py` |", "| 还没落成 |"), (), {IMPL: IMPL_TEXT}, 1,
+     "不占表里的一格"),
     ("成品还没落成时，那一块写「还没落成」也算填了",
-     (IMPL, "| 成品 | 落的是哪些条目 |\n|:---|:---|\n"
-            "| `tests/demo/test_demo.py` | TC-1 与它的覆盖项、TM-1、TP-1、DATA-1、ENV-1 |",
+     (IMPL, "| 成品 |\n|:---|\n| `tests/demo/test_demo.py` |",
       "还没落成。"), (), {IMPL: IMPL_TEXT}, 0, "落成之后回来把表填上"),
     ("落了一部分：表里列着已落成的，那句话交代还没落的",
-     (IMPL, "| `tests/demo/test_demo.py` | TC-1 与它的覆盖项、TM-1、TP-1、DATA-1、ENV-1 |",
-      "| `tests/demo/test_demo.py` | TC-1 与它的覆盖项 |\n\n"
+     (IMPL, "| `tests/demo/test_demo.py` |",
+      "| `tests/demo/test_demo.py` |\n\n"
       "还有 DATA-1、ENV-1 那两处还没落成。"), (), {IMPL: IMPL_TEXT}, 0,
      "这一块里还写着「还没落成」"),
     # 四块按标题里的词算次序：「成品落点」插进设计阶段那几块中间，次序就反了。
@@ -307,8 +306,8 @@ IMPL_CASES = [
      (IMPL, "### 1.2 说明\n\n跑一次，工作区由框架自己建。\n\n"
             "### 1.3 怎么跑、报告落在哪\n\n```bash\nskill-up run eval.yaml\n```\n\n"
             "### 1.4 成品落点",
-      "### 1.2 成品落点\n\n| 成品 | 落的是哪些条目 |\n|:---|:---|\n"
-      "| `tests/demo/test_demo.py` | TC-1 |\n\n"
+      "### 1.2 成品落点\n\n| 成品 |\n|:---|\n"
+      "| `tests/demo/test_demo.py` |\n\n"
       "### 1.3 怎么跑、报告落在哪\n\n```bash\nskill-up run eval.yaml\n```\n\n"
       "### 1.4 说明"), (), {IMPL: IMPL_TEXT}, 1, "次序不对"),
     # 按方案节逐个查：第一节齐、第二节缺，报的是第二节的名字。切块切到下一个 `^##`
@@ -459,8 +458,8 @@ CASES = [
     # 这份里再出现就是一个多出来的顶层小节——按泛泛那条提示报，不判错。
     ("用例那份里多出一个顶层小节（「成品落点」就是这种）",
      (CASE, "## 四、覆盖率自检",
-      "## 五、成品落点\n\n| 成品 | 落的是哪些条目 |\n|:---|:---|\n"
-      "| `tests/demo/test_demo.py` | TC-1 |\n\n## 四、覆盖率自检"), (), 0,
+      "## 五、成品落点\n\n| 成品 |\n|:---|\n"
+      "| `tests/demo/test_demo.py` |\n\n## 四、覆盖率自检"), (), 0,
      "有模板四块之外的顶层小节"),
 
     # 「执行器」「改动文件」两栏：取值写死，每条规程都要有。
