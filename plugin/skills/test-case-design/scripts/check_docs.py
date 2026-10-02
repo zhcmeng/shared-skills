@@ -1477,6 +1477,9 @@ def check_impl(text, rep, ids):
     # 「成品落点」那一块不算落点：它记的是成品落在哪，行里顺带列到几个编号是常事，
     # 拿它当「这一号给了落点」，一套方案没在对账表里排到的编号就会一直不吭声。与
     # main 里算 DATA-/ENV- 有没有人用时摘掉那一块，是同一个道理。
+    #
+    # 只摘给「没给落点」那一个方向用；反方向（引了没有定义处的编号）照全文算：那一行
+    # 是人手写的，写一个不存在的号（用例只到 TC-12、这里写了 TC-19）照样得报出来。
     bare = text
     for _, body in schemes:
         block = impl_place_block(body)
@@ -1488,10 +1491,11 @@ def check_impl(text, rep, ids):
         known = ids.get(prefix, set())
         if not known:
             continue
-        used = {int(n) for n in re.findall(prefix + r"(\d+)", bare)}
-        bad = sorted(used - known)
+        quoted = {int(n) for n in re.findall(prefix + r"(\d+)", text)}
+        bad = sorted(quoted - known)
         if bad:
             dangling.append("引了没有定义处的%s：%s" % (label, brief(bad, prefix)))
+        used = {int(n) for n in re.findall(prefix + r"(\d+)", bare)}
         lost = sorted(known - used)
         if lost:
             dangling.append("通用稿里定义了、这一份里没给落点：%s——用不上的要写一行"

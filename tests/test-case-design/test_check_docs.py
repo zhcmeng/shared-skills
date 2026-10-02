@@ -242,6 +242,13 @@ IMPL_CASES = [
      (IMPL, "| ENV-1 | `eval.yaml` 的 `skills[].path` | 装技能那一条 |",
       "| ENV-1 | `eval.yaml` 的 `skills[].path` | 装技能那一条 |\n| ENV-9 | 别处 | 悬空 |"),
      (), {IMPL: IMPL_TEXT}, 1, "引了没有定义处的环境项：ENV-9"),
+    # 只在「成品落点」那一块的摘要行里出现的号照样要报：这一块只从「通用稿定义了、
+    # 这一份里没给落点」那个方向里摘掉（它不算落点记录），反方向照全文算。那一行是
+    # 人手写的，手滑写一个不存在的号（用例只到 TC-1，这里写了 TC-9）得有人管。
+    ("只在成品落点那一行里写了一个没有定义处的用例号",
+     (IMPL, "| `tests/demo/test_demo.py` | TC-1 与它的覆盖项",
+      "| `tests/demo/test_demo.py` | TC-1、TC-9 与它们的覆盖项"),
+     (), {IMPL: IMPL_TEXT}, 1, "引了没有定义处的用例：TC-9"),
     ("通用稿里定义了的环境项，在第七份里没给落点",
      (IMPL, "| ENV-1 | `eval.yaml` 的 `skills[].path` | 装技能那一条 |\n", ""),
      (), {IMPL: IMPL_TEXT}, 1, "通用稿里定义了、这一份里没给落点：ENV-1"),
