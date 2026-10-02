@@ -120,13 +120,16 @@ def defined_ids(texts):
     return out
 
 
-def place_paths(texts, impl):
+def place_paths(impl):
     """从第七份各方案节的「成品落点」表里取成品路径。
+
+    只认第七份：那一块搬过去之后，通用稿里再没有成品路径可读（设计稿 D16）。
 
     返回 (路径列表, 说明, 是不是「还没落成」, 是不是落了一部分)。第七份不在、
     一节都没有、或者每一节都只写着「还没落成」时，路径列表为空，说明写清是哪一种。
     第三个元素单独回一个标志，因为「还没落成」与另外几种「没拿到路径」不是一回事：
-    它的退出码不一样（3 对 2，见 main）。
+    它的退出码不一样（3 对 2，见 main）；退 3 的那两种来源又不一样（第七份不在，
+    对「这一批还没落成」），说明文案由 main 看着 impl 分辨。
 
     第四个元素管的是分几批落成（模板第十节）：已经落成的列成表、那句话交代还没落的
     那几处，这时路径拿得到、账也该查，只是「定义了却没在成品里出现」那一条要降成
@@ -146,6 +149,9 @@ def place_paths(texts, impl):
         block = check_docs.impl_place_block(body)
         if block is None:
             continue
+        # 说明行不算正文（见 check_docs.without_notes）：那一块底下常有一条注，讲的
+        # 正是那四个字怎么写，留着它整批就成了「落了一部分」。
+        block = check_docs.without_notes(block)
         seen = True
         if NOT_YET in block:
             not_yet = True
@@ -160,8 +166,12 @@ def place_paths(texts, impl):
                     # （模板第十节）。当成路径去读只会得到一句「成品一份都没读到」，
                     # 那句话指不到病根；这儿认出来，照「还没落成」那一种报。
                     # check_docs 也拦这一种，但这份脚本单跑时也得说得出话。
+                    # 只记下这一种、接着看别的节：别的节照样可能列着成品路径，
+                    # 就此收工会把它们一起丢掉，一批真有成品的产出退 3 被当成
+                    # 「还没落成」跳过——账根本没查。
                     if NOT_YET in cell:
-                        return [], "成品落点表上写着「%s」" % NOT_YET, True, False
+                        not_yet = True
+                        continue
                     paths.append(cell)
     if paths:
         return paths, "", False, not_yet
@@ -421,14 +431,20 @@ def main():
     # 模板要求成品写在上一层目录时把成品路径在本命令上一条条点出来，而那正是分批
     # 落成时的常规写法：只看「命令行给没给路径」，这条常规写法就把降级整个绕掉了，
     # 还没落成的那几处照样按错报。
-    table_paths, reason, not_yet, partial = place_paths(texts, impl)
+    table_paths, reason, not_yet, partial = place_paths(impl)
     paths = list(sys.argv[2:]) or table_paths
     if not paths:
         print("没拿到成品路径：%s。" % (reason or "命令行上没给，产出里也没写"))
         if not_yet:
             # 这不是错：产出可以先于成品进版本库（技能允许先出六份，落成是后来的事）。
             # 单独给一个退出码，调用方不用读这份脚本就知道该跳过。
-            print("这一批的成品还没落成，没有可对照的东西——落成之后回来把那张表填上，再跑一遍。")
+            if impl:
+                print("这一批的成品还没落成，没有可对照的东西——落成之后回来把那张表"
+                      "填上，再跑一遍。")
+            else:
+                # 与上一种分开说：这一种是产出里连第七份都没有，谈不上落成进度。
+                print("这一批没有实施方案规格说明（%s），没有可对照的成品——落成那一步"
+                      "是照它做的，先出这一份。" % check_docs.IMPL_DOC)
             return 3
         print("把成品路径写在命令后面，或者在 %s 的方案节里填上——"
               "两处都填了，就不用每次在命令行上抄一遍。" % check_docs.IMPL_DOC)

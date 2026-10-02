@@ -508,8 +508,83 @@ def check_no_impl_doc():
         shutil.rmtree(root, ignore_errors=True)
     if code != 3:
         return ["退出码 %s，期望 3；输出：%s" % (code, out.strip()[:300])]
-    if "没有可对照的东西" not in out:
-        return ["输出里没有「没有可对照的东西」：%s" % out.strip()[:300]]
+    if "没有实施方案规格说明" not in out:
+        return ["输出里没点出「没有实施方案规格说明」：%s" % out.strip()[:300]]
+    return []
+
+
+def check_note_not_not_yet():
+    """那一块里以「注：」起头的说明行提到「还没落成」，不算这一批还没落成。
+
+    范本《文档示例.md》那一块底下正有这么一条注，讲的就是这四个字怎么写。照它判，
+    一批压根没落成的产出会被读成「落了一部分」：正向那几条全降成提示、退 0，还报一句
+    「编号在两边对得上」——正是这套检查要防的那种假绿灯。范本开头交代过「文中凡以
+    「注：」起头的行，都是本文加的说明，不是文档内容」，脚本按同一条读。
+    """
+    root = Path(tempfile.mkdtemp(prefix="check-landing-note-"))
+    try:
+        art = make(root, (check_docs.IMPL_DOC,
+                          "| `{ART}` | TC-1 与它的覆盖项、TM-1、TP-1、DATA-1、ENV-1 |",
+                          "| `{ART}` | TC-1 与它的覆盖项、TM-1、TP-1、DATA-1、ENV-1 |\n\n"
+                          "注：成品还没落成就写「还没落成」——写成这一块里的一句话。"),
+                   ("TCOV-1：TM-1 里的有效等价类。跑 TP-1 那条规程，按 DATA-1 取文本，ENV-1 就位。",
+                    "TCOV-1：有效等价类。"))
+        code, out = run_landing(root, [])
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+    if code != 1:
+        return ["退出码 %s，期望 1——注里那几个字不该把这一批读成「落了一部分」；"
+                "输出：%s" % (code, out.strip()[:300])]
+    if "还写着「%s」" % check_docs.NOT_YET in out:
+        return ["按「落了一部分」查了，可这一批一处也没落成：%s" % out.strip()[:300]]
+    return []
+
+
+def check_two_sections_merged():
+    """两个方案节：一节那一格写坏了，另一节列着的成品路径照旧要收进来。
+
+    模板第十节说「成品」那一格写的是成品路径；「还没落成」写进格子是文档错，check_docs
+    报它。可写坏一节不该把整批丢掉：各节的成品路径要合起来（设计稿 D16）。丢掉的表现
+    是退 3，调用方当成「这一批还没落成」跳过——一批真有成品的产出就这么没了对账。
+    """
+    two = IMPL_TEXT.replace(
+        "| `{ART}` | TC-1 与它的覆盖项、TM-1、TP-1、DATA-1、ENV-1 |",
+        "| 还没落成 | —— |") + """
+## 二、方案：另一套
+
+### 2.1 通用稿的编号落到哪
+
+| 通用稿的编号 | 本方案里落在哪 | 说明 |
+|:---|:---|:---|
+| TM-1；TCOV-1；TC-1；TP-1 | `tests/demo/test_demo.py` 那一份测试代码 | 整批落在一处 |
+| ENV-1 | `eval.yaml` 里装技能那一段 | 装技能那一条 |
+| DATA-1 | `cases/tp01-01-TC-1-verify_a.yaml` 的提示词 | 那段文本 |
+
+### 2.2 说明
+
+另一套的说明。
+
+### 2.3 怎么跑、报告落在哪
+
+另一套的跑法。
+
+### 2.4 成品落点
+
+| 成品 | 落的是哪些条目 |
+|:---|:---|
+| `{ART}` | TC-1 与它的覆盖项、TM-1、TP-1、DATA-1、ENV-1 |
+"""
+    root = Path(tempfile.mkdtemp(prefix="check-landing-twosect-"))
+    try:
+        art = make(root, (check_docs.IMPL_DOC, IMPL_TEXT, two), None)
+        code, out = run_landing(root, [])
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+    if code != 0:
+        return ["退出码 %s，期望 0——第二节列着成品路径，不该整批跳过；输出：%s"
+                % (code, out.strip()[:300])]
+    if "编号在两边对得上" not in out:
+        return ["输出里没有「编号在两边对得上」：%s" % out.strip()[:300]]
     return []
 
 
@@ -615,9 +690,9 @@ def check_partial_landing():
 def check_dot_dirs_skipped():
     """名字以 `.` 开头的目录不往下走：上一层住着 .git、虚拟环境、缓存，都不是成品。
 
-    模板第四节让人避不开禁用词时把成品写到上一层、命令上再一条条点出来；这一条是
-    兜底——真把上一层点给脚本时，那些目录不该被读进来。读得慢是小事，读进一堆环境
-    自带的编号才是真麻烦：一个 .venv 里什么号都能撞上。
+    模板第十节让人把成品写到上一层、命令上再一条条点出来（避不开那层里别的东西时）；
+    这一条是兜底——真把上一层点给脚本时，那些目录不该被读进来。读得慢是小事，读进一堆
+    环境自带的编号才是真麻烦：一个 .venv 里什么号都能撞上。
     """
     root = Path(tempfile.mkdtemp(prefix="check-landing-dot-"))
     try:
@@ -643,7 +718,7 @@ def check_dot_dirs_skipped():
 
 
 def main():
-    print("跑 %d 例，另加 14 条单独走的\n" % len(CASES))
+    print("跑 %d 例，另加 16 条单独走的\n" % len(CASES))
     bad = 0
     for title, tweak, art_tweak, want_code, want_text in CASES:
         problems, out = one(title, tweak, art_tweak, want_code, want_text)
@@ -663,6 +738,10 @@ def main():
         ("不给成品路径时，从「成品落点」表里取", check_from_place_table),
         ("产出里没有第七份、命令行也没给路径：退 3，不是报错", check_no_impl_doc),
         ("第七份在、那一块没写：退 2——该有的缺了一块", check_place_block_missing),
+        ("那一块里以「注：」起头的行提到「还没落成」，不算这一批没落成",
+         check_note_not_not_yet),
+        ("两个方案节：一节那一格写坏了，另一节的成品路径照旧收进来",
+         check_two_sections_merged),
         ("落点表写着「还没落成」、命令行也没给路径", check_not_yet),
         ("「还没落成」写成表里的一格，照样按「还没落成」报", check_not_yet_in_cell),
         ("分几批落成：列了已落成的、那句话交代还没落的，正向漏号降成提示",

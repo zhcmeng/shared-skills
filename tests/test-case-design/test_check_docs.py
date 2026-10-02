@@ -924,7 +924,7 @@ def check_rules():
             problems.append("节标题（或那一栏的名字）「%s」没打出来" % w)
     for w in ("覆盖项", "对应表"):
         if w not in out:
-            problems.append("用例规格说明五块里的「%s」没打出来" % w)
+            problems.append("用例规格说明四块里的「%s」没打出来" % w)
     return problems
 
 
