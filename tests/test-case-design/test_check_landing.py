@@ -717,8 +717,36 @@ def check_dot_dirs_skipped():
     return problems
 
 
+def check_block_level_four():
+    """块标题写成四级时，切尾按它自己的级数切——后面那个四级小节里的表不是这一块的。
+
+    起手认 `^#{3,}`（收得进四级），切尾只认 `^#{1,3}`（切不动四级），于是后面那一节
+    整段被吞进这一块。这一块里的表是拿来取成品路径的，被吞进来的那张表里的名字会被
+    当成成品去读——读不到就退 2，报一句「读不到」，指不到真病根。
+    """
+    four = IMPL_TEXT.replace("### 1.4 成品落点", "#### 1.4 成品落点") + """
+#### 1.5 收尾
+
+| 成品 | 落的是哪些条目 |
+|:---|:---|
+| `没有这一份/成品.py` | 这一节不是成品落点，随便举了个名字 |
+"""
+    root = Path(tempfile.mkdtemp(prefix="check-landing-level4-"))
+    try:
+        art = make(root, (check_docs.IMPL_DOC, IMPL_TEXT, four), None)
+        code, out = run_landing(root, [])
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+    if code != 0:
+        return ["退出码 %s，期望 0——后面那一节里那张表不是这一块的，不该当成品去读；"
+                "输出：%s" % (code, out.strip()[:300])]
+    if "编号在两边对得上" not in out:
+        return ["输出里没有「编号在两边对得上」：%s" % out.strip()[:300]]
+    return []
+
+
 def main():
-    print("跑 %d 例，另加 16 条单独走的\n" % len(CASES))
+    print("跑 %d 例，另加 17 条单独走的\n" % len(CASES))
     bad = 0
     for title, tweak, art_tweak, want_code, want_text in CASES:
         problems, out = one(title, tweak, art_tweak, want_code, want_text)
@@ -742,6 +770,8 @@ def main():
          check_note_not_not_yet),
         ("两个方案节：一节那一格写坏了，另一节的成品路径照旧收进来",
          check_two_sections_merged),
+        ("块写成四级标题：后面那个四级小节里的表不算这一块的",
+         check_block_level_four),
         ("落点表写着「还没落成」、命令行也没给路径", check_not_yet),
         ("「还没落成」写成表里的一格，照样按「还没落成」报", check_not_yet_in_cell),
         ("分几批落成：列了已落成的、那句话交代还没落的，正向漏号降成提示",

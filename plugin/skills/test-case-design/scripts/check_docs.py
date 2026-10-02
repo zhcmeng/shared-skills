@@ -711,14 +711,17 @@ def check_case(text, rep, tms, datas, envs):
 def impl_place_block(body):
     """切出第七份某个方案节里的「成品落点」那一块；没有这一块时返回 None。
 
-    切到下一个 `^#{1,3}` 为止：方案节底下还有别的 `###` 小节，切到下一个 `##` 会把
-    后面几个方案节一起吞进来。
+    切到下一个**同级或更高级**的小标题为止：起手收 `^#{3,}`（四级写的块也认），切尾
+    就按那个标题自己的井号数切。写死 `^#{1,3}` 的话四级写的块切不动紧跟其后的
+    `#### 1.5 …`，把那一节整段吞进来——它的表会被当成本块的表、它的话会被当成这一块
+    里的话。这一块是方案节底下的小节，切到下一个 `##` 会把后面几个方案节一起吞进来，
+    所以也不能放宽到顶。
     """
-    m = re.search(r"^#{3,}\s*[^\n]*" + PLACE_HEAD + r"[^\n]*$", body, re.M)
+    m = re.search(r"^(#{3,})\s*[^\n]*" + PLACE_HEAD + r"[^\n]*$", body, re.M)
     if not m:
         return None
     rest = body[m.end():]
-    nxt = re.search(r"^#{1,3}\s", rest, re.M)
+    nxt = re.search(r"^#{1,%d}\s" % len(m.group(1)), rest, re.M)
     return rest[:nxt.start()] if nxt else rest
 
 
