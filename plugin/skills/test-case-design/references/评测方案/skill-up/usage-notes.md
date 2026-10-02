@@ -27,7 +27,7 @@ claude --settings '{"disableAllHooks":true}' --session-id <id> -p --permission-m
 - 每条用例各起一个空的临时目录当工作区，跑完删掉；工作区由框架建，不由用例配置指定（要改用现成目录、或者跑完留着看，见第五节那两条 flag）。
 - 上一轮留下的东西不进下一轮。
 - **工作区不是 git 仓库时，`workspace_diff` 会被静默省掉**：不报错，报告里那一项空着，只在清单里留一行 `workspace_diff: omit`。要拿盘上改动作判据的用例，得让工作区先是 git 仓库，或者换一样判据。
-- **夹具侧不用自己 commit。**差集由 skill-up 自己算——会话前后各拍一次快照，比到行，不靠 git 的历史。**也 commit 不了**：`setup_steps` 跑在铺夹具之前（次序见第六节），那时工作区里还没有东西。所以设计稿里若写着「铺完夹具提交一次初始快照」，那一步落不成，去掉。
+- **夹具侧不用自己 commit。**差集由 skill-up 自己算——会话前后各拍一次快照，比到行，不靠 git 的历史。**也 commit 不了**：`setup_steps` 跑在铺夹具之前（次序见第六节），那时工作区里还没有东西。**但设计稿里写的「铺完夹具提交一次初始快照」不用去掉**：`context.git.init: true` 时 skill-up 在会话开始前自己提交一次 `skill-up-baseline`，把 `setup_steps` 建的、技能装载的与夹具铺的一并纳入——那一步由它自动兑现，落成的人不用自己做（2026-10-02 实测，`v0.12.0`）。
 - **铺夹具是逐字节写、连源文件的权限位一起带**（`type: none` 那一档，`UploadDir` 保留 mode）。工作树里设成只读的样本，铺进工作区之后还是只读。反过来，**git 不存权限位**（它只存执行位）——重新克隆之后只读属性会丢，跑之前要在工作树里重设一次。
 - **铺夹具会跳过名字以 `.` 开头的文件与目录。**夹具里的 `.claude/rules/` 连同同一批的 `pages/.gitkeep` 一起被跳过，一份都没铺进工作区（2026-10-02 实测）。要让它们进去，只能走用例配置的 `context.files` 逐条写，不指夹具目录。
 - **被测技能引用的工作区外文件，不会自己跟着来，得主动补。**落成时扫一遍被测技能文档里的引用路径（它的 `SKILL.md` 里写 `../../rules/…` 这类），逐个确认工作区里读得到；读不到的走 `context.files` 铺进去。**不补的代价是判据静默落空**：被测那边会如实报告「那个文件不存在」，而判据「照那份规则的格式标注」就没有可判的东西了（2026-10-02 实测）。
@@ -37,6 +37,7 @@ claude --settings '{"disableAllHooks":true}' --session-id <id> -p --permission-m
 - 技能装到工作区的 `.claude/skills/<技能名>/` 下——**走的是本地技能那条道，不是插件那条**。带插件前缀的唤起名（`/插件名:技能名`）用不了，只能按技能名唤起。
 - **装的时候无条件跳过 `evals/` 子树**（`internal/agent/skill.go:60`）：被测技能自己带着评测材料时，那部分不会跟着进工作区。
 - **`skills` 只能配在 `eval.yaml` 那一层，一条用例一层没有这个字段**。要「同一批里有的用例装技能、有的不装」，只能拆成两份配置分两次跑。**配错位置不会有提示**：在用例那一层也写一段 `skills`，`validate` 照样报 valid（实测，`v0.12.0`）——多出来的字段是默默丢掉的。
+- **装进去不等于会被唤起。**被测那边是 Claude Code，技能按名称与描述挂在它的技能清单里，用不用由它自己判——输入里没有与该技能描述对得上的触发词时，它可能整轮都不唤起技能，直接按普通任务处理。实测（2026-10-02，`v0.12.0`）：输入「帮我分析一下分众传媒的护城河」，被测那边下载了五份年报、写完一篇分析，全程 11 轮没提过技能覆盖的术语页与概念页。**判据要落在「技能自己的不适用判定」上的用例受这一处影响**——那一条判的会变成「不唤起时的自然行为」，不是技能的分流规则。
 
 ## 四、Windows
 
@@ -47,6 +48,7 @@ claude --settings '{"disableAllHooks":true}' --session-id <id> -p --permission-m
 - **`none` runtime**：命令在宿主机上跑。
 - **`opensandbox` runtime**：不受宿主机系统影响，始终在 Linux 沙箱里执行。
 - **script judge 按扩展名分派**：`.ps1` → PowerShell、`.cmd`／`.bat` → `cmd.exe`、`.sh` → bash。
+- **`environment.setup_steps` 的命令由 bash 跑**（`type: none` 下）：`mkdir -p`、`cp`、中文路径都能用——要在会话起来之前往工作区里补文件（被测技能引用的工作区外文件、根目录的 `CLAUDE.md`），照 bash 写就行（2026-10-02 实测，`v0.12.0`）。
 
 `.sh` 判官要一个 bash，找的顺序：`SKILL_UP_BASH` 环境变量 → `PATH` 里的 bash → `C:\Program Files\Git\bin\bash.exe` → `C:\Program Files (x86)\Git\bin\bash.exe`。**WSL 那个 `C:\Windows\System32\bash.exe` 三条都不认，会被跳过**——机器上只有它时，`.sh` 判官起不来；要走 WSL 的得自己把 `SKILL_UP_BASH` 指到非 WSL 的 bash，或者干脆在 WSL 里跑 skill-up。
 
@@ -111,3 +113,5 @@ claude --settings '{"disableAllHooks":true}' --session-id <id> -p --permission-m
 第四节没注源码出处，照上游文档站的 `docs/zh/guide/windows.md` 核；第五节照同站的 `cli-reference.md` 与 `writing-evals.md` 核；第一节那条 `CLAUDE.md` 不是上游的说法，照 Claude Code 自己的行为核。第七节那两处有个便宜的核法：路径退让在任一份**找不到技能根**的配置上跑一遍 `skill-up validate`，屏幕上就会打出那条 `falling back` 的警告；只收 `user` 角色拿一份 `role: assistant` 的用例跑 `validate`，会被当场驳回。
 
 **已经在装着的 `v0.12.0` 上核过这几处**：第七节那两处（上面那两个便宜的核法，各跑一次就对上了）、第三节那条「用例那一层写了 `skills` 也不报错」、第四节那条「备齐 bash 与 Node 就起得来真实 agent」（2026-10-01，在原生 Windows 上整批跑通）、第五节那几条（`judge.model` 必填、`report.formats` 不写就不出 HTML；判官整块写在用例那一层那条 2026-10-02 在二进制上重核过，推翻了原先「批次那层写了就够」的记法）、第六节那两条（`setup_steps` 是批次级、每条用例各跑一遍；`cases.parallelism: 1` 串着跑）。其余各条只在源码那一版上读过，还没在二进制上逐条核。
+
+**2026-10-02 又核过三处**（都在 `v0.12.0` 上）：第二节那条 skill-up 自己提交 `skill-up-baseline`、第三节那条装进去不等于会被唤起、第四节那条 `setup_steps` 由 bash 跑——出处是 `evals/business-term-builder/` 那一批的落成与探针跑测。
