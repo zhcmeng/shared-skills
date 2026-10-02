@@ -52,7 +52,6 @@ MODEL_TEXT = """# 测试模型规格说明
 | 需求 1 | TM-1 | 全部 |
 """
 
-# 「成品落点」是模板第四节的第五块：落成之后回来填。{ART} 由 make() 换成临时成品路径
 CASE_TEXT = """# 测试用例规格说明
 
 ## 一、测试覆盖项
@@ -72,12 +71,6 @@ CASE_TEXT = """# 测试用例规格说明
 | 覆盖项编号 | 覆盖项描述 | 覆盖它的用例编号 |
 |:---|:---|:---|
 | TCOV-1 | 有效等价类：甲 | TC-1 |
-
-## 四、成品落点
-
-| 成品 | 落的是哪些条目 |
-|:---|:---|
-| `{ART}` | TC-1 与它的覆盖项、TM-1、TP-1、DATA-1、ENV-1 |
 """
 
 PROC_TEXT = """# 测试规程规格说明
@@ -135,6 +128,8 @@ BASE = {
 # 定义过的每一条编号都列出来一次（六类都收）——于是它跟那六份一样，是个「什么编号
 # 都有」的文本。它一般也在产出目录里（落成之后就有），所以 make() 也把它写进去，
 # 「产出目录不算成品」那份名单里同样得算上它。
+# 末尾那一块「成品落点」是取成品路径的地方（模板第十节）；{ART} 由 make() 换成临时
+# 成品路径——与六份通用稿一样走那一次替换，make() 不用为它单开一路。
 IMPL_TEXT = """# 实施方案规格说明
 
 这一份把同目录那六份通用稿落成 skill-up 这一套里能跑的东西。
@@ -180,6 +175,12 @@ IMPL_TEXT = """# 实施方案规格说明
 ```bash
 skill-up run eval.yaml
 ```
+
+### 1.4 成品落点
+
+| 成品 | 落的是哪些条目 |
+|:---|:---|
+| `{ART}` | TC-1 与它的覆盖项、TM-1、TP-1、DATA-1、ENV-1 |
 """
 
 # 最小的一份成品：六类编号各出现一次，另带一处引第七份小节号的地方。名字写成真测试
@@ -248,6 +249,11 @@ CASES = [
      (check_docs.IMPL_DOC, "见第 4 小节第 1 条", "见第 4 小节第 9 条"), None, 1,
      "Implementation Specification.md：引的第七份小节号 `第 4 小节第 9 条` 指不到——"
      "1.2 第 4 小节（消息怎么渲染）底下只有第 1 至第 2 条"),
+
+    # 命令行上给了路径时，文档那边坏不坏都不影响这一遍：路径不从文档取，
+    # 分批降级也只看文档里有没有那句话
+    ("命令行给了路径时，第七份里那一块坏了也照跑",
+     (check_docs.IMPL_DOC, "### 1.4 成品落点", "### 1.4 收尾"), None, 0, "编号在两边对得上"),
 ]
 
 
@@ -305,9 +311,11 @@ def one(title, tweak, art_tweak, want_code, want_text):
 
 
 def check_from_place_table():
-    """命令行上不给成品路径时，从产出里的「成品落点」表取。
+    """命令行上不给成品路径时，从第七份方案节末尾的「成品落点」表里取。
 
-    这条走的是另一条入口：表里的路径能不能被认出来、能不能照着读成品。
+    这条走的是另一条入口：表里的路径能不能被认出来、能不能照着读成品。那一块原先住
+    在用例那份里，搬进第七份之后这份脚本也跟着换数据源——取错了文档，路径一处也读
+    不到，而报出来的是「成品一份都没读到」，指不到病根。
     """
     root = Path(tempfile.mkdtemp(prefix="check-landing-place-"))
     try:
@@ -331,7 +339,8 @@ def check_not_yet():
     """
     root = Path(tempfile.mkdtemp(prefix="check-landing-notyet-"))
     try:
-        make(root, (CASE, "| 成品 | 落的是哪些条目 |\n|:---|:---|\n| `{ART}` | TC-1 与它的覆盖项、TM-1、TP-1、DATA-1、ENV-1 |",
+        make(root, (check_docs.IMPL_DOC, "| 成品 | 落的是哪些条目 |\n|:---|:---|\n"
+                          "| `{ART}` | TC-1 与它的覆盖项、TM-1、TP-1、DATA-1、ENV-1 |",
                     "还没落成。"), None)
         code, out = run_landing(root, [])
     finally:
@@ -352,7 +361,8 @@ def check_not_yet_in_cell():
     """
     root = Path(tempfile.mkdtemp(prefix="check-landing-cell-"))
     try:
-        make(root, (CASE, "| `{ART}` | TC-1 与它的覆盖项、TM-1、TP-1、DATA-1、ENV-1 |",
+        make(root, (check_docs.IMPL_DOC,
+                    "| `{ART}` | TC-1 与它的覆盖项、TM-1、TP-1、DATA-1、ENV-1 |",
                     "| 还没落成 | —— |"), None)
         code, out = run_landing(root, [])
     finally:
@@ -482,6 +492,46 @@ def check_impl_missing():
     return []
 
 
+def check_no_impl_doc():
+    """产出里没有第七份、命令行上也没给路径——退 3，不是报错。
+
+    第七份按需产出：没答「要一并出实施测评方案」的批就没有它，也就没有落成可言。
+    「第七份不在」与「那一块写着还没落成」对下游是同一件事，所以共用一个退出码；
+    报成 2（用法不对）的话，调用方会当成自己用错了。
+    """
+    root = Path(tempfile.mkdtemp(prefix="check-landing-noimpl-place-"))
+    try:
+        make(root, None, None)
+        (root / check_docs.IMPL_DOC).unlink()
+        code, out = run_landing(root, [])
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+    if code != 3:
+        return ["退出码 %s，期望 3；输出：%s" % (code, out.strip()[:300])]
+    if "没有可对照的东西" not in out:
+        return ["输出里没有「没有可对照的东西」：%s" % out.strip()[:300]]
+    return []
+
+
+def check_place_block_missing():
+    """第七份在、可那一块没写——退 2：路径本来该从那儿取，取不到是该补的东西缺了。
+
+    与上一条分开：3 是「本来就没得对」，2 是「该有的缺了一块」。混成一个码，调用方
+    就分不出「这批还没落成」与「第七份少写一块」。
+    """
+    root = Path(tempfile.mkdtemp(prefix="check-landing-noblock-"))
+    try:
+        make(root, (check_docs.IMPL_DOC, "### 1.4 成品落点", "### 1.4 收尾"), None)
+        code, out = run_landing(root, [])
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+    if code != 2:
+        return ["退出码 %s，期望 2；输出：%s" % (code, out.strip()[:300])]
+    if "没有「%s」这一块" % check_docs.PLACE_HEAD not in out:
+        return ["输出里没提那一块没写：%s" % out.strip()[:300]]
+    return []
+
+
 def check_pipe_utf8():
     """输出被重定向到管道时按 UTF-8 吐字节，中文交到下一环手上不是「���」。
 
@@ -525,7 +575,7 @@ def check_partial_landing():
     def run(block, with_path=False):
         root = Path(tempfile.mkdtemp(prefix="check-landing-partial-"))
         try:
-            art = make(root, (CASE, "| 成品 | 落的是哪些条目 |\n|:---|:---|\n"
+            art = make(root, (check_docs.IMPL_DOC, "| 成品 | 落的是哪些条目 |\n|:---|:---|\n"
                                      "| `{ART}` | TC-1 与它的覆盖项、TM-1、TP-1、DATA-1、ENV-1 |",
                                      block), drop)
             return run_landing(root, [art] if with_path else [])
@@ -593,7 +643,7 @@ def check_dot_dirs_skipped():
 
 
 def main():
-    print("跑 %d 例，另加 12 条单独走的\n" % len(CASES))
+    print("跑 %d 例，另加 14 条单独走的\n" % len(CASES))
     bad = 0
     for title, tweak, art_tweak, want_code, want_text in CASES:
         problems, out = one(title, tweak, art_tweak, want_code, want_text)
@@ -611,6 +661,8 @@ def main():
     print()
     for title, fn in [
         ("不给成品路径时，从「成品落点」表里取", check_from_place_table),
+        ("产出里没有第七份、命令行也没给路径：退 3，不是报错", check_no_impl_doc),
+        ("第七份在、那一块没写：退 2——该有的缺了一块", check_place_block_missing),
         ("落点表写着「还没落成」、命令行也没给路径", check_not_yet),
         ("「还没落成」写成表里的一格，照样按「还没落成」报", check_not_yet_in_cell),
         ("分几批落成：列了已落成的、那句话交代还没落的，正向漏号降成提示",

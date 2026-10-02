@@ -6,15 +6,16 @@
 
     python check_landing.py <产出目录> <成品目录> [<成品目录> ...]
 
-不给成品路径时，从测试用例规格说明的「成品落点」表里取（那种情况按跑命令时的当前目录
-解路径）。成品路径给目录就整个目录走一遍，给文件就只看那一份。
+不给成品路径时，从第七份《实施方案规格说明》各方案节末尾的「成品落点」表里取（那种
+情况按跑命令时的当前目录解路径）。成品路径给目录就整个目录走一遍，给文件就只看那一份。
 
-退出码：0 全过；1 有错；2 用法不对或读不到产出目录；3 产出里写着「还没落成」，
-没有可对照的成品——那不是错，是这一批还没落成，调用方跳过就行。3 与 2 分开，是为了
-让调用方不用读这份脚本就知道遇上的是哪一种：2 是自己用错了，3 是本来就没得对。
+退出码：0 全过；1 有错；2 用法不对或读不到产出目录；3 产出里写着「还没落成」，或者
+压根没有第七份，没有可对照的成品——那不是错，是这一批还没落成，调用方跳过就行。3 与
+2 分开，是为了让调用方不用读这份脚本就知道遇上的是哪一种：2 是自己用错了，3 是本来就
+没得对。
 
 **分几批落成时照查。**那一块里既列了已经落成的表、又写着「还没落成」交代剩下的几处
-（模板第四节），这一遍按「部分落成」查：路径照样读、两向对照照样跑，只有「定义了却
+（模板第十节），这一遍按「部分落成」查：路径照样读、两向对照照样跑，只有「定义了却
 没在成品里出现」那一条降成提示——还没落的那几处本来就查不到，报成错只会逼人把表
 一次填全，那就没有分批了。已经落成的那一处漏了，提示里说得出是它。
 
@@ -40,7 +41,7 @@
 
 契约不在这份脚本里另立一套：什么算定义处直接复用 check_docs.py 的判定，栏位也从它那里取
 （两边一旦分叉，这边说「定义了」那边说「没有」，人就不知道该信谁）。成品落点表在哪一块，
-见 `references/文档模板.md` 第四节。
+见 `references/文档模板.md` 第十节。
 """
 
 import re
@@ -66,7 +67,7 @@ CLASSES = [
 # 决策只反查：它在成品里该不该出现，看这条成品与产出有没有出入，脚本判不了
 DECISION = ("决策", "DEC-", check_docs.DEC_COLS)
 
-# 成品落点表（测试用例规格说明的第五块）：表头与「还没落成」那句话的写法都在
+# 成品落点表（第七份每个方案节的最后一块）：表头与「还没落成」那句话的写法都在
 # check_docs.py 里定，这里跟着用——两处各写一份，改了一处另一处就开始骗人。
 PLACE_COLS = check_docs.PLACE_COLS
 NOT_YET = check_docs.NOT_YET
@@ -119,47 +120,57 @@ def defined_ids(texts):
     return out
 
 
-def place_paths(texts):
-    """从测试用例规格说明的「成品落点」表里取成品路径。
+def place_paths(texts, impl):
+    """从第七份各方案节的「成品落点」表里取成品路径。
 
-    返回 (路径列表, 说明, 是不是「还没落成」, 是不是落了一部分)。表没见着、只写了
-    「还没落成」，或者把这四个字写进了「成品」栏（该写成那一块里的一句话），路径
-    列表都为空，说明里写清是哪一种。第三个元素单独回一个标志，因为「还没落成」与
-    另外两种「没拿到路径」不是一回事：它的退出码不一样（3 对 2，见 main）——调用方
-    只看码就该知道该跳过还是该报错，不必去认说明那句话。
+    返回 (路径列表, 说明, 是不是「还没落成」, 是不是落了一部分)。第七份不在、
+    一节都没有、或者每一节都只写着「还没落成」时，路径列表为空，说明写清是哪一种。
+    第三个元素单独回一个标志，因为「还没落成」与另外几种「没拿到路径」不是一回事：
+    它的退出码不一样（3 对 2，见 main）。
 
-    第四个元素管的是分几批落成（模板第四节）：已经落成的列成表、那句话交代还没落的
+    第四个元素管的是分几批落成（模板第十节）：已经落成的列成表、那句话交代还没落的
     那几处，这时路径拿得到、账也该查，只是「定义了却没在成品里出现」那一条要降成
-    提示——还没落的那几处本来就查不到，报成错只会逼人把表一次填全，那就没有分批了。
+    提示。多方案节时按全部节合并：只要有一节还写着那句话，就按分批算。
 
     表里的路径按当前目录解——与命令行给路径时一样。
     """
-    doc = texts.get(check_docs.CASE_DOC, "")
-    block = check_docs.place_block(doc)
-    if block is None:
-        return [], "测试用例规格说明里没有「%s」这一块，也没在命令行上给成品路径" % check_docs.PLACE_HEAD, False, False
+    if not impl:
+        return [], "产出目录里没有 %s，也没在命令行上给成品路径" % check_docs.IMPL_DOC, True, False
+    schemes = check_docs.impl_scheme_sections(impl)
+    if not schemes:
+        return [], "%s 里没有一个「%s」节" % (check_docs.IMPL_DOC,
+                                              check_docs.IMPL_SCHEME_MARK), True, False
 
-    paths = []
-    for head, body in check_docs.tables(block):
-        if not all(c in head for c in PLACE_COLS):
+    paths, not_yet, seen = [], False, False
+    for _head, body in schemes:
+        block = check_docs.impl_place_block(body)
+        if block is None:
             continue
-        i = head.index(PLACE_COLS[0])
-        for row in body:
-            if len(row) > i and row[i]:
-                cell = row[i].strip("`").strip()
-                # 「还没落成」被写进「成品」栏了：它是那一块里的一句话，不占格子
-                # （模板第四节）。当成路径去读只会得到一句「成品一份都没读到」，
-                # 那句话指不到病根，写的人只能去翻这份脚本才知道错在哪儿；这儿认
-                # 出来，照「还没落成」那一种报。check_docs 也拦这一种，但这份脚本
-                # 单跑时也得说得出话。
-                if NOT_YET in cell:
-                    return [], "成品落点表上写着「%s」" % NOT_YET, True, False
-                paths.append(cell)
+        seen = True
+        if NOT_YET in block:
+            not_yet = True
+        for head, rows in check_docs.tables(block):
+            if not all(c in head for c in PLACE_COLS):
+                continue
+            i = head.index(PLACE_COLS[0])
+            for row in rows:
+                if len(row) > i and row[i]:
+                    cell = row[i].strip("`").strip()
+                    # 「还没落成」被写进「成品」栏了：它是那一块里的一句话，不占格子
+                    # （模板第十节）。当成路径去读只会得到一句「成品一份都没读到」，
+                    # 那句话指不到病根；这儿认出来，照「还没落成」那一种报。
+                    # check_docs 也拦这一种，但这份脚本单跑时也得说得出话。
+                    if NOT_YET in cell:
+                        return [], "成品落点表上写着「%s」" % NOT_YET, True, False
+                    paths.append(cell)
     if paths:
-        return paths, "", False, NOT_YET in block
-    if NOT_YET in block:
+        return paths, "", False, not_yet
+    if not_yet:
         return [], "成品落点表上写着「%s」" % NOT_YET, True, False
-    return [], "「成品落点」那一块里没有成品落点表", False, False
+    if not seen:
+        return [], "%s 的方案节里没有「%s」这一块，也没在命令行上给成品路径" \
+                   % (check_docs.IMPL_DOC, check_docs.PLACE_HEAD), False, False
+    return [], "「%s」那一块里没有成品落点表" % check_docs.PLACE_HEAD, False, False
 
 
 def scan(paths, root):
@@ -410,7 +421,7 @@ def main():
     # 模板要求成品写在上一层目录时把成品路径在本命令上一条条点出来，而那正是分批
     # 落成时的常规写法：只看「命令行给没给路径」，这条常规写法就把降级整个绕掉了，
     # 还没落成的那几处照样按错报。
-    table_paths, reason, not_yet, partial = place_paths(texts)
+    table_paths, reason, not_yet, partial = place_paths(texts, impl)
     paths = list(sys.argv[2:]) or table_paths
     if not paths:
         print("没拿到成品路径：%s。" % (reason or "命令行上没给，产出里也没写"))
@@ -419,8 +430,8 @@ def main():
             # 单独给一个退出码，调用方不用读这份脚本就知道该跳过。
             print("这一批的成品还没落成，没有可对照的东西——落成之后回来把那张表填上，再跑一遍。")
             return 3
-        print("把成品路径写在命令后面，或者在测试用例规格说明的「成品落点」表里填上——"
-              "两份都填了，就不用每次在命令行上抄一遍。")
+        print("把成品路径写在命令后面，或者在 %s 的方案节里填上——"
+              "两处都填了，就不用每次在命令行上抄一遍。" % check_docs.IMPL_DOC)
         return 2
 
     ids = defined_ids(texts)

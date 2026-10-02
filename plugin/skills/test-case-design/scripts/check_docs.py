@@ -711,8 +711,10 @@ def check_case(text, rep, tms, datas, envs):
 def place_block(text):
     """切出测试用例规格说明里的「成品落点」那一块；没有这一块时返回 None。
 
-    这一块是模板第四节的第五块。check_landing.py 也从这里取成品路径——两边认的
-    必须是同一块，所以切法不各写一份。
+    这一块已经搬到第七份的方案节里（模板第十节），新产出不该再有它；这个切法留着是
+    给搬之前的老产出用的：main 里算「DATA-/ENV- 有没有人引用」时要把这一块摘掉——
+    它记的是成品落在哪，行里顺带列到几个编号是常事，拿它当「有人用了」，一件谁也没
+    用的数据就会一直不吭声。第七份里那一块另有切法，见 impl_place_block。
     """
     m = re.search(r"^#{2,}\s*[^\n]*" + PLACE_HEAD + r"[^\n]*$", text, re.M)
     if not m:
