@@ -1438,15 +1438,22 @@ def check_impl(text, rep, ids):
         name = head.strip("# ").strip()
         subs = impl_block_heads(body)
         at = [next((i for i, s in enumerate(subs) if w in s), None) for w in IMPL_BLOCKS]
-        missing = [w for w, i in zip(IMPL_BLOCKS, at) if i is None]
+        # 「成品落点」缺了不进这张名单：check_place 单报一条，话更具体（说清这一块该
+        # 写什么、成品路径写在哪儿）。两处都报，同一个问题占两条错误，错误数就虚了。
+        missing = [w for w, i in zip(IMPL_BLOCKS, at) if i is None and w != PLACE_HEAD]
+        # 算次序时把没找到的那几块摘掉：None 与数字比大小会报 TypeError。
+        order = [i for i in at if i is not None]
         if missing:
             rep.err(IMPL_DOC, "%s 里缺这几块：%s" % (name, "、".join(missing)))
-        elif at != sorted(at):
+        elif order != sorted(order):
             rep.err(IMPL_DOC, "%s 里四块的次序不对——要照「%s」这个先后排（按每个词"
                               "第一次出现的小标题算）：现在 %s"
                     % (name, "」→「".join(IMPL_BLOCKS),
                        "、".join("%s 在第 %d 个" % (w, i + 1)
-                                 for w, i in zip(IMPL_BLOCKS, at))))
+                                 for w, i in zip(IMPL_BLOCKS, at) if i is not None)))
+        elif None not in at:
+            # 「成品落点」缺了时不打这句：四块并不都在，那句通过语就成了假话。
+            rep.ok("%s 里四块都在，次序也对" % name)
         else:
             rep.ok("%s 里四块都在，次序也对" % name)
 
