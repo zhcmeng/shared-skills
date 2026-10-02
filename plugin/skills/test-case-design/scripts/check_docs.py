@@ -708,28 +708,11 @@ def check_case(text, rep, tms, datas, envs):
     return
 
 
-def place_block(text):
-    """切出测试用例规格说明里的「成品落点」那一块；没有这一块时返回 None。
-
-    这一块已经搬到第七份的方案节里（模板第十节），新产出不该再有它；这个切法留着是
-    给搬之前的老产出用的：main 里算「DATA-/ENV- 有没有人引用」时要把这一块摘掉——
-    它记的是成品落在哪，行里顺带列到几个编号是常事，拿它当「有人用了」，一件谁也没
-    用的数据就会一直不吭声。第七份里那一块另有切法，见 impl_place_block。
-    """
-    m = re.search(r"^#{2,}\s*[^\n]*" + PLACE_HEAD + r"[^\n]*$", text, re.M)
-    if not m:
-        return None
-    rest = text[m.end():]
-    nxt = re.search(r"^##\s", rest, re.M)
-    return rest[:nxt.start()] if nxt else rest
-
-
 def impl_place_block(body):
     """切出第七份某个方案节里的「成品落点」那一块；没有这一块时返回 None。
 
-    与 place_block 分开写：那一个切到下一个 `^##` 为止，用在用例那份上是对的
-    （它是顶层小节，与别的块并列）；第七份里这一块是方案节底下的 `###`，切到
-    下一个 `##` 会把后面几个方案节一起吞进来。这里切到下一个 `^#{1,3}` 为止。
+    切到下一个 `^#{1,3}` 为止：方案节底下还有别的 `###` 小节，切到下一个 `##` 会把
+    后面几个方案节一起吞进来。
     """
     m = re.search(r"^#{3,}\s*[^\n]*" + PLACE_HEAD + r"[^\n]*$", body, re.M)
     if not m:
@@ -754,8 +737,9 @@ def without_notes(text):
 def batch_block(text):
     """切出测试规程规格说明里的「各批落到哪」那一块；没有这一块时返回 None。
 
-    照 place_block 的样子单写一个，不并进去：那一个切的是测试用例规格说明里的
-    「成品落点」，check_landing.py 也在用它，两处认的必须是同一块。
+    与 impl_place_block 一样按标题切到下一节为止，但认的块名与切法各是各的：
+    那一个切的是第七份方案节里的「成品落点」，check_landing.py 也在用它，
+    两处认的必须是同一块。
     """
     m = re.search(r"^#{2,}\s*[^\n]*" + BATCH_HEAD + r"[^\n]*$", text, re.M)
     if not m:
@@ -768,8 +752,8 @@ def batch_block(text):
 def coverage_block(text):
     """切出测试用例规格说明里的「覆盖率自检」那一块；没有这一块时返回 None。
 
-    照 place_block 的样子单写一个，不并进去：那一个切的是「成品落点」，
-    check_landing.py 也在用它，两处认的必须是同一块。
+    这一块是顶层小节，与别的块并列，所以切到下一个 `^##` 为止——同一份里还有别的
+    块要切（见 impl_place_block、batch_block），各自认各自的块名，不并成一个。
     """
     m = re.search(r"^#{2,}\s*[^\n]*" + COVER_HEAD + r"[^\n]*$", text, re.M)
     if not m:
@@ -1515,19 +1499,13 @@ def check_impl(text, rep, ids):
 def check_sections(texts, rep):
     """模板说测试用例规格说明分四块写。多出来的顶层小节只提示不判错——
     多一段算不算「多造」是人的判断，脚本不替人定。
-
-    「成品落点」已经搬到第七份的方案节里，所以它不在 known 里：老产出里还留着的，
-    单报一条提示指到新住址，别混进那句泛泛的「多出来的算不算多造，自己定」。
     """
     heads = re.findall(r"^##\s+(.+)$", texts.get(CASE_DOC, ""), re.M)
     known = ("覆盖项", "测试用例", "对应表", COVER_HEAD)
-    extra = [h for h in heads if not any(k in h for k in known) and PLACE_HEAD not in h]
+    extra = [h for h in heads if not any(k in h for k in known)]
     if extra:
         rep.warn(CASE_DOC, "有模板四块之外的顶层小节：%s"
                            "（模板说这份分四块写；多出来的算不算多造，自己定）" % "、".join(extra))
-    if [h for h in heads if PLACE_HEAD in h]:
-        rep.warn(CASE_DOC, "「%s」这一块已经搬到第七份 %s 的方案节里（这一份不再有它）——"
-                           "搬过去之后这一节可以删掉" % (PLACE_HEAD, IMPL_DOC))
 
 
 def prefer_utf8(stream):
@@ -1725,14 +1703,9 @@ def main():
         check_proc(texts[PROC_DOC], rep, set(tcs), datas, envs, tc_names, tc_layers)
 
     # 数据项与环境项有没有人用——两份引用文档都在才判。
-    # 「成品落点」那一块不算引用：它记的是成品落在哪，里面顺带列到几个编号是常事，
-    # 拿它当「有人用了」，一件谁也没用的数据就会一直不吭声。
     used_data = used_env = None
     if CASE_DOC in texts and PROC_DOC in texts:
         case_text = texts[CASE_DOC]
-        block = place_block(case_text)
-        if block:
-            case_text = case_text.replace(block, "")
         used_data = referenced(case_text, "DATA-") | referenced(texts[PROC_DOC], "DATA-")
         used_env = referenced(case_text, "ENV-") | referenced(texts[PROC_DOC], "ENV-")
 
