@@ -266,7 +266,7 @@ bypass permissions（跳过权限确认）**——那个模式默认会引导模
   `30-statusline-smoke`、`40-notify`（判定）、
   `50-notify-render`、`60-wiring`（hooks.json 接线）、`70-version-consistency`、
   `80-module-picker`（`--changed` 挑得对不对这件事本身）、`90-test-case-design`
-  （`evals/` 下各套产出的六份自检与落成对照）。
+  （那个技能自己的四份测试，外加 `evals/` 下批次配置的校验）。
   这份名单会过期（90 就是后加的），以各模块文件头的 `# watch:` 声明为准——那一行写着这块
   盯哪些路径，也就是「改了哪儿该跑哪一块」的答案。
   加校验就加模块，别往入口里塞
