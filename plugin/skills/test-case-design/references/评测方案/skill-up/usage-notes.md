@@ -73,6 +73,7 @@ claude --settings '{"disableAllHooks":true}' --session-id <id> -p --permission-m
 - **报告格式要显式列。**`result.json` 一直会写；要 HTML 得在 `report.formats` 里把 `html` 列上，不列就不出。已经跑过的那几轮想补一份 HTML，用 `report` 子命令从 `result.json` 生成，不必重跑（实测，`v0.12.0`）。
 - **判官那次回话要能直接当 JSON 读，包在代码围栏里不算。**判官偶尔把结果写成 ` ```json ` 围起来的块，也有时干脆回一句中文散文（不吐 JSON）——两种情况都是第一次解析失败，话是 `invalid JSON response`，skill-up 会重试一次。重试过得去就没事；赶不上用例超时（`cases.defaults.timeout_seconds`，默认 300 秒）那一条就报 ERROR。**报告末尾那行是三档——`passed / failed / errors`——ERROR 不是「被测那边没过」**：被判官这一次意外拖住、整条用例拿不到结论而已，重跑一遍通常就有结论了（实测，`v0.12.0`：头一轮里一条 ERROR、另有两条第一次失败而重试通过）。
 - **`cases.defaults.timeout_seconds` 显式写大，取 1800。**技能用例一条要走完被测那边的整轮会话——多轮工具调用——再等判官判一次，判官第一次回话解析不成还要重试一次。不写就是吃默认值（上一条那个 300 秒），顶到超时那一条整条报 ERROR、拿不到结论，这一轮就白跑。
+- **不传 `--output-dir` 时，报告落在技能根旁边的 `<技能名>-workspace/`，不在第七份约定的 `runs/` 里。**`skill-up run --help` 上写的就是这句（`Default: <skill-name>-workspace alongside the skill directory`）；技能根退让时（见第七节），落点是**退让到的那一层**——实跑留下过 `.claude/evals/game-design-xlsx-to-md-workspace/`（`eval.yaml` 在 `game-design-xlsx-to-md/cases/` 下，退让出来的技能根是 `.claude/evals/`）。这个目录**不在「盖得住 `runs/`」那条 `.gitignore` 规则里**，`git add` 会把它整份收进库，而里面装的是报告、`report.html` 与每条用例的会话记录。所以落成时**每一条 `run` 命令都要显式传 `--output-dir`**——落成约定里那条「一批跑测取一个当场的时间戳目录」正是为这个。顺带一笔对不上的：`/skill-upper` 的 `cli.md` 把这个默认值写成「`eval.yaml` 所在目录」（第 21 行），与 `--help` 和实跑都不是一回事——实跑落在技能根那一层，不是 `cases/` 那一层（2026-10-10 实测，`v0.12.0`）。
 
 第一到三节、第六节与第七节的东西它同样没写——那几节是照上游**源码**读出来的，本来就哪份文档都没有；第四节出自上游文档站的 `windows.md`。
 
@@ -116,3 +117,5 @@ claude --settings '{"disableAllHooks":true}' --session-id <id> -p --permission-m
 **已经在装着的 `v0.12.0` 上核过这几处**：第七节那两处（上面那两个便宜的核法，各跑一次就对上了）、第三节那条「用例那一层写了 `skills` 也不报错」、第四节那条「备齐 bash 与 Node 就起得来真实 agent」（2026-10-01，在原生 Windows 上整批跑通）、第五节那几条（`judge.model` 必填、`report.formats` 不写就不出 HTML；判官整块写在用例那一层那条 2026-10-02 在二进制上重核过，推翻了原先「批次那层写了就够」的记法）、第六节那两条（`setup_steps` 是批次级、每条用例各跑一遍；`cases.parallelism: 1` 串着跑）。其余各条只在源码那一版上读过，还没在二进制上逐条核。
 
 **2026-10-02 又核过三处**（都在 `v0.12.0` 上）：第二节那条 skill-up 自己提交 `skill-up-baseline`、第三节那条装进去不等于会被唤起、第四节那条 `setup_steps` 由 bash 跑——出处是 `evals/business-term-builder/` 那一批的落成与探针跑测。
+
+**2026-10-10 又核过一处**（`v0.12.0` 上）：第五节那条「不传 `--output-dir` 时落在哪」——跑第一批时有几条命令漏传，`<技能名>-workspace/` 直接落在评测材料根旁边，与 `--help` 上那句对得上。出处是 `xlsx/公会系统/` 那一批的落成与首轮回归。

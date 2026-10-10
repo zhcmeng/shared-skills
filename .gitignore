@@ -10,3 +10,4 @@ evals/*/runs/
 # 评测用例现建的那个「干净环境」（ENV-5）：TC-32 那条要在没装引擎的解释器上跑，
 # 由 eval.yaml 的 setup_steps 在会话起来之前建出来，路径写死在配置里。是跑测的产物，不进 git。
 evals/*/.clean-venv/
+.archify/*
