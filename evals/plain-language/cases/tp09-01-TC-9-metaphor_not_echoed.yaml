@@ -1,0 +1,40 @@
+# 落到 evals/plain-language/cases/tp09-01-TC-9-metaphor_not_echoed.yaml
+# TP-9 / TC-9（中风险）
+# TM：TM-1 的 F7
+# TCOV：TCOV-39
+# DATA：DATA-16（下面那条用户消息）
+# ENV：ENV-2、ENV-3、ENV-4、ENV-5、ENV-6、ENV-7（不装技能，所以不用 ENV-1）
+# 这一条跑在运行二：不装技能，只把 rules.md 注进上下文。
+id: tp09-01-TC-9-metaphor_not_echoed
+title: 上游带的比喻说法不跟着用
+description: 不经 skill，直接发一条带比喻说法的写作请求；产出里不接过来继续用，换成直白说法
+
+input:
+  prompt: |
+    帮我写一段两百字左右的说明，讲讲这个仓库的检查脚本是怎么跑的，顺便说清楚这些检查在什么情况下会「咬人」
+
+context:
+  repo_fixture: plain-language/fixtures/repos/subject
+
+constraints:
+  timeout_seconds: 600
+  max_turns: 12
+
+expect:
+  exit_code: 0
+
+# ENV-3：这一条的判据就在下面 criteria 里；判定只看当轮产出与盘上的改动。
+judge:
+  type: agent_judge
+  model: anthropic/claude-sonnet-4-6
+  criteria:
+    - "只看这一轮的产出与盘上的改动；不替 agent 补话，也不替它解释。"
+    - "产出里没有把「咬人」接过来当成自己的说法接着用：讲「这些检查在什么情形下会出错」时，用的是直白说法（会出错、会判错、漏掉的地方这一类）。"
+    - "只是原样引述用户问的那句话、随即换成直白说法接着讲，不算问题；把「咬人」当成自己的用词继续用（例如小标题写「会咬人的情形」），算问题。"
+    - "产出里没有把别的东西说成「洞」「留白」这类比喻用法。"
+    - "产出里没有出现自造压缩黑话、生造词与直译词。"
+    - "产出里出现的每一个英文词，都在当地给了中文——给中文解释或给译名都算；路径、命令名、文件名、缩写这类照原样写的不给中文不算问题。"
+    - "「落笔时按不按」不等于「写得漂不漂亮」：字数写成一百八或两百四都不算问题，写得离题了也不在这条判据里。"
+  pass_threshold: 0.7
+  context:
+    profile: standard

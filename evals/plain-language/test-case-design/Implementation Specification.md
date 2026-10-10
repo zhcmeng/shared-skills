@@ -14,22 +14,23 @@
 
 | 通用稿的编号 | 本方案里落在哪 | 说明 |
 |:---|:---|:---|
-| TM-1、TM-2、TM-3、TM-4 | `cases/` 下那八条用例配置，写在每条开头的注释里 | 四个模型都只落这一处；号列全、不写范围 |
-| TCOV-1、TCOV-2、TCOV-3、TCOV-4、TCOV-5、TCOV-6、TCOV-7、TCOV-8、TCOV-9、TCOV-10、TCOV-11、TCOV-12、TCOV-13、TCOV-14、TCOV-15、TCOV-16、TCOV-17、TCOV-18、TCOV-19、TCOV-20、TCOV-21、TCOV-22、TCOV-23、TCOV-24、TCOV-25、TCOV-26、TCOV-27、TCOV-28、TCOV-29、TCOV-30、TCOV-31、TCOV-32、TCOV-33、TCOV-34、TCOV-35、TCOV-36、TCOV-37、TCOV-38 | 同上 | 38 条覆盖项整批落一处，号列全、不写范围 |
-| TC-1、TC-2、TC-3、TC-4、TC-5、TC-6、TC-7、TC-8 | 同上，一条用例一份配置 | 八条用例各落一份，文件名见「各批落到哪」那一栏 |
-| TP-1、TP-2、TP-3、TP-4、TP-5、TP-6、TP-7、TP-8 | 同上，各条用例配置的注释，与它那条用例写在一起 | 八条规程一套落同一处，不分批；TP-8 那条在 `eval-no-skill.yaml` 那次运行里跑 |
+| TM-1、TM-2、TM-3、TM-4 | `cases/` 下那九条用例配置，写在每条开头的注释里 | 四个模型都只落这一处；号列全、不写范围 |
+| TCOV-1、TCOV-2、TCOV-3、TCOV-4、TCOV-5、TCOV-6、TCOV-7、TCOV-8、TCOV-9、TCOV-10、TCOV-11、TCOV-12、TCOV-13、TCOV-14、TCOV-15、TCOV-16、TCOV-17、TCOV-18、TCOV-19、TCOV-20、TCOV-21、TCOV-22、TCOV-23、TCOV-24、TCOV-25、TCOV-26、TCOV-27、TCOV-28、TCOV-29、TCOV-30、TCOV-31、TCOV-32、TCOV-33、TCOV-34、TCOV-35、TCOV-36、TCOV-37、TCOV-38、TCOV-39 | 同上 | 39 条覆盖项整批落一处，号列全、不写范围 |
+| TC-1、TC-2、TC-3、TC-4、TC-5、TC-6、TC-7、TC-8、TC-9 | 同上，一条用例一份配置 | 九条用例各落一份，文件名见「各批落到哪」那一栏 |
+| TP-1、TP-2、TP-3、TP-4、TP-5、TP-6、TP-7、TP-8、TP-9 | 同上，各条用例配置的注释，与它那条用例写在一起 | 九条规程一套落同一处，不分批；TP-8、TP-9 那两条在 `eval-no-skill.yaml` 那次运行里跑 |
 | ENV-1、ENV-2、ENV-3 | 运行一的 `eval.yaml` 里 `skills[].path`；两次运行的 `report.artifacts` 与各条 `judge.context`；各条用例的 `judge.criteria` | 三条的值都由 2.1 第 2、3 小节写死：技能只装 `SKILL.md` 与 `rules.md`；回复看 `final_message`、盘上改动看 `workspace_diff`；判据是各条用例「预期结果」栏的散文压成条目，连「判的时候留个心」那些操作提示一并写进去 |
 | ENV-4 | 夹具 `fixtures/repos/subject/` | 每条用例各把这个目录的内容铺进自己那份临时工作区；原始夹具全程不动。五份样本就摆在这棵树里，铺进去之后权限跟原始样本一致（TC-7 那份是只读的） |
 | ENV-5 | 两次运行的 `environment.setup_steps`——从绝对路径读 `rules.md` 写进工作区的 `CLAUDE.md`；见 2.1 第 4 小节第 4 条 | 钩子那条道在本方案里走不通 |
 | ENV-6、ENV-7 | 同一个临时工作区 | 见 2.1 第 2 小节：跑完就删，重试与迭代各起一个，ENV-6 要的「每跑一条之前清干净」由框架自己保证；ENV-7 要的那处执行环境就是建这个目录的机器（本机 Windows），样本副本也在这一处 |
 | DATA-1、DATA-2、DATA-3、DATA-4、DATA-5、DATA-6、DATA-7、DATA-8、DATA-9、DATA-10、DATA-11、DATA-12、DATA-13、DATA-14 | 各条用例配置的正文——`input.prompt`，TC-7 那条走 `input.turns`；DATA-5、DATA-6 另接在用户消息前面 | 十四条样本文本，一条对一条落进它那条用例。落法一样，并成一行写，号列全。DATA-5、DATA-6 另有一处保真度折扣，见 2.1 第 4 小节第 3 条 |
 | DATA-15 | 夹具里 `…/cases/tp05-01-TC-7-file_blocked_reports_where/fixture/只读样本.md` | 没有写权限的文档样本；权限靠工作树带过去，**git 不存这个属性**，重新克隆之后要在工作树里重设一次（`chmod 444`），见 2.1 第 2 小节 |
+| DATA-16 | `cases/tp09-01-TC-9-metaphor_not_echoed.yaml` 的 `input.prompt` | TC-9 那条用户消息，落法同 DATA-7 至 DATA-14；消息里故意带一处比喻说法（「咬人」），判的是产出里会不会接过来继续用 |
 
-**六类都收。**模型、覆盖项、用例、规程、数据项、环境项，六份里定义过的每一条都要在这张表里出现一次；用不上的也要写一行说明为什么。这一套八条规程落同一处，前四类因此各占一行、号列全——写成 `TCOV-1 至 TCOV-38` 只是行文里的说法，表里那一格是逐个列出来的。
+**六类都收。**模型、覆盖项、用例、规程、数据项、环境项，六份里定义过的每一条都要在这张表里出现一次；用不上的也要写一行说明为什么。这一套九条规程落同一处，前四类因此各占一行、号列全——写成 `TCOV-1 至 TCOV-39` 只是行文里的说法，表里那一格是逐个列出来的。
 
 **编号在盘上怎么留痕。**这张表说的是「落到哪」；落成的时候还得让编号在盘上搜得到——不然过几个月拿着盘上的配置，认不出哪一条兑现了通用稿里的哪个号。两处这么编：
 
-- **用例配置的文件名**：`python scripts/issue_ids.py <产出目录> --case-dirs` 打出来是什么就写什么，后面加 `.yaml`——八条就是 `tp01-01-TC-1-fix_only_what_should_change.yaml` 这样。
+- **用例配置的文件名**：`python scripts/issue_ids.py <产出目录> --case-dirs` 打出来是什么就写什么，后面加 `.yaml`——九条就是 `tp01-01-TC-1-fix_only_what_should_change.yaml` 这样。
 - **配置里面用注释带编号**：每条用例的输入上方、每条判据上方，写出它兑现的 `TP-`／`TC-`／`TCOV-`／`DATA-`／`ENV-` 号，一条一个号、不写范围。
 
 **相对路径的基准是 `evals/`。**技能与评测材料不在一棵树里，skill-up 找不到技能根，退让到 `eval.yaml` 所在目录的上一层——正好是 `evals/`（退让规则见 `usage-notes.md` 第七节）。所以每条相对路径都带 `plain-language/` 前缀：`skills[].path` 写 `../plugin/skills/plain-language`、`cases.files` 写 `plain-language/cases/...`、`context.repo_fixture` 写 `plain-language/fixtures/repos/subject`。跑起来会打一条 `SKILL.md not found ... falling back to` 的警告，是那一步退让的正常产物，不是错。
@@ -45,9 +46,9 @@
 两次。
 
 - **运行一**：装技能，跑 TP-1 至 TP-7（TC-1 至 TC-7），配置是 `eval.yaml`。
-- **运行二**：不装技能，跑 TP-8（TC-8），配置是 `eval-no-skill.yaml`。
+- **运行二**：不装技能，跑 TP-8（TC-8）与 TP-9（TC-9），配置是 `eval-no-skill.yaml`。
 
-技能只能配在 `eval.yaml` 那一层，一条用例一层配不了，所以分两次（见 `usage-notes.md` 第三节）。TC-8 那一档要的正是「`rules.md` 已经在上下文里、但技能没被唤起」，装不装技能是两次运行的分别。八条测试规程落成八条用例配置，技能本身一个字不改。
+技能只能配在 `eval.yaml` 那一层，一条用例一层配不了，所以分两次（见 `usage-notes.md` 第三节）。TC-8、TC-9 那一档要的正是「`rules.md` 已经在上下文里、但技能没被唤起」，装不装技能是两次运行的分别。九条测试规程落成九条用例配置，技能本身一个字不改。
 
 **2. 工作区怎么来**
 
@@ -75,7 +76,7 @@ chmod 444 "C:/Study/shared-skills/evals/plain-language/fixtures/repos/subject/ev
 
 **3. 判据两层怎么落**
 
-机械层用 `expect` 门槛，语义层用 `judge`。八条都用 `agent_judge`，没有一条改用 `rule_based` 或 `script`：判的都是「改了哪几处、哪几处一个字没动、回复里说了什么」，落不到命令、退出码或盘上文件上。
+机械层用 `expect` 门槛，语义层用 `judge`。九条都用 `agent_judge`，没有一条改用 `rule_based` 或 `script`：判的都是「改了哪几处、哪几处一个字没动、回复里说了什么」，落不到命令、退出码或盘上文件上。
 
 逐条看：
 
@@ -89,6 +90,7 @@ chmod 444 "C:/Study/shared-skills/evals/plain-language/fixtures/repos/subject/ev
 | TC-4 | 退出码 0 | 重讲的正文里那几类问题不再出现、信息不增不减、只给正文 |
 | TC-5 | 退出码 0 | 说出了「这段没有需要改的地方」这个意思、没有硬凑 |
 | TC-8 | 退出码 0 | 英文词都就地给了中文、没有自造压缩黑话与生造词、没有夹英文的句子 |
+| TC-9 | 退出码 0 | 没把上游消息里的「咬人」接过来当自己的说法、没有「洞」「留白」这类比喻用法、要表达那个意思时用的是直白说法、英文词都就地给了中文 |
 
 **两处不拿 `must_contain` 卡原话**：TC-6、TC-5 要的「这段没有需要改的地方」，用例规格说明的「预期结果」栏写的是「说出了……这个意思」——措辞不限，判的是那件事有没有做到。拿原文卡会造出一个假的闸门：话换个说法说对了，闸门照样拦下来。这一处交给语义层判。
 
@@ -106,7 +108,7 @@ chmod 444 "C:/Study/shared-skills/evals/plain-language/fixtures/repos/subject/ev
 
 **第 4 条：ENV-5 的注入怎么摆。**走「项目根目录的 `CLAUDE.md`」这条道，写进两次运行各自的 `environment.setup_steps`——一条 `cat "<绝对路径>" >> CLAUDE.md`。
 
-**两次运行开跑前都会接**，因为只给运行二接会让运行一那七条没有常驻注入——与测试环境需求里「其余七条规程跑的时候 `rules.md` 同样已经注入」对不上，也与真实用法对不上（真实使用者那里规则本来就常驻，技能另外也在）。两次都接，八条的差别才回到「用不用 skill」这一件事上。
+**两次运行开跑前都会接**，因为只给运行二接会让运行一那七条没有常驻注入——与测试环境需求里「其余七条规程跑的时候 `rules.md` 同样已经注入」对不上，也与真实用法对不上（真实使用者那里规则本来就常驻，技能另外也在）。两次都接，九条的差别才回到「用不用 skill」这一件事上。
 
 那条路径是**绝对路径，写死在本机**，换机器要改：那一刻工作区还是个空目录，相对路径没有可作基准的东西。命令还要挑一个找得着 bash 的写法（见 `usage-notes.md` 第四节）。
 
@@ -134,7 +136,7 @@ C:/Users/Administrator/.local/bin/skill-up.exe run C:/Study/shared-skills/evals/
 
 **一批一个时间戳，后跑的盖不掉先跑的。**再跑一批就另取一次当前时刻，落进新的 `runs/<时间戳>/`，前几批的报告原样留着。
 
-**报告出两种格式**：两份配置的 `report.formats` 里都列了 `json` 与 `html`。`result.json` 是给机器读的那份——八条各自哪几条判据过了、每步花了多久都在里面；HTML 是给人看的那份，一轮跑完直接点开。这一栏不列 `html` 就不出 HTML，事后要补得用 `report` 子命令从 `result.json` 另生成一份。
+**报告出两种格式**：两份配置的 `report.formats` 里都列了 `json` 与 `html`。`result.json` 是给机器读的那份——九条各自哪几条判据过了、每步花了多久都在里面；HTML 是给人看的那份，一轮跑完直接点开。这一栏不列 `html` 就不出 HTML，事后要补得用 `report` 子命令从 `result.json` 另生成一份。
 
 **同一批至少跑两遍**，两遍结论不一致的用例照实记下来。跑第二遍不为核对结论，为的是看判据稳不稳：一轮过一轮不过的用例，毛病多半出在判据卡了可有可无的附带动作——被测那边有时顺带做、有时不做，卡上去这条用例就一轮一个样。整套再跑一遍就按上面那条另取一个时间戳落进新目录，两批并排看。
 
