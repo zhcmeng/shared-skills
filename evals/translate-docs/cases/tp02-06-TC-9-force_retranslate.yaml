@@ -1,0 +1,46 @@
+# 落到 evals/translate-docs/cases/tp02-06-TC-9-force_retranslate.yaml
+# TP-2 / TC-9（高风险）
+# TM：TM-2、TM-3
+# TCOV：TCOV-35、TCOV-43
+# DATA：DATA-5（目录样本，按它备一份副本）
+# ENV：ENV-1、ENV-2、ENV-3、ENV-4、ENV-5
+#
+# 判据从测试用例规格说明的「预期结果」栏压出来，① 至 ④ 一条对一条；
+# ② 那一处盘上比不出来时以过程记录为凭（见实施方案 1.2 第 8 小节）。
+id: tp02-06-TC-9-force_retranslate
+title: 用户明确要求覆盖重译：连已有中文版一起译
+description: 给一个混着待译文件与「已有中文版」那一对的目录，并声明已有的中文版直接覆盖；三份 .md 都重新译了一遍，旧的被盖掉，英文原文没动
+
+input:
+  prompt: |
+    把这个目录里的文档重新翻译一遍，已有的中文版直接覆盖：mixed
+
+context:
+  repo_fixture: translate-docs/fixtures/repos/subject
+  git:
+    init: true
+
+constraints:
+  timeout_seconds: 1800
+  max_turns: 12
+
+expect:
+  exit_code: 0
+  files_exist:
+    - "mixed/widget-guide-中文版.md"
+    - "mixed/pipeline-diagram-中文版.md"
+    - "mixed/handbook-中文版.md"
+
+judge:
+  type: agent_judge
+  model: anthropic/claude-sonnet-4-6
+  criteria:
+    # 覆盖 TCOV-35、TCOV-43
+    - "① mixed 目录里每一份 .md 都有了对应的中文版。"
+    # 覆盖 TCOV-35
+    - "② 那一对里已有中文版的那份（handbook-中文版.md）也被重新翻译并覆盖了盘上旧的——产出由子代理译出，不是原样留着没动。盘上比不出来时（重译的结果与旧的内容看不出差别）以过程记录为凭：看得出为它单独派了子代理、写了这一份，也算达成。"
+    # 覆盖 TCOV-35
+    - "③ 回复里说清了本次译了哪几份。"
+    # 覆盖 TCOV-35
+    - "④ 除这几份中文版以外，目录里其他文件跑完与跑前逐字节相同（三份英文原文本身都没动）。框架自己往 .claude/skills/ 里装技能、写基线这些动作不是被测那侧干的，不要算到「其他文件被动过」头上。"
+  pass_threshold: 1.0

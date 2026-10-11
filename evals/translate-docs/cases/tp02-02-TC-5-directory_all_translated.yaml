@@ -1,0 +1,39 @@
+# 落到 evals/translate-docs/cases/tp02-02-TC-5-directory_all_translated.yaml
+# TP-2 / TC-5（高风险）
+# TM：TM-2、TM-3
+# TCOV：TCOV-33、TCOV-39
+# DATA：DATA-6（目录样本，按它备一份副本）
+# ENV：ENV-1、ENV-2、ENV-3、ENV-4、ENV-5
+#
+# 判据从测试用例规格说明的「预期结果」栏压出来，① 至 ③ 一条对一条。
+id: tp02-02-TC-5-directory_all_translated
+title: 给一个目录、里面都译过了：说没有可译的文件，不动手
+description: 给一个每一份 .md 都已有中文版的目录；回复里说出没有可译的文件，盘上一个字没动，一个子代理也没派
+
+input:
+  prompt: |
+    把这个目录里的英文文档都翻译成中文：translated
+
+context:
+  repo_fixture: translate-docs/fixtures/repos/subject
+  git:
+    init: true
+
+constraints:
+  timeout_seconds: 1800
+  max_turns: 12
+
+expect:
+  exit_code: 0
+
+judge:
+  type: agent_judge
+  model: anthropic/claude-sonnet-4-6
+  criteria:
+    # 覆盖 TCOV-33、TCOV-39
+    - "① 回复里说出了「没有可译的文件」这个意思（措辞不限，判的是这个意思）。"
+    # 覆盖 TCOV-33
+    - "② 盘上任何文件跑完与跑前逐字节相同，一份中文版都没有多出来。框架自己往 .claude/skills/ 里装技能、写基线这些动作不是被测那侧干的，不要算到「文件被动过」头上。"
+    # 覆盖 TCOV-33
+    - "③ 过程记录里看得出没有派出子代理。"
+  pass_threshold: 1.0

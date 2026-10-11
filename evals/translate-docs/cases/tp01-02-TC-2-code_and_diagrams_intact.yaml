@@ -1,0 +1,47 @@
+# 落到 evals/translate-docs/cases/tp01-02-TC-2-code_and_diagrams_intact.yaml
+# TP-1 / TC-2（高风险：给「代码与图表被误译」这一处风险多导的一条）
+# TM：TM-1
+# TCOV：TCOV-9、TCOV-10、TCOV-11、TCOV-14、TCOV-25、TCOV-26
+# DATA：DATA-2（样本，按它备一份副本）
+# ENV：ENV-1、ENV-2、ENV-3、ENV-4、ENV-5
+#
+# 判据从测试用例规格说明的「预期结果」栏压出来，① 至 ⑥ 一条对一条。
+id: tp01-02-TC-2-code_and_diagrams_intact
+title: 代码与图表最密集的一份文档：代码块与图内 label 整块原样保留
+description: 把一份 mermaid 图、dot 图与代码块密集的英文文档交给技能翻译；图与代码整块一字未动，图内 label 一个没译，正文译成中文
+
+input:
+  prompt: |
+    翻译这个文件：pipeline-diagram.md
+
+context:
+  repo_fixture: translate-docs/fixtures/repos/subject
+  git:
+    init: true
+
+constraints:
+  timeout_seconds: 1800
+  max_turns: 12
+
+expect:
+  exit_code: 0
+  files_exist:
+    - "pipeline-diagram-中文版.md"
+
+judge:
+  type: agent_judge
+  model: anthropic/claude-sonnet-4-6
+  criteria:
+    # 覆盖 TCOV-25
+    - "① 工作区根多出一份 pipeline-diagram-中文版.md；除它以外，盘上其他文件跑完与跑前逐字节相同（含那份英文原文本身）。框架自己往 .claude/skills/ 里装技能、写基线这些动作不是被测那侧干的，不要算到「其他文件被动过」头上。"
+    # 覆盖 TCOV-9、TCOV-10
+    - "② mermaid 图与 dot 图各自的代码块整块一字未动（含围栏行、块内缩进与行数），图里节点的 label 全是原文的英文，一个没译。"
+    # 覆盖 TCOV-9
+    - "③ 那个 bash 代码块整块一字未动（含围栏行、块内缩进与行数）。"
+    # 覆盖 TCOV-11、TCOV-14
+    - "④ 行内代码（命令、文件路径）没动；表格里纯代码的单元格没动；表头与文本单元格译成了中文。"
+    # 覆盖 TCOV-26
+    - "⑤ 代码块的数量与位置、表格的行列数与原文一致。"
+    # 覆盖 TCOV-26
+    - "⑥ 标题与段落文字译成了中文。"
+  pass_threshold: 1.0

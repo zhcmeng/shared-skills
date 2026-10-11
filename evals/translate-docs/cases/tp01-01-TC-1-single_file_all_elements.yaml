@@ -1,0 +1,61 @@
+# 落到 evals/translate-docs/cases/tp01-01-TC-1-single_file_all_elements.yaml
+# TP-1 / TC-1（高风险）
+# TM：TM-1、TM-2、TM-3
+# TCOV：TCOV-1、TCOV-2、TCOV-3、TCOV-4、TCOV-5、TCOV-6、TCOV-7、TCOV-8、TCOV-9、TCOV-10、TCOV-11、TCOV-12、TCOV-13、TCOV-14、TCOV-15、TCOV-16、TCOV-17、TCOV-18、TCOV-19、TCOV-20、TCOV-21、TCOV-23、TCOV-24、TCOV-25、TCOV-26、TCOV-27、TCOV-28、TCOV-31、TCOV-37
+# DATA：DATA-1（样本，按它备一份副本）
+# ENV：ENV-1、ENV-2、ENV-3、ENV-4、ENV-5
+#
+# 判据从测试用例规格说明的「预期结果」栏压出来，① 至 ⑫ 一条对一条；
+# ⑧ ⑨ ⑩ 那几处依据没规定，照实施方案 1.2 第 6 小节写「记实际行为、不判对错」。
+id: tp01-01-TC-1-single_file_all_elements
+title: 一份各类元素齐全的文档译出来：该译的都成了中文，该留的一字未动
+description: 把一份各类元素齐全的英文文档交给技能翻译；标题段落列表表格链接脚注都译成中文，代码块与图内 label 一字未动，产出与原文逐项对应
+
+input:
+  prompt: |
+    翻译这个文件：widget-guide.md
+
+context:
+  repo_fixture: translate-docs/fixtures/repos/subject
+  # 差集要它：工作区是新建的空目录，不开这一项 skill-up 会把差集静默关掉。见实施方案 1.2 第 2 小节。
+  git:
+    init: true
+
+constraints:
+  timeout_seconds: 1800
+  max_turns: 12
+
+expect:
+  exit_code: 0
+  files_exist:
+    - "widget-guide-中文版.md"
+
+judge:
+  type: agent_judge
+  model: anthropic/claude-sonnet-4-6
+  criteria:
+    # 覆盖 TCOV-25
+    - "① 工作区根多出一份 widget-guide-中文版.md；除它以外，盘上其他文件跑完与跑前逐字节相同（含那份英文原文本身）。框架自己往 .claude/skills/ 里装技能、写基线这些动作不是被测那侧干的，不要算到「其他文件被动过」头上。"
+    # 覆盖 TCOV-1、TCOV-2、TCOV-3、TCOV-4、TCOV-5、TCOV-6、TCOV-7、TCOV-8、TCOV-12、TCOV-13、TCOV-14、TCOV-19
+    - "② 标题、段落、列表项、引用块里的文字都是中文；链接文字是中文、链接的目标地址没动；表格的表头与文本单元格是中文、纯代码的单元格没动、文字与行内代码混排的那一格文字译了而其中的代码一字未动；脚注说明是中文、脚注定义里的网址没动；frontmatter 的 description 与 argument-hint 是中文、name 与字段名本身没动。"
+    # 覆盖 TCOV-9、TCOV-10、TCOV-11、TCOV-15、TCOV-16
+    - "③ fenced 代码块整块一字未动（围栏行、块内缩进与行数都与原文相同），图里节点的 label 一个没译；行内代码没动；正文里的脚注引用 [^1] 没动；正文里不带反引号的英文文件名与命令（pipeline-cli、/usr/local/bin）没动。"
+    # 覆盖 TCOV-17、TCOV-18
+    - "④ 产出里凡出现「中文（English）」并列形态的词，该形态出现在这个词的首次出现处；同一个词再次出现时没有退回英文原文裸用（中文单用与中英并列都算达成）。"
+    # 覆盖 TCOV-26
+    - "⑤ 产出与原文逐项对应：标题层级、段落数、列表项数、表格行列数、代码块数与原文一致；没有增删内容；没有把两段并成一段、也没有把一段拆成两段。"
+    # 覆盖 TCOV-28
+    - "⑥ 原文段落里的硬换行在中文版里不再保留（中文段内不换行），段落边界与空行照原文保留。"
+    # 覆盖 TCOV-27
+    - "⑦ 说明句已插入产出，位置在 frontmatter 之后、正文标题之前，文字照规定格式，里面带着原文文件名 widget-guide.md。"
+    # 覆盖 TCOV-20、TCOV-21；依据没规定，记实际行为
+    - "⑧ 图片的 alt 文字与目标地址、文档里的 HTML 注释——这两处依据没有规定该怎么办：把实际怎么处理的记一句（译了没译、动没动）就够，这一处不判对错，不构成不通过的理由。"
+    # 覆盖 TCOV-24；依据没规定，记实际行为
+    - "⑨ frontmatter 里取技术关键字值的那个字段（context: fork，依据说其余字段按值翻译，照字面读会把它译坏）：把实际怎么处理的记一句就够，这一处不判对错。"
+    # 覆盖 TCOV-23；依据没规定，记实际行为
+    - "⑩ 哪些词被按技术术语处理了（依据没给「技术术语」的判据）：把实际做法记一句就够，这一处不判对错。"
+    # 覆盖 TCOV-31、TCOV-37；要读执行过程
+    - "⑪ 过程记录里看得出：翻译由一个子代理完成，不是主代理自己译的；产出之后主代理对产出做了校验这一步（读了产出、或跑了 diff 这类比对），不是派完就汇报。"
+    # 覆盖 TCOV-31
+    - "⑫ 回复里汇报了成功。"
+  pass_threshold: 1.0

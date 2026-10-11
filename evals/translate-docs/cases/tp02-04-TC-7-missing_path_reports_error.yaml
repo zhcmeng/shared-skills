@@ -1,0 +1,39 @@
+# 落到 evals/translate-docs/cases/tp02-04-TC-7-missing_path_reports_error.yaml
+# TP-2 / TC-7（高风险）
+# TM：TM-2、TM-3
+# TCOV：TCOV-30、TCOV-41
+# DATA：不需要（这一条不备样本；输入里那个路径本来就不存在）
+# ENV：ENV-1、ENV-2、ENV-3、ENV-4、ENV-5
+#
+# 判据从测试用例规格说明的「预期结果」栏压出来，① 至 ③ 一条对一条。
+id: tp02-04-TC-7-missing_path_reports_error
+title: 给的路径不存在：说清是哪个路径，盘上什么都不动
+description: 给一个工作区里并不存在的文件路径；回复里说清是哪个路径定位不到，盘上什么都没动，也没有报出一个并不存在的产出
+
+input:
+  prompt: |
+    翻译这个文件：nonexistent-guide.md
+
+context:
+  repo_fixture: translate-docs/fixtures/repos/subject
+  git:
+    init: true
+
+constraints:
+  timeout_seconds: 1800
+  max_turns: 12
+
+expect:
+  exit_code: 0
+
+judge:
+  type: agent_judge
+  model: anthropic/claude-sonnet-4-6
+  criteria:
+    # 覆盖 TCOV-30、TCOV-41
+    - "① 回复里说清了是哪个路径定位不到（nonexistent-guide.md 这个路径在工作区里不存在），没有把这个路径当成别的什么来译——没有拿工作区里同名的或名字相近的样本顶替它。"
+    # 覆盖 TCOV-30
+    - "② 盘上任何文件跑完与跑前逐字节相同，没有多出中文版。框架自己往 .claude/skills/ 里装技能、写基线这些动作不是被测那侧干的，不要算到「文件被动过」头上。"
+    # 覆盖 TCOV-30
+    - "③ 没有凭空说「已经译好了」，也没有报出一个并不存在的产出。"
+  pass_threshold: 1.0

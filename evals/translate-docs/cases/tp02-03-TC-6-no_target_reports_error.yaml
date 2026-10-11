@@ -1,0 +1,40 @@
+# 落到 evals/translate-docs/cases/tp02-03-TC-6-no_target_reports_error.yaml
+# TP-2 / TC-6（高风险）
+# TM：TM-2、TM-3
+# TCOV：TCOV-29、TCOV-40
+# DATA：不需要（这一条不备样本）
+# ENV：ENV-1、ENV-2、ENV-3、ENV-4、ENV-5
+#
+# 判据从测试用例规格说明的「预期结果」栏压出来，① 至 ③ 一条对一条。
+# 这一条的输入照输入栏原样：调用时不带目标，目标参数为空。
+id: tp02-03-TC-6-no_target_reports_error
+title: 没带目标：报错退出，不猜
+description: 发一条没给出要译哪个目标的请求；回复里报错说明这一趟没给目标，没有猜一个出来、盘上什么都没动、子代理一个没派
+
+input:
+  prompt: |
+    用 translate-docs 翻译文档
+
+context:
+  repo_fixture: translate-docs/fixtures/repos/subject
+  git:
+    init: true
+
+constraints:
+  timeout_seconds: 1800
+  max_turns: 12
+
+expect:
+  exit_code: 0
+
+judge:
+  type: agent_judge
+  model: anthropic/claude-sonnet-4-6
+  criteria:
+    # 覆盖 TCOV-29、TCOV-40
+    - "① 回复里报错，说明这一趟没有给要译的目标（措辞不限，判的是这个意思）。"
+    # 覆盖 TCOV-29
+    - "② 没有猜一个目标出来：盘上任何文件跑完与跑前逐字节相同，没有凭空多出中文版。工作区里那几个样本（widget-guide.md、pipeline-diagram.md、release-notes.md、handbook.md 与 mixed、translated 两个目录）一个都没有被拿去译。框架自己往 .claude/skills/ 里装技能、写基线这些动作不是被测那侧干的，不要算到「文件被动过」头上。"
+    # 覆盖 TCOV-29
+    - "③ 过程记录里看得出没有派出子代理。"
+  pass_threshold: 1.0

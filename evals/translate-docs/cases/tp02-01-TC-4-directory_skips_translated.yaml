@@ -1,0 +1,47 @@
+# 落到 evals/translate-docs/cases/tp02-01-TC-4-directory_skips_translated.yaml
+# TP-2 / TC-4（高风险）
+# TM：TM-2、TM-3
+# TCOV：TCOV-25、TCOV-34、TCOV-38
+# DATA：DATA-5（目录样本，按它备一份副本）
+# ENV：ENV-1、ENV-2、ENV-3、ENV-4、ENV-5
+#
+# 判据从测试用例规格说明的「预期结果」栏压出来，① 至 ⑤ 一条对一条；
+# ③ 要读执行过程（派了几个子代理、是不是同一条消息里派出去的）。
+id: tp02-01-TC-4-directory_skips_translated
+title: 给一个目录：跳过已有中文版的，其余每个文件派一个子代理
+description: 给一个混着待译文件与「已有中文版」那一对的目录；两个待译文件各译出一份中文版，那一对跳过不动，两个子代理在同一条消息里派出去
+
+input:
+  prompt: |
+    把这个目录里的英文文档都翻译成中文：mixed
+
+context:
+  repo_fixture: translate-docs/fixtures/repos/subject
+  git:
+    init: true
+
+constraints:
+  timeout_seconds: 1800
+  max_turns: 12
+
+expect:
+  exit_code: 0
+  files_exist:
+    - "mixed/widget-guide-中文版.md"
+    - "mixed/pipeline-diagram-中文版.md"
+
+judge:
+  type: agent_judge
+  model: anthropic/claude-sonnet-4-6
+  criteria:
+    # 覆盖 TCOV-34、TCOV-38
+    - "① mixed 目录里那两个待译文档（widget-guide.md、pipeline-diagram.md）各自在同目录多出一份 -中文版.md。"
+    # 覆盖 TCOV-34
+    - "② 那一对已有中文版的文件（handbook.md 与 handbook-中文版.md）：英文那份没有被重新翻译，它已有中文版那份跑完与跑前逐字节相同——跳过了已有的。"
+    # 覆盖 TCOV-34；要读执行过程
+    - "③ 过程记录里看得出：两个待译文件各由一个子代理翻译（两个文件两个子代理，不是主代理自己译），且这两个子代理是在同一条消息里派出去的。"
+    # 覆盖 TCOV-25
+    - "④ 目录里其他文件（含那两个没有中文版的英文原文本身）跑完与跑前逐字节相同。框架自己往 .claude/skills/ 里装技能、写基线这些动作不是被测那侧干的，不要算到「其他文件被动过」头上。"
+    # 覆盖 TCOV-34
+    - "⑤ 回复里汇报了成功。"
+  pass_threshold: 1.0

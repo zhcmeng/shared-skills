@@ -1,0 +1,43 @@
+# 落到 evals/translate-docs/cases/tp02-05-TC-8-skill_name_located.yaml
+# TP-2 / TC-8（高风险）
+# TM：TM-2、TM-3
+# TCOV：TCOV-32、TCOV-42
+# DATA：不需要（目标是装进工作区的一个技能名，不是一个样本文件）
+# ENV：ENV-1、ENV-2、ENV-3、ENV-4、ENV-5、ENV-6
+#
+# 判据从测试用例规格说明的「预期结果」栏压出来，① 至 ④ 一条对一条。
+# ENV-6 那个技能由 eval.yaml 的 skills 第二项装进工作区（.claude/skills/changelog-polish/），
+# 取的是夹具里那份英文 SKILL.md——名字写死在这一条里。见实施方案 1.2 第 8 小节。
+id: tp02-05-TC-8-skill_name_located
+title: 给一个 skill 名：自行定位它的 SKILL.md，再按单个文件译
+description: 目标只给一个技能名；技能自己找到那个技能的 SKILL.md 所在路径，产出落在它旁边，原文一字未动
+
+input:
+  prompt: |
+    把 changelog-polish 这个技能翻译成中文
+
+context:
+  repo_fixture: translate-docs/fixtures/repos/subject
+  git:
+    init: true
+
+constraints:
+  timeout_seconds: 1800
+  max_turns: 12
+
+expect:
+  exit_code: 0
+
+judge:
+  type: agent_judge
+  model: anthropic/claude-sonnet-4-6
+  criteria:
+    # 覆盖 TCOV-32、TCOV-42
+    - "① 那个技能装在工作区的 .claude/skills/changelog-polish/ 下，产出落在同一目录里、文件名是 SKILL.md-中文版.md——落在这一处才说明技能是自己按名字定位到那份 SKILL.md 的，不是猜了个路径。"
+    # 覆盖 TCOV-32
+    - "② 产出与原文逐项对应：标题层级、段落数与原文一致，那一处 bash 代码块整块一字未动（含围栏行、块内缩进与行数），表格的行列数一致。"
+    # 覆盖 TCOV-32
+    - "③ 那份 SKILL.md 原文跑完与跑前逐字节相同。框架自己往 .claude/skills/ 里装技能、写基线这些动作不是被测那侧干的，不要算到「原文被动过」头上。"
+    # 覆盖 TCOV-32
+    - "④ 回复里汇报了成功。"
+  pass_threshold: 1.0

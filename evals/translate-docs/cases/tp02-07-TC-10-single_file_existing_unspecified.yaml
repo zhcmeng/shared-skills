@@ -1,0 +1,38 @@
+# 落到 evals/translate-docs/cases/tp02-07-TC-10-single_file_existing_unspecified.yaml
+# TP-2 / TC-10
+# TM：TM-2
+# TCOV：TCOV-36
+# DATA：DATA-4（一对文档，按它备一份副本）
+# ENV：ENV-1、ENV-2、ENV-3、ENV-4、ENV-5
+#
+# 判据从测试用例规格说明的「预期结果」栏压出来，① 与 ② 一条对一条；
+# ① 那一处依据没规定，照实施方案 1.2 第 6 小节写「记实际行为、不判对错」。
+id: tp02-07-TC-10-single_file_existing_unspecified
+title: 单文件模式下目标已有中文版：依据没有规定，记实际行为
+description: 给一份已经有对应中文版的英文文档路径；单文件模式遇到已有中文版怎么办依据没说，把实际行为记下来，英文原文本身没动
+
+input:
+  prompt: |
+    翻译这个文件：handbook.md
+
+context:
+  repo_fixture: translate-docs/fixtures/repos/subject
+  git:
+    init: true
+
+constraints:
+  timeout_seconds: 1800
+  max_turns: 12
+
+expect:
+  exit_code: 0
+
+judge:
+  type: agent_judge
+  model: anthropic/claude-sonnet-4-6
+  criteria:
+    # 覆盖 TCOV-36；依据没规定，记实际行为
+    - "① 单文件模式下遇到已有对应中文版怎么办，依据没有规定（依据里只写了目录模式默认跳过已有）：把实际怎么处理的记一句（跳过了没译、还是重新译了一遍盖掉旧的），报给用户定口径即可——这一处不判对错，不构成不通过的理由。"
+    # 覆盖 TCOV-36
+    - "② 那份英文原文（handbook.md）跑完与跑前逐字节相同。框架自己往 .claude/skills/ 里装技能、写基线这些动作不是被测那侧干的，不要算到「英文原文被动过」头上。"
+  pass_threshold: 1.0
