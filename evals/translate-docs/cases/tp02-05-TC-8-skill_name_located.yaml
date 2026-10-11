@@ -33,7 +33,7 @@ judge:
   model: anthropic/claude-sonnet-4-6
   criteria:
     # 覆盖 TCOV-32、TCOV-42
-    - "① 那个技能装在工作区的 .claude/skills/changelog-polish/ 下，产出落在同一目录里、文件名是 SKILL.md-中文版.md——落在这一处才说明技能是自己按名字定位到那份 SKILL.md 的，不是猜了个路径。"
+    - "① 那个技能装在工作区的 .claude/skills/changelog-polish/ 下，产出落在同一目录里、文件名是 SKILL-中文版.md（照 X.md → X-中文版.md 的命名）——落在这一处才说明技能是自己按名字定位到那份 SKILL.md 的，不是猜了个路径。"
     # 覆盖 TCOV-32
     - "② 产出与原文逐项对应：标题层级、段落数与原文一致，那一处 bash 代码块整块一字未动（含围栏行、块内缩进与行数），表格的行列数一致。"
     # 覆盖 TCOV-32
