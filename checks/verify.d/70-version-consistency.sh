@@ -6,6 +6,8 @@
 # 2. 改了插件内容、交付前忘了抬版本号。插件缓存按版本号分目录、内容一致就不再重装，不抬版本
 #    就是「改了仓库、别人跑的仍是旧的那份」，全程不报错。第二会话读技能时读的正是那份副本。
 #    抬的时机是交付（推远端）前，一批内容共用同一个号，中间的提交不必逐笔抬。
+#    「插件内容」指 plugin/ 下的东西——装到使用者机器上的就是这一整份；仓库根下那些
+#    （checks/、docs/、evals/、tests/）不跟着发出去，改了不抬。
 #
 # 第 2 条只提示不判失败：只有交付前才需要抬，中途响是正常的，
 # 判失败只会让人把这个检查当噪声。入口里那条 CR 提示用的是同一个分寸。
@@ -15,7 +17,7 @@
 #
 # 插件清单位置按两种布局都试：内容整体挪进 plugin/ 之后是 plugin/.claude-plugin/，
 # 没挪就是仓库根的 .claude-plugin/。两种布局并存时以 plugin/ 那份为准。
-# watch: plugin/.claude-plugin/plugin.json .claude-plugin/marketplace.json plugin/skills/ plugin/hooks/ plugin/rules/ plugin/statusline/
+# watch: plugin/ .claude-plugin/marketplace.json
 ver_root="$(cd "${SCRIPT_DIR}/.." && pwd)"
 ver_plugin=""
 for ver_p in "${ver_root}/plugin/.claude-plugin/plugin.json" \
@@ -74,8 +76,11 @@ fi
 # 内容路径也按两种布局一起给：git 对没匹配上的路径不作声，多余的几个不影响结果。
 if command -v git >/dev/null 2>&1 && [ -d "${ver_root}/.git" ]; then
   ver_bump="$(git -C "$ver_root" log -1 --format=%H -- plugin/.claude-plugin/plugin.json .claude-plugin/plugin.json 2>/dev/null)"
+  # 内容范围是整个 plugin/，只把版本号自己那个文件摘出去——不摘的话，「最后一次改 plugin/」
+  # 永远是抬版本那笔提交，两笔一样，下面那条提示就再也不响了。末尾那几个不带 plugin/ 前缀的
+  # 是老布局，留着不影响结果：git 对没匹配上的路径不作声。
   ver_content="$(git -C "$ver_root" log -1 --format=%H -- \
-      plugin/skills plugin/rules plugin/statusline plugin/hooks \
+      plugin ':(exclude)plugin/.claude-plugin/plugin.json' \
       skills rules statusline hooks 2>/dev/null)"
   if [ -n "$ver_bump" ] && [ -n "$ver_content" ] && [ "$ver_bump" != "$ver_content" ]; then
     # bump 是 content 的祖先 = 抬完版本之后内容又动过
