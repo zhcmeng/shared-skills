@@ -73,6 +73,7 @@ def parse_args(argv=None):
                         help="输出根目录（必填）")
     parser.add_argument("--model", default=None,
                         help=f"接口认的模型名，默认 {aistudio.DEFAULT_MODEL}；"
+                             f"官网方式只能用 {aistudio.DEFAULT_MODEL}；"
                              f"财报模式固定用 {aistudio.FINANCIAL_MODEL}")
     parser.add_argument("--force", action="store_true",
                         help="已转过的也重转")
@@ -90,7 +91,8 @@ def parse_args(argv=None):
                              "默认 4")
     parser.add_argument("--debug", action="store_true",
                         help="保留完整过程：服务原始结果、切出来的单页 PDF、"
-                             "合并前后的页表、图片对照和失败原因。放在"
+                             "合并前后的页表、图片对照和失败原因；官网方式"
+                             "还留官网 JSON、任务详情与任务页截图。放在"
                              "输出目录的 debug/ 下，每次运行一个带时间戳的子目录")
     parser.add_argument("--backend", choices=("official-web", "api"),
                         default="official-web",
