@@ -27,12 +27,13 @@ skills/pdf-to-md/
 改 `scripts/` 下任一脚本，改完在开发仓库的根下跑：
 
 ```
-uv run --with requests --with lxml --with tabulate python tests/pdf-to-md/test_pdf_to_md.py
+uv run --with requests --with lxml --with tabulate --with pypdf python tests/pdf-to-md/test_pdf_to_md.py
 ```
 
 全部测试都不发真实请求，网络那一段用假响应喂进去。接口和返回结构的实测结论记在 `docs/superpowers/specs/2026-09-20-pdf-to-md-design.md` 的「验过什么、还没验什么」一节。
 
-两条容易踩的：
+三条容易踩的：
 
 - **`doctor.py` 只用标准库，别让它 import 另外三个。** 那三个缺依赖时它得能跑起来——体检的意义正是在依赖没装好时告诉你差什么。测试里有一条在 `python -S`（不加载第三方包）下真跑它。
+- **`pypdf` 只有财报单页模式用，导入要留在 `split_pdf_pages` 里面。** 挪到文件开头的话，没装 pypdf 的机器连普通模式都跑不起来。测试里有几条会真的切 PDF，所以跑测试时也要带 `--with pypdf`。
 - **改体检样例要重新打印。** `assets/doctor-sample.html` 改完，得拿 Chromium 重新打印成 `doctor-sample.pdf`（命令写在 HTML 开头的注释里）。HTML 里那句「校验标记」和 `doctor.py` 的 `SAMPLE_MARKER` 必须一致——对不上时，体检会把好环境报成坏的。

@@ -121,7 +121,8 @@ def check_output_dir(path):
 
 def smoke_command(out_dir):
     """体检跑的那条命令行，和 SKILL.md 里写着的那条一致。"""
-    return ["uv", "run", "--with", "requests", "--with", "lxml", "--with", "tabulate",
+    return ["uv", "run", "--with", "requests", "--with", "lxml",
+            "--with", "tabulate", "--with", "pypdf",
             "python", CONVERT, SAMPLE_PDF, "--output", out_dir]
 
 

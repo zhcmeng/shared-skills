@@ -29,6 +29,35 @@ OPTIONAL_PAYLOAD = {
     "useChartRecognition": False,
 }
 
+# 财报固定用这个模型，不跟着 DEFAULT_MODEL 走：默认值以后换了，财报不能跟着变。
+FINANCIAL_MODEL = "PaddleOCR-VL-1.6"
+
+# 财报单页模式的参数。这份是在分众 2024 年报第 81 页（权益变动表）上实测能
+# 拿回完整 16 列的版本：表头页眉页码先剔掉，表格合并且标题重排，印章照常识别，
+# 图片块不做 OCR。改任何一项之前先在那一页上重新实测——整本多页提交时，
+# 同一张表会降级成 13 列。
+FINANCIAL_OPTIONAL_PAYLOAD = {
+    "markdownIgnoreLabels": ["header", "header_image", "footer", "footer_image",
+                             "number", "footnote", "aside_text"],
+    "useDocOrientationClassify": False,
+    "useDocUnwarping": False,
+    "useLayoutDetection": True,
+    "useChartRecognition": False,
+    "useSealRecognition": True,
+    "useOcrForImageBlock": False,
+    "mergeTables": True,
+    "relevelTitles": True,
+    "layoutShapeMode": "auto",
+    "promptLabel": "ocr",
+    "repetitionPenalty": 1,
+    "temperature": 0,
+    "topP": 1,
+    "minPixels": 147384,
+    "maxPixels": 2822400,
+    "layoutNms": True,
+    "restructurePages": True,
+}
+
 
 class SubmitRejected(Exception):
     """服务用非 200、或者非 0 的 code 拒了这次请求。
@@ -122,8 +151,11 @@ def _rejected_from(resp, what="请求"):
     )
 
 
-def submit(target, model, token):
+def submit(target, model, token, optional_payload=None):
     """提交一份 PDF（本地路径或公网网址），返回 jobId。
+
+    `optional_payload` 不给就用默认的三项；财报单页模式传
+    `FINANCIAL_OPTIONAL_PAYLOAD`。
 
     服务与网络这两条路上，它只往外抛 SubmitRejected 和 NetworkError，调用方
     （并发那层）接得住这两种。所以「服务说成功却没给任务号」也按提交被拒办——
@@ -135,6 +167,7 @@ def submit(target, model, token):
     包成 NetworkError——那会白白重试三次。Task 12 的捕获表里带着 OSError，
     一样只让这一份失败。
     """
+    payload = OPTIONAL_PAYLOAD if optional_payload is None else optional_payload
     headers = {"Authorization": f"bearer {token}"}
 
     def once():
@@ -143,13 +176,13 @@ def submit(target, model, token):
             return requests.post(JOB_URL, headers=h, timeout=SMALL_TIMEOUT, json={
                 "fileUrl": target,
                 "model": model,
-                "optionalPayload": OPTIONAL_PAYLOAD,
+                "optionalPayload": payload,
             })
         with open(os.path.abspath(target), "rb") as f:
             return requests.post(
                 JOB_URL, headers=headers, timeout=UPLOAD_TIMEOUT,
                 data={"model": model,
-                      "optionalPayload": json.dumps(OPTIONAL_PAYLOAD)},
+                      "optionalPayload": json.dumps(payload)},
                 files={"file": f})
 
     resp = _retry(once, "提交")

@@ -78,6 +78,74 @@ def _cell_text(cell):
     return " ".join("".join(cell.itertext()).split()).replace("|", "\\|")
 
 
+# colspan/rowspan 写错、写成 0 或负数时按 1 算；上限只是防一份畸形 HTML
+# 用一行 colspan="999999" 把内存撑爆，正常表格远到不了这个数。
+_MAX_SPAN = 1000
+
+
+def _span(cell, name):
+    """取 colspan/rowspan 的整数，取不到就按 1 算。"""
+    raw = cell.get(name)
+    if raw is None:
+        return 1
+    try:
+        value = int(raw.strip())
+    except (AttributeError, ValueError):
+        return 1
+    return max(1, min(value, _MAX_SPAN))
+
+
+def _table_grid(table):
+    """把带 rowspan/colspan 的行展开成等宽的网格。
+
+    合并单元格的文字只放在左上角那一格；被它盖住的格子填空字符串，但仍要
+    占位，否则右边的列会往左挤。跨行的占位记在 pending 里，每过一行消耗
+    一层——空行也要消耗，不然 rowspan=2 会盖住三行。
+
+    展开后再交给 tabulate：Markdown 的管道表格没有合并单元格的写法，
+    只能把合并还原成一格一格的空格子。
+    """
+    rows = []
+    pending = {}       # 列号 → 还会盖住下面几行
+    for tr in table.iter("tr"):
+        # 只收属于这张表的行；内层表格的行归内层管
+        nearest = tr.getparent()
+        while nearest is not None and nearest.tag != "table":
+            nearest = nearest.getparent()
+        if nearest is not table:
+            continue
+
+        carried = set(pending)     # 这一行开始时就已被上面盖住的列
+        row = []
+        col = 0
+        for cell in tr.xpath("./td | ./th"):
+            while col in carried:
+                row.append("")
+                col += 1
+            colspan = _span(cell, "colspan")
+            rowspan = _span(cell, "rowspan")
+            row.append(_cell_text(cell))
+            row.extend([""] * (colspan - 1))
+            if rowspan > 1:
+                for c in range(col, col + colspan):
+                    pending[c] = max(pending.get(c, 0), rowspan - 1)
+            col += colspan
+
+        # 这一行没轮到写出来的跨行占位也要消耗一层
+        for c in carried:
+            left = pending.get(c, 0) - 1
+            if left > 0:
+                pending[c] = left
+            else:
+                pending.pop(c, None)
+        rows.append(row)
+
+    width = max((len(row) for row in rows), default=0)
+    if not width:
+        return None
+    return [row + [""] * (width - len(row)) for row in rows]
+
+
 def _render_table(raw_html):
     """一张表的 HTML → Markdown 表格。认不出来就原样退回。"""
     try:
@@ -89,18 +157,7 @@ def _render_table(raw_html):
         return raw_html
     table = tables[0]
 
-    rows = []
-    for tr in table.iter("tr"):
-        # 只收属于这张表的行；内层表格的行归内层管
-        nearest = tr.getparent()
-        while nearest is not None and nearest.tag != "table":
-            nearest = nearest.getparent()
-        if nearest is not table:
-            continue
-        cells = tr.xpath("./td | ./th")
-        if cells:
-            rows.append([_cell_text(c) for c in cells])
-
+    rows = _table_grid(table)
     if not rows:
         return raw_html
     # disable_numparse：格子里的字原样留着。默认会把「看着像数字」的整列右对齐，

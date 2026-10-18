@@ -1,8 +1,11 @@
 """pdf-to-md 的命令行入口：参数、任务池、进度条、跳过判断、落盘。"""
 import argparse
+import hashlib
 import importlib.util
 import os
+import shutil
 import sys
+import tempfile
 import threading
 import time
 import unicodedata
@@ -15,7 +18,15 @@ import aistudio
 import markdown as md_utils
 
 REQUIRED = ("requests", "lxml", "tabulate")
-_INSTALL_HINT = "uv run --with requests --with lxml --with tabulate"
+# 财报单页模式要拿 pypdf 把 PDF 切成单页；研报/网页用不上它。
+FINANCIAL_REQUIRED = REQUIRED + ("pypdf",)
+_INSTALL_HINT = ("uv run --with requests --with lxml --with tabulate "
+                 "--with pypdf")
+
+# 一页重试几次（含第一次）。服务偶尔会把某一页判失败，重试通常就好了；
+# 一直失败就报出页码，不静默缺页。
+FINANCIAL_PAGE_ATTEMPTS = 3
+FINANCIAL_PAGE_RETRY_DELAY = 2.0
 
 
 def missing_dependencies(names=REQUIRED):
@@ -52,16 +63,40 @@ def parse_args(argv=None):
                         help="PDF 文件、装着 PDF 的目录，或 PDF 的公网网址")
     parser.add_argument("--output", required=True,
                         help="输出根目录（必填）")
-    parser.add_argument("--model", default=aistudio.DEFAULT_MODEL,
-                        help=f"接口认的模型名，默认 {aistudio.DEFAULT_MODEL}")
+    parser.add_argument("--model", default=None,
+                        help=f"接口认的模型名，默认 {aistudio.DEFAULT_MODEL}；"
+                             f"财报模式固定用 {aistudio.FINANCIAL_MODEL}")
     parser.add_argument("--force", action="store_true",
                         help="已转过的也重转")
     parser.add_argument("--jobs", type=int, default=4,
                         help="同时最多几个文件在转，默认 4")
+    parser.add_argument("--source-type", choices=("general", "financial"),
+                        default="general",
+                        help="素材类型。financial 表示财报：逐页切分单独提交，"
+                             f"避免整本多页解析把宽表降级；模型固定为 "
+                             f"{aistudio.FINANCIAL_MODEL}。默认 general")
+    parser.add_argument("--page-jobs", type=int, default=4,
+                        help="财报单页模式下，一份 PDF 里同时最多几页在转，"
+                             "默认 4")
     args = parser.parse_args(argv)
 
     if args.jobs < 1:
         parser.error(f"--jobs 至少是 1，给的是 {args.jobs}")
+    if args.page_jobs < 1:
+        parser.error(f"--page-jobs 至少是 1，给的是 {args.page_jobs}")
+
+    # --model 不给时用接口的默认模型。财报模式再把它钉死到 1.6：
+    # 调用方可能还带着清单里的 PP-StructureV3，静默换掉会让人以为
+    # 跑的是自己指定的那个；直接报错，让调用方改参数。
+    if args.model is None:
+        args.model = aistudio.DEFAULT_MODEL
+    if args.source_type == "financial":
+        if args.model not in (aistudio.DEFAULT_MODEL, aistudio.FINANCIAL_MODEL):
+            parser.error(
+                f"财报模式固定用 {aistudio.FINANCIAL_MODEL}，"
+                f"--model 给的是 {args.model}。要去掉 --model，"
+                f"或者改用 --source-type general。")
+        args.model = aistudio.FINANCIAL_MODEL
 
     if os.path.isfile(args.output):
         parser.error(f"--output 得是个目录，但 {args.output} 已经是个文件了")
@@ -143,6 +178,28 @@ class EmptyDocument(Exception):
     """这份 PDF 清理完一页能用的正文都没有。"""
 
 
+class FinancialSplitError(Exception):
+    """财报的 PDF 切不成单页。"""
+
+
+class PageFailed(aistudio.JobFailed):
+    """财报单页模式下某一页重试完仍然失败。
+
+    继承 JobFailed，是为了让 run() 那张「只让这一份失败」的捕获表
+    天然接得住它；页码放在消息里，用户知道是哪一页。
+    """
+
+    def __init__(self, page, cause):
+        self.page = page
+        self.cause = cause
+        super().__init__(
+            f"第 {page} 页失败（试了 {FINANCIAL_PAGE_ATTEMPTS} 次）：{cause}")
+
+
+class _EmptyPage(Exception):
+    """服务收下了这一页，却一页解析结果都没返回。"""
+
+
 @dataclass
 class Result:
     name: str
@@ -160,14 +217,166 @@ def already_done(out_root, name):
     return os.path.isfile(os.path.join(out_root, name, f"{name}.md"))
 
 
-def convert_one(task, out_root, model, token, on_pages=None):
-    """一份 PDF 走完全程：提交 → 轮询 → 取结果 → 取图 → 落盘。"""
-    t0 = time.time()
-    job_id = aistudio.submit(task.target, model, token)
-    jsonl_url = aistudio.poll(job_id, token, on_progress=on_pages)
-    raw = aistudio.fetch_jsonl(jsonl_url)
+def split_pdf_pages(path, work_dir):
+    """把一份 PDF 切成单页文件，按原页序返回路径。
 
-    pages = md_utils.parse_jsonl(raw)
+    多页整本提交时，服务会把宽表降级（实测分众 2024 年报第 81 页的权益
+    变动表只剩 13 列）；同一页切成单页再提交，能拿回完整的 16 列。
+
+    pypdf 延迟导入：只有财报模式用它，研报/网页路径不该因为缺它跑不起来。
+    """
+    try:
+        from pypdf import PdfReader, PdfWriter
+    except ImportError as exc:
+        raise SystemExit(
+            f"财报单页模式需要 pypdf。\n"
+            f"不用改环境，这条命令会把它临时装好再跑：\n"
+            f"  {_INSTALL_HINT} python <本脚本> …") from exc
+
+    try:
+        src = open(path, "rb")
+    except OSError as exc:
+        raise FinancialSplitError(f"读不了这份 PDF：{exc}") from exc
+
+    with src:
+        try:
+            reader = PdfReader(src)
+            total = len(reader.pages)
+        except Exception as exc:
+            raise FinancialSplitError(f"读不了这份 PDF：{exc}") from exc
+        if total < 1:
+            raise FinancialSplitError("这份 PDF 一页都没有，切不出单页")
+
+        paths = []
+        for i in range(total):
+            writer = PdfWriter()
+            try:
+                writer.add_page(reader.pages[i])
+            except Exception as exc:
+                raise FinancialSplitError(
+                    f"切第 {i + 1} 页时失败：{exc}") from exc
+            page_path = os.path.join(work_dir, f"page-{i + 1:04d}.pdf")
+            with open(page_path, "wb") as f:
+                writer.write(f)
+            paths.append(page_path)
+    return paths
+
+
+def _convert_one_page(path, page_no, model, token):
+    """提交一页，失败重试；重试完仍失败就带着页码抛 PageFailed。"""
+    last = None
+    for attempt in range(1, FINANCIAL_PAGE_ATTEMPTS + 1):
+        try:
+            job_id = aistudio.submit(
+                path, model, token,
+                optional_payload=aistudio.FINANCIAL_OPTIONAL_PAYLOAD)
+            jsonl_url = aistudio.poll(job_id, token)
+            raw = aistudio.fetch_jsonl(jsonl_url)
+            pages = md_utils.parse_jsonl(raw)
+            if not pages:
+                raise _EmptyPage("服务没返回这一页的解析结果")
+            return pages
+        except (aistudio.SubmitRejected, aistudio.JobFailed,
+                aistudio.NetworkError, md_utils.JsonlLineError,
+                _EmptyPage) as exc:
+            last = exc
+            if attempt < FINANCIAL_PAGE_ATTEMPTS:
+                time.sleep(FINANCIAL_PAGE_RETRY_DELAY * attempt)
+    raise PageFailed(page_no, last)
+
+
+def _cache_images(pages, image_dir, fetched, failed, lock):
+    """把这一页结果里的图立刻取到临时目录。
+
+    图片网址带签名会过期，不能等整本 197 页都解析完再取——第一页的结果
+    可能已经等了半小时。按网址去重；临时文件名用网址的哈希。
+    """
+    for page in pages:
+        for url in page.images.values():
+            with lock:
+                if url in fetched or url in failed:
+                    continue
+            try:
+                blob = aistudio.fetch_image(url)
+            except (aistudio.NetworkError, aistudio.JobFailed):
+                with lock:
+                    failed.add(url)
+                continue
+            path = os.path.join(
+                image_dir, hashlib.sha1(url.encode("utf-8")).hexdigest())
+            with open(path, "wb") as f:
+                f.write(blob)
+            with lock:
+                fetched[url] = path
+
+
+def _convert_single_pages(task, model, token, page_jobs, image_dir,
+                          on_pages=None):
+    """财报模式：切单页、逐页提交、按原页序摊平。
+
+    返回 `(pages, fetched, failed)`：`fetched` 是「网址 → 临时图片路径」，
+    `failed` 是取不回来的网址集合。临时图片目录由调用方保管，落盘时还要用。
+    """
+    if _is_url(task.target):
+        raise FinancialSplitError(
+            "财报单页模式只支持本地 PDF：要先把网址下载成文件再转。")
+    if page_jobs < 1:
+        page_jobs = 1
+
+    with tempfile.TemporaryDirectory(prefix="pdf-to-md-pages-") as tmp:
+        page_files = split_pdf_pages(task.target, tmp)
+        total = len(page_files)
+        if on_pages:
+            on_pages(0, total)
+
+        results = [None] * total
+        errors = []
+        fetched = {}
+        failed = set()
+        done = 0
+        lock = threading.Lock()
+
+        def work(index, path):
+            nonlocal done
+            try:
+                pages = _convert_one_page(path, index + 1, model, token)
+            except PageFailed as exc:
+                with lock:
+                    errors.append(exc)
+                return
+            results[index] = pages
+            _cache_images(pages, image_dir, fetched, failed, lock)
+            with lock:
+                done += 1
+                if on_pages:
+                    on_pages(done, total)
+
+        with ThreadPoolExecutor(max_workers=min(page_jobs, total)) as pool:
+            futures = [pool.submit(work, i, p)
+                       for i, p in enumerate(page_files)]
+            for future in as_completed(futures):
+                # work 只接 PageFailed；其余异常（本机读文件失败等）让它
+                # 从 future.result() 冒出去，由 run() 的捕获表处理。
+                future.result()
+
+        if errors:
+            errors.sort(key=lambda exc: exc.page)
+            raise errors[0]
+
+    pages = []
+    for chunk in results:
+        for page in chunk:
+            pages.append(md_utils.Page(index=len(pages),
+                                       text=page.text,
+                                       images=page.images))
+    return pages, fetched, failed
+
+
+def _finish_document(task, out_root, pages, t0, prefetched=None,
+                     failed_urls=None):
+    """把页表清理、拼装、取图、落盘。财报模式的图已经提前取好，直接复制。"""
+    prefetched = prefetched or {}
+    failed_urls = failed_urls or set()
 
     names = md_utils.allocate_names(pages)
     document = md_utils.assemble(pages, names)
@@ -186,9 +395,16 @@ def convert_one(task, out_root, model, token, on_pages=None):
     img_dir = os.path.join(out_dir, "images")
     os.makedirs(img_dir, exist_ok=True)
 
-    # 取图要紧跟解析：网址带签名有有效期，不能先存着回头再取
+    # 取图要紧跟解析：网址带签名有有效期，不能先存着回头再取。
+    # 财报模式在每页解析完时已经取到临时目录了，这里只复制。
     missing = []
     for local, url in md_utils.image_downloads(pages, names):
+        if url in failed_urls:
+            missing.append(local)
+            continue
+        if url in prefetched:
+            shutil.copyfile(prefetched[url], os.path.join(img_dir, local))
+            continue
         try:
             blob = aistudio.fetch_image(url)
         except (aistudio.NetworkError, aistudio.JobFailed):
@@ -203,6 +419,26 @@ def convert_one(task, out_root, model, token, on_pages=None):
 
     return Result(name=task.name, pages=len(pages),
                   seconds=time.time() - t0, missing_images=missing)
+
+
+def convert_one(task, out_root, model, token, on_pages=None,
+                source_type="general", page_jobs=4):
+    """一份 PDF 走完全程：提交 → 轮询 → 取结果 → 取图 → 落盘。"""
+    t0 = time.time()
+    if source_type == "financial":
+        model = aistudio.FINANCIAL_MODEL
+        with tempfile.TemporaryDirectory(
+                prefix="pdf-to-md-images-") as image_tmp:
+            pages, fetched, failed = _convert_single_pages(
+                task, model, token, page_jobs, image_tmp, on_pages)
+            return _finish_document(task, out_root, pages, t0,
+                                    prefetched=fetched, failed_urls=failed)
+
+    job_id = aistudio.submit(task.target, model, token)
+    jsonl_url = aistudio.poll(job_id, token, on_progress=on_pages)
+    raw = aistudio.fetch_jsonl(jsonl_url)
+    pages = md_utils.parse_jsonl(raw)
+    return _finish_document(task, out_root, pages, t0)
 
 
 def format_duration(seconds):
@@ -315,6 +551,11 @@ def run(tasks, args):
     failures = []
     missing = []
 
+    source_type = getattr(args, "source_type", "general")
+    page_jobs = getattr(args, "page_jobs", getattr(args, "jobs", 4))
+    model = (aistudio.FINANCIAL_MODEL if source_type == "financial"
+             else getattr(args, "model", aistudio.DEFAULT_MODEL))
+
     # token 在这里拿，不在工作线程里拿：拿不到时抛的 SystemExit 得冒到 main，
     # 才能变成退出码和一句提示，而不是烂在某个线程里。
     # 全部文件都已转过时不必拿——那一趟根本不用 token。
@@ -326,8 +567,9 @@ def run(tasks, args):
     def work(task):
         progress.add(task.name)
         return convert_one(
-            task, args.output, args.model, token,
-            on_pages=lambda d, t, n=task.name: progress.pages(n, d, t))
+            task, args.output, model, token,
+            on_pages=lambda d, t, n=task.name: progress.pages(n, d, t),
+            source_type=source_type, page_jobs=page_jobs)
 
     with ThreadPoolExecutor(max_workers=args.jobs) as pool:
         futures = {pool.submit(work, t): t for t in todo}
@@ -337,7 +579,8 @@ def run(tasks, args):
                 result = future.result()
             except (aistudio.SubmitRejected, aistudio.JobFailed,
                     aistudio.NetworkError, EmptyDocument,
-                    md_utils.JsonlLineError, OSError) as exc:
+                    md_utils.JsonlLineError, FinancialSplitError,
+                    OSError) as exc:
                 # OSError 是本机的问题（文件读不出来、目录建不了、盘写满了），
                 # 不是服务那边的事。它照样只该让这一份失败——`submit` 读本地
                 # 文件时 open() 抛的就是它，漏出去就是整批跟着崩。
@@ -398,7 +641,8 @@ def main(argv=None):
     prefer_utf8(sys.stderr)
     args = parse_args(argv)
     try:
-        check_dependencies()
+        check_dependencies(
+            FINANCIAL_REQUIRED if args.source_type == "financial" else REQUIRED)
         tasks = collect_inputs(args.inputs)
         return run(tasks, args)
     except SystemExit as exc:      # 缺依赖、目录里没有 PDF、缺 token

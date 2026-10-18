@@ -51,6 +51,85 @@ class TestConvertTables(unittest.TestCase):
         widths = {line.count("|") for line in out.splitlines() if line.strip()}
         self.assertEqual(len(widths), 1)
 
+    @staticmethod
+    def pipe_cells(out):
+        """把管道表格拆成每行的格子；分隔行（只有 - 和 :）跳过。"""
+        rows = []
+        for line in out.splitlines():
+            line = line.strip()
+            if not line.startswith("|"):
+                continue
+            cells = [c.strip() for c in line.strip("|").split("|")]
+            if all(set(c) <= set(":-") for c in cells):
+                continue
+            rows.append(cells)
+        return rows
+
+    def test_colspan_expands_to_full_grid(self):
+        # 合并两格以上时，被合并的那些列也要占位。只把格子数原样交给
+        # tabulate 的话，列数会缩成第一行的格子数，后面的数据全被挤掉。
+        html = ('<table><tr><th colspan="3">合计</th></tr>'
+                '<tr><td>甲</td><td>乙</td><td>丙</td></tr></table>')
+        rows = self.pipe_cells(convert_tables(html))
+        self.assertEqual([len(r) for r in rows], [3, 3])
+        self.assertEqual(rows[0], ["合计", "", ""])
+        self.assertEqual(rows[1], ["甲", "乙", "丙"])
+
+    def test_rowspan_leaves_later_rows_empty_at_that_column(self):
+        # 合并单元格的文字只放左上格，下面被它盖住的格子留空；
+        # 但那些格子仍要占位，右边的内容不能往左挤。
+        html = ('<table><tr><td rowspan="2">合并</td><td>右一</td></tr>'
+                '<tr><td>右二</td></tr></table>')
+        out = convert_tables(html)
+        rows = self.pipe_cells(out)
+        self.assertEqual([len(r) for r in rows], [2, 2])
+        self.assertEqual(rows[0], ["合并", "右一"])
+        self.assertEqual(rows[1], ["", "右二"])
+        self.assertEqual(out.count("合并"), 1)
+
+    def test_rowspan_is_consumed_even_when_a_row_runs_out_of_cells(self):
+        # 第二行只有一个格子，右边那些被上面 rowspan 盖住的列轮不到写出来；
+        # 它们也得算这一行消耗了一层，否则合并会多盖一行，第三行的内容被推右。
+        html = ('<table><tr><td>A</td><td>B</td><td rowspan="2">C</td>'
+                '<td>D</td></tr>'
+                '<tr><td>E</td></tr>'
+                '<tr><td>F</td><td>G</td><td>H</td><td>I</td></tr></table>')
+        rows = self.pipe_cells(convert_tables(html))
+        self.assertEqual(rows[1], ["E", "", "", ""])
+        self.assertEqual(rows[2], ["F", "G", "H", "I"])
+
+    def test_rowspan_and_colspan_together_keep_a_sixteen_column_grid(self):
+        # 结构照分众 2024 年报第 81 页的权益变动表：表头四行合并得很厉害，
+        # 数据行 16 格。展开后每一行都该是 16 列，不能只剩数据行最长的那几列。
+        extra = "".join(f'<td rowspan="2">列{i}</td>' for i in range(6, 15))
+        html = ('<table>'
+                '<tr><td rowspan="4">项目</td><td colspan="15">2024年度</td></tr>'
+                '<tr><td colspan="13">归属于母公司所有者权益</td>'
+                '<td rowspan="3">少数股东权益</td>'
+                '<td rowspan="3">所有者权益合计</td></tr>'
+                '<tr><td rowspan="2">股本</td><td colspan="3">其他权益工具</td>'
+                + extra + '</tr>'
+                '<tr><td>优先股</td><td>永续债</td><td>其他</td></tr>'
+                '<tr><td>合计</td>'
+                + "".join(f"<td>{i}</td>" for i in range(15)) + '</tr>'
+                '</table>')
+        rows = self.pipe_cells(convert_tables(html))
+        self.assertEqual([len(r) for r in rows], [16] * 5)
+        self.assertEqual(rows[0][0], "项目")
+        self.assertEqual(rows[0][1], "2024年度")
+        # 合并单元格的文字只留左上格，其余留空——不是把文字重复到每一列
+        self.assertEqual(rows[0][2], "")
+        self.assertEqual(rows[0][15], "")
+        self.assertEqual(rows[1][1], "归属于母公司所有者权益")
+        self.assertEqual(rows[1][14], "少数股东权益")
+        self.assertEqual(rows[1][15], "所有者权益合计")
+        self.assertEqual(rows[4][0], "合计")
+        self.assertEqual(rows[4][1:], [str(i) for i in range(15)])
+
+    def test_bad_span_value_is_treated_as_one(self):
+        html = '<table><tr><td colspan="abc">A</td><td>B</td></tr></table>'
+        self.assertEqual(self.pipe_cells(convert_tables(html)), [["A", "B"]])
+
     def test_cell_with_inner_tags_keeps_only_text(self):
         html = "<table><tr><td><span>粗</span><b>体</b></td></tr></table>"
         out = convert_tables(html)
@@ -668,6 +747,65 @@ class TestSubmit(unittest.TestCase):
         self.assertEqual(captured["data"]["model"], "PP-StructureV3")
         self.assertIn("file", captured["files"])
 
+    def test_a_custom_optional_payload_is_sent_with_a_url(self):
+        captured = {}
+
+        def fake_post(url, **kw):
+            captured.update(kw)
+            return FakeResponse(body={"code": 0, "data": {"jobId": "j1"}})
+
+        payload = {"mergeTables": True, "temperature": 0}
+        with mock.patch.object(requests, "post", fake_post):
+            aistudio.submit("https://example.com/a.pdf", "PaddleOCR-VL-1.6",
+                            "t", optional_payload=payload)
+        self.assertEqual(captured["json"]["optionalPayload"], payload)
+
+    def test_a_custom_optional_payload_is_sent_with_a_local_file(self):
+        captured = {}
+
+        def fake_post(url, **kw):
+            captured.update(kw)
+            return FakeResponse(body={"code": 0, "data": {"jobId": "j1"}})
+
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        path = os.path.join(tmp.name, "fixture.pdf")
+        with open(path, "wb") as f:
+            f.write(b"%PDF-1.4\n")
+        payload = {"mergeTables": True, "temperature": 0}
+        with mock.patch.object(requests, "post", fake_post):
+            aistudio.submit(path, "PaddleOCR-VL-1.6", "t",
+                            optional_payload=payload)
+        self.assertEqual(json.loads(captured["data"]["optionalPayload"]),
+                         payload)
+
+    def test_financial_model_and_payload_are_the_verified_ones(self):
+        # 这份 optionalPayload 是在第 81 页上实测能拿回完整 16 列的版本，
+        # 换掉任何一项都可能又退回 13 列；改之前先重新实测。
+        self.assertEqual(aistudio.FINANCIAL_MODEL, "PaddleOCR-VL-1.6")
+        self.assertEqual(aistudio.FINANCIAL_OPTIONAL_PAYLOAD, {
+            "markdownIgnoreLabels": ["header", "header_image", "footer",
+                                     "footer_image", "number", "footnote",
+                                     "aside_text"],
+            "useDocOrientationClassify": False,
+            "useDocUnwarping": False,
+            "useLayoutDetection": True,
+            "useChartRecognition": False,
+            "useSealRecognition": True,
+            "useOcrForImageBlock": False,
+            "mergeTables": True,
+            "relevelTitles": True,
+            "layoutShapeMode": "auto",
+            "promptLabel": "ocr",
+            "repetitionPenalty": 1,
+            "temperature": 0,
+            "topP": 1,
+            "minPixels": 147384,
+            "maxPixels": 2822400,
+            "layoutNms": True,
+            "restructurePages": True,
+        })
+
     def test_missing_local_file_raises_oserror_not_submit_rejected(self):
         # 文件不存在是本机的问题，不是「服务拒了这次提交」，也不该白白重试。
         # 这个形状 Task 12 的捕获表依赖着：它接了 OSError，漏出去就是整批崩。
@@ -1214,7 +1352,36 @@ class TestParseArgs(unittest.TestCase):
         args = convert.parse_args(["a.pdf", "--output", self.output()])
         self.assertEqual(args.model, aistudio.DEFAULT_MODEL)
         self.assertEqual(args.jobs, 4)
+        self.assertEqual(args.page_jobs, 4)
+        self.assertEqual(args.source_type, "general")
         self.assertFalse(args.force)
+
+    def test_financial_mode_pins_the_model(self):
+        args = convert.parse_args(["a.pdf", "--output", self.output(),
+                                   "--source-type", "financial"])
+        self.assertEqual(args.source_type, "financial")
+        self.assertEqual(args.model, aistudio.FINANCIAL_MODEL)
+
+    def test_financial_mode_refuses_a_different_model(self):
+        # 财报要固定用 1.6。调用方还带着清单里的 PP-StructureV3 时，
+        # 静默换成 1.6 会让人以为跑的是自己指定的那个模型，直接报错更清楚。
+        err = io.StringIO()
+        with mock.patch.object(sys, "stderr", err), \
+             self.assertRaises(SystemExit) as ctx:
+            convert.parse_args(["a.pdf", "--output", self.output(),
+                                "--source-type", "financial",
+                                "--model", "PP-StructureV3"])
+        self.assertEqual(ctx.exception.code, 2)
+        self.assertIn(aistudio.FINANCIAL_MODEL, err.getvalue())
+
+    def test_page_jobs_must_be_at_least_one(self):
+        err = io.StringIO()
+        with mock.patch.object(sys, "stderr", err), \
+             self.assertRaises(SystemExit) as ctx:
+            convert.parse_args(["a.pdf", "--output", self.output(),
+                                "--page-jobs", "0"])
+        self.assertEqual(ctx.exception.code, 2)
+        self.assertIn("page-jobs", err.getvalue())
 
     def test_jobs_must_be_at_least_one(self):
         # argparse 的 parser.error 是先把消息写进 stderr、再 sys.exit(2)，
@@ -1448,6 +1615,172 @@ class TestConvertOne(unittest.TestCase):
         self.assertEqual(seen, [(2, 2)])
 
 
+class TestFinancialSinglePage(unittest.TestCase):
+    """财报模式：把 PDF 切成单页逐页提交，再按原页序合起来。"""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = self.tmp.name
+        self.pdf = os.path.join(self.root, "report.pdf")
+        self.write_pdf(self.pdf, 3)
+        self.out = os.path.join(self.root, "out")
+        self.task = convert.Task(target=self.pdf, name="report", origin=self.pdf)
+
+    @staticmethod
+    def write_pdf(path, pages):
+        from pypdf import PdfWriter
+        writer = PdfWriter()
+        for _ in range(pages):
+            writer.add_blank_page(width=72, height=72)
+        with open(path, "wb") as f:
+            writer.write(f)
+
+    def fake_api(self, fail_first=(), empty_first=(), fail_always=(),
+                 texts=None):
+        """按页码造假结果；失败/空结果可以指定只发生一次或每次都发生。"""
+        attempts = {}
+        seen = []
+
+        def page_no_of(path):
+            return int(os.path.basename(path).split("-")[1].split(".")[0])
+
+        def fake_submit(target, model, token, optional_payload=None):
+            page = page_no_of(target)
+            attempts[page] = attempts.get(page, 0) + 1
+            seen.append((page, target, model, optional_payload))
+            return f"j{page}"
+
+        def fake_poll(job_id, token, on_progress=None):
+            return f"https://x/{job_id}.jsonl"
+
+        def fake_fetch_jsonl(url):
+            page = int(url.rsplit("/", 1)[-1].lstrip("j").split(".")[0])
+            if page in fail_always or (page in fail_first
+                                       and attempts[page] == 1):
+                raise aistudio.JobFailed("服务说这一页失败")
+            if page in empty_first and attempts[page] == 1:
+                return ""
+            text, images = (texts or {}).get(page, (f"正文{page}", {}))
+            return jsonl_line([(text, images)])
+
+        patcher = mock.patch.multiple(
+            aistudio,
+            submit=fake_submit, poll=fake_poll,
+            fetch_jsonl=fake_fetch_jsonl,
+            fetch_image=lambda url: b"img")
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return seen, attempts
+
+    def md_path(self):
+        return os.path.join(self.out, "report", "report.md")
+
+    def read_md(self):
+        with open(self.md_path(), encoding="utf-8") as f:
+            return f.read()
+
+    def convert(self, **kw):
+        return convert.convert_one(self.task, self.out, "m", "t",
+                                   source_type="financial", page_jobs=1, **kw)
+
+    def test_each_page_is_submitted_alone_and_merged_in_order(self):
+        seen, _ = self.fake_api()
+        with mock.patch.object(convert.time, "sleep", lambda *_: None):
+            result = self.convert()
+        self.assertEqual(result.pages, 3)
+        self.assertEqual([s[0] for s in seen], [1, 2, 3])
+        for page, target, model, payload in seen:
+            # 提交的是切出来的单页临时文件，不是整本 PDF
+            self.assertTrue(target.endswith(f"page-{page:04d}.pdf"))
+            self.assertNotEqual(os.path.abspath(target),
+                                os.path.abspath(self.pdf))
+            # 模型不看调用方给的值，财报固定用 1.6
+            self.assertEqual(model, aistudio.FINANCIAL_MODEL)
+            self.assertIs(payload, aistudio.FINANCIAL_OPTIONAL_PAYLOAD)
+        self.assertEqual(self.read_md(), "正文1\n\n正文2\n\n正文3\n")
+
+    def test_a_failed_page_is_retried_then_succeeds(self):
+        _, attempts = self.fake_api(fail_first={2})
+        with mock.patch.object(convert.time, "sleep", lambda *_: None):
+            result = self.convert()
+        self.assertEqual(result.pages, 3)
+        self.assertEqual(attempts[2], 2)
+        self.assertIn("正文2", self.read_md())
+
+    def test_an_empty_page_result_is_retried(self):
+        _, attempts = self.fake_api(empty_first={2})
+        with mock.patch.object(convert.time, "sleep", lambda *_: None):
+            result = self.convert()
+        self.assertEqual(result.pages, 3)
+        self.assertEqual(attempts[2], 2)
+
+    def test_a_page_that_keeps_failing_is_named_in_the_error(self):
+        _, attempts = self.fake_api(fail_always={2})
+        with mock.patch.object(convert.time, "sleep", lambda *_: None), \
+             self.assertRaises(convert.PageFailed) as ctx:
+            self.convert()
+        self.assertIn("第 2 页", str(ctx.exception))
+        self.assertEqual(attempts[2], convert.FINANCIAL_PAGE_ATTEMPTS)
+        self.assertFalse(os.path.exists(self.md_path()))
+
+    def test_images_from_different_pages_are_downloaded_and_rewritten(self):
+        texts = {
+            1: ('图一\n\n<img src="imgs/x.jpg">',
+                {"imgs/x.jpg": "https://x/1.jpg"}),
+            3: ('图三\n\n<img src="imgs/y.jpg">',
+                {"imgs/y.jpg": "https://x/2.jpg"}),
+        }
+        self.fake_api(texts=texts)
+        with mock.patch.object(convert.time, "sleep", lambda *_: None):
+            self.convert()
+        body = self.read_md()
+        self.assertIn("![](images/x.jpg)", body)
+        self.assertIn("![](images/y.jpg)", body)
+        for name in ("x.jpg", "y.jpg"):
+            self.assertTrue(os.path.isfile(
+                os.path.join(self.out, "report", "images", name)))
+
+    def test_a_url_is_rejected_in_financial_mode(self):
+        # 单页切分要有本地文件；不偷偷去下载一份，也不把整本网址提交上去
+        task = convert.Task(target="https://example.com/a.pdf",
+                            name="a", origin="https://example.com/a.pdf")
+        with self.assertRaises(convert.FinancialSplitError) as ctx:
+            convert.convert_one(task, self.out, "m", "t",
+                                source_type="financial", page_jobs=1)
+        self.assertIn("本地", str(ctx.exception))
+
+
+class TestSplitPdfPages(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = self.tmp.name
+
+    def test_each_page_becomes_a_one_page_pdf(self):
+        from pypdf import PdfReader, PdfWriter
+        src = os.path.join(self.root, "three.pdf")
+        writer = PdfWriter()
+        for _ in range(3):
+            writer.add_blank_page(width=72, height=72)
+        with open(src, "wb") as f:
+            writer.write(f)
+
+        paths = convert.split_pdf_pages(src, self.root)
+        self.assertEqual(len(paths), 3)
+        for i, path in enumerate(paths, 1):
+            self.assertTrue(path.endswith(f"page-{i:04d}.pdf"))
+            self.assertEqual(len(PdfReader(path).pages), 1)
+
+    def test_a_pdf_without_pages_is_an_error(self):
+        from pypdf import PdfWriter
+        src = os.path.join(self.root, "empty.pdf")
+        with open(src, "wb") as f:
+            PdfWriter().write(f)
+        with self.assertRaises(convert.FinancialSplitError):
+            convert.split_pdf_pages(src, self.root)
+
+
 class TestFormatDuration(unittest.TestCase):
     def test_seconds(self):
         self.assertEqual(convert.format_duration(9), "0:09")
@@ -1578,7 +1911,8 @@ class TestRun(unittest.TestCase):
         self.addCleanup(patcher.stop)
 
     def args(self, **kw):
-        base = dict(output=self.root, model="m", force=False, jobs=2)
+        base = dict(output=self.root, model="m", force=False, jobs=2,
+                    source_type="general", page_jobs=2)
         base.update(kw)
         return argparse.Namespace(**base)
 
@@ -1589,6 +1923,21 @@ class TestRun(unittest.TestCase):
             self.assertEqual(convert.run(tasks, self.args()), 0)
         # 那一行动态进度是这东西唯一的存在理由，完成数不累加它就永远显示 0
         self.assertIn("1/1 完成", self.out.getvalue())
+
+    def test_financial_run_hands_the_fixed_model_and_page_jobs_down(self):
+        seen = {}
+
+        def fake(task, out, model, token, **kw):
+            seen.update(model=model, **kw)
+            return convert.Result("a", 1, 0.1, [])
+
+        tasks = [convert.Task(target="/tmp/a.pdf", name="a", origin="a")]
+        with mock.patch.object(convert, "convert_one", fake):
+            self.assertEqual(convert.run(
+                tasks, self.args(source_type="financial", page_jobs=3)), 0)
+        self.assertEqual(seen["model"], aistudio.FINANCIAL_MODEL)
+        self.assertEqual(seen["source_type"], "financial")
+        self.assertEqual(seen["page_jobs"], 3)
 
     def test_page_progress_reaches_the_progress_line(self):
         """工作线程报上来的页数得真走到那行动态进度行上。
@@ -1605,7 +1954,7 @@ class TestRun(unittest.TestCase):
         tasks = [convert.Task(target="/tmp/a.pdf", name="a",
                               origin="/tmp/a.pdf")]
 
-        def fake(task, out_root, model, token, on_pages=None):
+        def fake(task, out_root, model, token, on_pages=None, **kw):
             on_pages(21, 194)
             return convert.Result("a", 194, 0.1, [])
 
@@ -1651,14 +2000,16 @@ class TestRun(unittest.TestCase):
         self.assertIn("\n  a：读不出来", self.out.getvalue())
 
     def test_every_listed_failure_keeps_the_batch_alive(self):
-        # run() 那张捕获表列了六种「只该让这一份失败」的异常。少写哪一种，
+        # run() 那张捕获表列了八种「只该让这一份失败」的异常。少写哪一种，
         # 哪一种就会穿出去把整批带走——一条一条地试，别只挑一个有代表性的。
         cases = [aistudio.SubmitRejected(500, msg="x"),
                  aistudio.JobFailed("x"),
                  aistudio.NetworkError("x"),
                  convert.EmptyDocument("x"),
                  JsonlLineError("x"),
-                 OSError("x")]
+                 OSError("x"),
+                 convert.PageFailed(2, aistudio.JobFailed("x")),
+                 convert.FinancialSplitError("x")]
         for exc in cases:
             with self.subTest(exc=type(exc).__name__):
                 tasks = [convert.Task(target="/tmp/a.pdf", name="a", origin="a"),
@@ -2006,7 +2357,7 @@ class TestDoctorSmokeCheck(unittest.TestCase):
         """
         cmd = doctor.smoke_command("OUT")
         self.assertEqual(cmd[:1], ["uv"])
-        for package in ("requests", "lxml", "tabulate"):
+        for package in ("requests", "lxml", "tabulate", "pypdf"):
             self.assertIn(package, cmd)
         self.assertEqual(cmd[cmd.index("--output") + 1], "OUT")
         self.assertTrue(cmd[cmd.index("python") + 1].endswith("convert.py"))
