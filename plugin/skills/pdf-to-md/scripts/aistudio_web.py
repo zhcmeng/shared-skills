@@ -526,9 +526,9 @@ class WebSession:
     def _download_json(self, detail, task_url):
         try:
             return self._download_from_menu(task_url)
-        except OfficialWebError:
-            raise
         except Exception as exc:
+            # 菜单改版、下载按钮没出现、浏览器那边报错，都退到任务详情。
+            # 详情里是同一份 parsingResult，不能让整个任务因为下载菜单白跑。
             print(f"提示：下载菜单没取到 JSON（{exc}），"
                   f"改用任务详情里的同一份结果。", file=sys.stderr)
             return official_json_from_detail(detail)

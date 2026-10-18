@@ -1251,6 +1251,38 @@ class TestOfficialJsonFromDetail(unittest.TestCase):
             aistudio_web.official_json_from_detail({"result": {}})
 
 
+class TestDownloadJsonFallback(unittest.TestCase):
+    """下载菜单是官网页面上的东西，改版就会坏。
+
+    它坏了不能把整个任务判死：任务详情里有同一份 parsingResult。
+    """
+
+    def make(self):
+        # 不用 start()：两个测试都把菜单那一步顶掉了，碰不到浏览器。
+        return aistudio_web.WebSession(profile_dir="unused")
+
+    def test_a_broken_menu_falls_back_to_the_detail(self):
+        session = self.make()
+        err = io.StringIO()
+        with mock.patch.object(aistudio_web.WebSession, "_download_from_menu",
+                               side_effect=aistudio_web.DownloadFailed("菜单改版了")), \
+             mock.patch("sys.stderr", err):
+            raw = session._download_json(
+                {"result": {"parsingResult": '{"layoutParsingResults": []}'}},
+                "https://example.com/task")
+        self.assertEqual(raw, '{"layoutParsingResults": []}')
+        self.assertIn("改用任务详情", err.getvalue())
+
+    def test_both_paths_failing_is_still_an_error(self):
+        session = self.make()
+        with mock.patch.object(aistudio_web.WebSession, "_download_from_menu",
+                               side_effect=aistudio_web.DownloadFailed("菜单改版了")), \
+             mock.patch("sys.stderr", io.StringIO()), \
+             self.assertRaises(aistudio_web.DownloadFailed) as ctx:
+            session._download_json({"result": {}}, "https://example.com/task")
+        self.assertIn("parsingResult", str(ctx.exception))
+
+
 class TestAllocateNames(unittest.TestCase):
     def make(self, pages):
         return [Page(index=i, text="", images=imgs) for i, imgs in enumerate(pages)]
