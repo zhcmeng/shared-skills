@@ -19,6 +19,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "plugin",
                                 "skills", "pdf-to-md", "scripts"))
 
 import aistudio
+import aistudio_web
 import convert
 import doctor
 from aistudio import JobFailed, NetworkError, SubmitRejected
@@ -1118,6 +1119,136 @@ class TestParseOfficialJson(unittest.TestCase):
 
     def test_an_empty_list_gives_no_pages(self):
         self.assertEqual(markdown.parse_official_json("[]"), [])
+
+
+class TestOfficialWebPaths(unittest.TestCase):
+    def test_profile_and_credentials_live_under_one_directory(self):
+        profile = aistudio_web.default_profile_dir()
+        cred = aistudio_web.default_credentials_path()
+        self.assertTrue(profile.endswith("browser-profile"))
+        self.assertTrue(cred.endswith("credentials.json"))
+        self.assertEqual(os.path.dirname(profile), os.path.dirname(cred))
+
+
+class TestLoadCredentials(unittest.TestCase):
+    def write(self, data):
+        f = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False,
+                                        encoding="utf-8")
+        self.addCleanup(os.remove, f.name)
+        f.write(data)
+        f.close()
+        return f.name
+
+    def test_a_missing_file_gives_none(self):
+        self.assertIsNone(aistudio_web.load_credentials(
+            os.path.join(tempfile.gettempdir(), "没有这个文件.json")))
+
+    def test_empty_fields_give_none(self):
+        path = self.write('{"username": "", "password": ""}')
+        self.assertIsNone(aistudio_web.load_credentials(path))
+
+    def test_a_complete_file_gives_both_fields(self):
+        path = self.write('{"username": "u", "password": "p"}')
+        self.assertEqual(aistudio_web.load_credentials(path),
+                         {"username": "u", "password": "p"})
+
+    def test_bad_json_names_the_path_but_not_the_contents(self):
+        path = self.write("{oops")
+        with self.assertRaises(aistudio_web.BrowserError) as ctx:
+            aistudio_web.load_credentials(path)
+        self.assertIn(path, str(ctx.exception))
+        self.assertNotIn("oops", str(ctx.exception))
+
+
+class TestTaskIdFromUrl(unittest.TestCase):
+    def test_a_task_url_gives_the_id(self):
+        self.assertEqual(
+            aistudio_web.task_id_from_url(
+                "https://aistudio.baidu.com/paddleocr/task/file/t-abc123"),
+            "t-abc123")
+
+    def test_other_urls_give_none(self):
+        self.assertIsNone(aistudio_web.task_id_from_url(
+            "https://aistudio.baidu.com/paddleocr/task/new"))
+
+
+class TestPollTask(unittest.TestCase):
+    def clock(self):
+        state = {"t": 0.0}
+        return (lambda: state["t"],
+                lambda seconds: state.__setitem__("t", state["t"] + seconds))
+
+    def detail(self, status, extracted=None, total=None, error_code=0,
+               error_msg="Success", parsed=None):
+        result = {"taskStatus": status}
+        if extracted is not None:
+            result["extractedPages"] = extracted
+        if total is not None:
+            result["totalPages"] = total
+        if parsed is not None:
+            result["parsingResult"] = parsed
+        return {"errorCode": error_code, "errorMsg": error_msg,
+                "result": result}
+
+    def test_status_five_is_done(self):
+        now, tick = self.clock()
+        calls = [self.detail(5, 3, 3, parsed="{}")]
+        got = aistudio_web.poll_task(
+            lambda: calls.pop(0),
+            "https://aistudio.baidu.com/paddleocr/task/file/t-1",
+            timeout=10, clock=now, sleep=tick)
+        self.assertEqual(got["taskStatus"], 5)
+
+    def test_progress_is_reported(self):
+        now, tick = self.clock()
+        calls = [self.detail(4, 1, 3), self.detail(5, 3, 3)]
+        seen = []
+        aistudio_web.poll_task(
+            lambda: calls.pop(0), "u", timeout=10,
+            on_progress=lambda d, t: seen.append((d, t)),
+            clock=now, sleep=tick)
+        self.assertIn((1, 3), seen)
+        self.assertIn((3, 3), seen)
+
+    def test_a_negative_status_fails(self):
+        now, tick = self.clock()
+        with self.assertRaises(aistudio_web.TaskFailed):
+            aistudio_web.poll_task(lambda: self.detail(-5), "u", timeout=10,
+                                   clock=now, sleep=tick)
+
+    def test_an_unknown_non_negative_status_keeps_waiting(self):
+        now, tick = self.clock()
+        calls = [self.detail(3), self.detail(5)]
+        got = aistudio_web.poll_task(lambda: calls.pop(0), "u", timeout=10,
+                                     clock=now, sleep=tick)
+        self.assertEqual(got["taskStatus"], 5)
+
+    def test_a_nonzero_error_code_fails_with_the_server_message(self):
+        now, tick = self.clock()
+        detail = self.detail(4, error_code=1, error_msg="服务说不行")
+        with self.assertRaises(aistudio_web.TaskFailed) as ctx:
+            aistudio_web.poll_task(lambda: detail, "u", timeout=10,
+                                   clock=now, sleep=tick)
+        self.assertIn("服务说不行", str(ctx.exception))
+
+    def test_timeout_names_the_task_url(self):
+        now, tick = self.clock()
+        with self.assertRaises(aistudio_web.TaskFailed) as ctx:
+            aistudio_web.poll_task(lambda: self.detail(4, 1, 3),
+                                   "https://example.com/task", timeout=3,
+                                   clock=now, sleep=tick)
+        self.assertIn("https://example.com/task", str(ctx.exception))
+
+
+class TestOfficialJsonFromDetail(unittest.TestCase):
+    def test_parsing_result_is_returned_verbatim(self):
+        detail = {"result": {"parsingResult": '{"layoutParsingResults": []}'}}
+        self.assertEqual(aistudio_web.official_json_from_detail(detail),
+                         '{"layoutParsingResults": []}')
+
+    def test_a_missing_result_raises(self):
+        with self.assertRaises(aistudio_web.DownloadFailed):
+            aistudio_web.official_json_from_detail({"result": {}})
 
 
 class TestAllocateNames(unittest.TestCase):
