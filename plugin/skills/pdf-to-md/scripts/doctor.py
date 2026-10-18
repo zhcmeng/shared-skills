@@ -8,6 +8,7 @@ requests，等于体检和有病的那一方一起躺下。
 重写一遍等于验了另一套代码，真命令行哪天坏了，体检照样全绿。
 """
 import argparse
+import json
 import os
 import shutil
 import subprocess
@@ -30,7 +31,10 @@ TOKEN_ENV = "PADDLEOCR_MCP_AISTUDIO_ACCESS_TOKEN"
 SAMPLE_MARKER = "DOCTOR-SAMPLE-8642"
 
 SMOKE_NAME = "真转一份内置 1 页 PDF"
-SMOKE_TIMEOUT = 300.0       # 1 页的样例实测十几秒，5 分钟还没完就是卡住了
+SMOKE_TIMEOUT = 300.0       # api 方式 1 页的样例实测十几秒，5 分钟就是卡住了
+# 官网方式要开浏览器、等上传跳转；第一次还可能等人登录（smoke 不让等），
+# 机器慢时开浏览器本身就要几十秒，留宽一点。
+WEB_SMOKE_TIMEOUT = 600.0
 
 
 @dataclass
@@ -68,6 +72,108 @@ def check_token():
     # 让下一项真转一次自己说了算——体检不该替服务下结论。
     note = "（首尾有空白字符，多半是复制时带上的）" if raw != raw.strip() else ""
     return Check("token 环境变量在", True, note)
+
+
+def default_base_dir():
+    """配置与凭据的根目录。
+
+    这段和 aistudio_web.default_base_dir 是同一份逻辑，只能照抄：
+    aistudio_web 顶层 import 了 requests，doctor 不能 import 它。
+    测试里有一条拿两边的结果直接比对，抄错就会红。
+    """
+    if sys.platform == "win32":
+        root = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
+    else:
+        root = (os.environ.get("XDG_CONFIG_HOME")
+                or os.path.expanduser("~/.config"))
+    return os.path.join(root, "pdf-to-md")
+
+
+def default_profile_dir():
+    """浏览器配置目录；登录 cookie 在这里。"""
+    return os.path.join(default_base_dir(), "browser-profile")
+
+
+def default_credentials_path():
+    """本地凭据文件；仓库外，不参与 git。"""
+    return os.path.join(default_base_dir(), "credentials.json")
+
+
+def check_profile_dir(path=None):
+    """浏览器配置目录能不能写。
+
+    目录还不存在是常态：第一次开浏览器时会自己建。所以探的是最近的
+    已存在上级，并且不把它真建出来。
+    """
+    path = default_profile_dir() if path is None else path
+    if os.path.isfile(path):
+        return Check(
+            "浏览器配置目录能写", False,
+            f"{path} 已经是个文件了，不是目录。",
+            "换一个目录（--browser-profile），或者把那个文件挪开。")
+    where = _nearest_existing(path)
+    if where is None:
+        return Check(
+            "浏览器配置目录能写", False,
+            f"{path} 往上找不到任何一个已经存在的目录。",
+            "路径多半写错了，检查一下盘符和目录名。")
+    try:
+        _probe_writable(where)
+    except OSError as exc:
+        return Check(
+            "浏览器配置目录能写", False,
+            f"{where} 写不进去：{exc}",
+            "换一个能写的目录（--browser-profile）。")
+    return Check(
+        "浏览器配置目录能写", True,
+        f"{path} 可以写；登录状态会留在这里，不要提交、不要外传。")
+
+
+def check_credentials(path=None):
+    """本地凭据文件；没有或没填只提示手动登录，不算不通过。
+
+    文件里是明文账号密码，所以报错只说哪个文件、哪种格式问题，
+    绝不把内容带进消息里。
+    """
+    path = default_credentials_path() if path is None else path
+    if not os.path.isfile(path):
+        return Check(
+            "凭据文件", True,
+            f"没有 {path}；第一次转换会在浏览器里让你手动登录。")
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError, ValueError, RecursionError) as exc:
+        return Check(
+            "凭据文件", False,
+            f"{path} 读不了（{exc.__class__.__name__}）。",
+            '它应该是一个 JSON 对象：{"username": "…", "password": "…"}；'
+            "文件要是 UTF-8。")
+    if not isinstance(data, dict):
+        return Check(
+            "凭据文件", False,
+            f"{path} 顶层不是 JSON 对象，是 {type(data).__name__}。",
+            '改成 {"username": "…", "password": "…"} 这样的对象。')
+    username = data.get("username")
+    password = data.get("password")
+    if not isinstance(username, str) or not isinstance(password, str):
+        return Check(
+            "凭据文件", False,
+            f"{path} 里的 username 和 password 都得是字符串。",
+            "两个都写成字符串；不想自动登录就把两个都留空。")
+    username = username.strip()
+    password = password.strip()
+    if not username and not password:
+        return Check(
+            "凭据文件", True,
+            f"{path} 还没填；第一次转换会在浏览器里让你手动登录。")
+    if not username or not password:
+        return Check(
+            "凭据文件", False,
+            f"{path} 只填了账号或密码中的一个。",
+            "两个都填上；或者两个都留空，改用手动登录。")
+    return Check(
+        "凭据文件", True, f"{path} 里有账号密码，会自动填表登录。")
 
 
 def _probe_writable(directory):
@@ -119,11 +225,17 @@ def check_output_dir(path):
                  f"已经确认能建它的 {where} 可以写。")
 
 
-def smoke_command(out_dir):
+def smoke_command(backend, out_dir):
     """体检跑的那条命令行，和 SKILL.md 里写着的那条一致。"""
+    if backend == "official-web":
+        return ["uv", "run", "--with", "requests", "--with", "lxml",
+                "--with", "tabulate", "--with", "playwright",
+                "python", CONVERT, SAMPLE_PDF, "--output", out_dir,
+                "--backend", "official-web", "--no-wait-login"]
     return ["uv", "run", "--with", "requests", "--with", "lxml",
             "--with", "tabulate", "--with", "pypdf",
-            "python", CONVERT, SAMPLE_PDF, "--output", out_dir]
+            "python", CONVERT, SAMPLE_PDF, "--output", out_dir,
+            "--backend", "api"]
 
 
 def _run_smoke(cmd, timeout):
@@ -145,11 +257,13 @@ def _tail(text, limit=6):
     return "\n".join(lines[-limit:])
 
 
-def check_smoke(runner=None):
+def check_smoke(backend=None, runner=None):
     """真转一份样例，看盘上落下了什么。
 
     判据是**产物**，不是退出码：体检要回答的是「能不能转出东西来」。
     """
+    backend = backend or "official-web"
+    timeout = WEB_SMOKE_TIMEOUT if backend == "official-web" else SMOKE_TIMEOUT
     runner = _run_smoke if runner is None else runner
     if not os.path.isfile(SAMPLE_PDF):
         return Check(
@@ -161,13 +275,13 @@ def check_smoke(runner=None):
         out_root = os.path.join(tmp, "out")
         t0 = time.time()
         try:
-            proc = runner(smoke_command(out_root), SMOKE_TIMEOUT)
+            proc = runner(smoke_command(backend, out_root), timeout)
         except subprocess.TimeoutExpired:
             return Check(
                 SMOKE_NAME, False,
-                f"超时：跑了 {SMOKE_TIMEOUT:.0f} 秒还没回来，已经掐掉。"
+                f"超时：跑了 {timeout:.0f} 秒还没回来，已经掐掉。"
                 f"样例只有 1 页，正常十几秒就该完。",
-                "多半是卡在连不上服务上。换个网络再试；"
+                "多半是卡在连不上服务或浏览器上了。换个网络再试；"
                 "连不上时真转也一样会这么一直等。")
         elapsed = time.time() - t0
 
@@ -202,6 +316,10 @@ def parse_args(argv=None):
     parser = argparse.ArgumentParser(
         prog="doctor.py",
         description="检查这台机器现在能不能用 pdf-to-md 转 PDF")
+    parser.add_argument("--backend", choices=("official-web", "api"),
+                        default="official-web",
+                        help="验哪条链路。official-web 是默认：要开浏览器、"
+                             "要登录；api 需要环境变量里的 token")
     parser.add_argument("--output", default=None,
                         help="顺便验一下这个输出目录写不写得进去")
     return parser.parse_args(argv)
@@ -226,12 +344,15 @@ def main(argv=None):
 
     # 前面几项查的都是本机，免费，一次全跑完——把毛病一次说清，别让人
     # 修一个跑一次。最后那项要花配额、要等十几秒，前面全绿了才跑。
-    checks = [check_uv(), check_token()]
+    if args.backend == "official-web":
+        checks = [check_uv(), check_profile_dir(), check_credentials()]
+    else:
+        checks = [check_uv(), check_token()]
     if args.output:
         checks.append(check_output_dir(args.output))
     local_ok = all(check.ok for check in checks)
     if local_ok:
-        checks.append(check_smoke())
+        checks.append(check_smoke(args.backend))
 
     out = sys.stdout
     out.write("pdf-to-md 体检\n\n")

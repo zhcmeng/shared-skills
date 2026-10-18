@@ -3437,6 +3437,112 @@ class TestDoctorChecks(unittest.TestCase):
         self.assertIn(tmp.name, check.detail)
         self.assertIn("拒绝访问", check.detail)
 
+    def test_the_browser_paths_are_the_ones_aistudio_web_uses(self):
+        """doctor 不能 import aistudio_web（那个模块带着 requests）。
+
+        这两条路径是照抄的一份，抄错了体检就会去看一个跟转换无关的目录。
+        """
+        self.assertEqual(doctor.default_profile_dir(),
+                         aistudio_web.default_profile_dir())
+        self.assertEqual(doctor.default_credentials_path(),
+                         aistudio_web.default_credentials_path())
+
+    def test_a_writable_profile_dir_passes(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        check = doctor.check_profile_dir(tmp.name)
+        self.assertTrue(check.ok, check.detail)
+
+    def test_a_missing_profile_dir_is_probed_at_its_parent(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        path = os.path.join(tmp.name, "还没建", "browser-profile")
+        check = doctor.check_profile_dir(path)
+        self.assertTrue(check.ok, check.detail)
+        self.assertIn(tmp.name, check.detail)
+        self.assertFalse(os.path.exists(path))
+
+    def test_a_profile_dir_that_is_a_file_fails(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        path = os.path.join(tmp.name, "已经是个文件")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("x")
+        check = doctor.check_profile_dir(path)
+        self.assertFalse(check.ok)
+        self.assertIn(path, check.detail)
+
+    def test_an_unwritable_profile_dir_reports_the_path_and_the_reason(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        with mock.patch.object(doctor, "_probe_writable",
+                               side_effect=OSError("拒绝访问")):
+            check = doctor.check_profile_dir(tmp.name)
+        self.assertFalse(check.ok)
+        self.assertIn(tmp.name, check.detail)
+        self.assertIn("拒绝访问", check.detail)
+
+    def test_missing_credentials_are_fine_and_explain_manual_login(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        check = doctor.check_credentials(os.path.join(tmp.name, "没有.json"))
+        self.assertTrue(check.ok, check.detail)
+        self.assertIn("手动登录", check.detail)
+
+    def test_filled_credentials_pass(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        path = os.path.join(tmp.name, "credentials.json")
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump({"username": "someone", "password": "secret"}, f)
+        check = doctor.check_credentials(path)
+        self.assertTrue(check.ok, check.detail)
+
+    def test_broken_credentials_json_names_the_file_but_not_its_contents(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        path = os.path.join(tmp.name, "credentials.json")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write('{"username": "secret-user", "password":')
+        check = doctor.check_credentials(path)
+        self.assertFalse(check.ok)
+        self.assertIn(path, check.detail)
+        self.assertNotIn("secret-user", check.detail)
+
+    def test_credentials_with_only_one_field_fail(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        path = os.path.join(tmp.name, "credentials.json")
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump({"username": "someone", "password": ""}, f)
+        check = doctor.check_credentials(path)
+        self.assertFalse(check.ok)
+        self.assertIn(path, check.detail)
+
+    def test_empty_credentials_count_as_not_filled_yet(self):
+        """模板文件就是这样：两个字段都在，但都是空的。
+
+        这跟没有凭据文件是一回事，转换那边会走手动登录，不该判成不通过。
+        """
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        path = os.path.join(tmp.name, "credentials.json")
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump({"username": "", "password": ""}, f)
+        check = doctor.check_credentials(path)
+        self.assertTrue(check.ok, check.detail)
+        self.assertIn("手动登录", check.detail)
+
+    def test_non_string_credentials_fail(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        path = os.path.join(tmp.name, "credentials.json")
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump({"username": 1, "password": "secret"}, f)
+        check = doctor.check_credentials(path)
+        self.assertFalse(check.ok)
+        self.assertIn(path, check.detail)
+
 
 class TestDoctorSmokeCheck(unittest.TestCase):
     """最后那一项：真转一份内置样例，看盘上落下什么。"""
@@ -3457,17 +3563,49 @@ class TestDoctorSmokeCheck(unittest.TestCase):
             return subprocess.CompletedProcess(cmd, returncode, stdout, stderr)
         return run
 
-    def test_the_command_is_the_one_the_skill_documents(self):
+    def test_the_official_web_command_is_the_one_the_skill_documents(self):
         """跑的是使用者平时跑的那条命令行，不是把转换的逻辑再写一遍。
 
         再写一遍等于验了另一套代码——真命令行哪天坏了，体检照样全绿。
         """
-        cmd = doctor.smoke_command("OUT")
+        cmd = doctor.smoke_command("official-web", "OUT")
+        self.assertEqual(cmd[:1], ["uv"])
+        for package in ("requests", "lxml", "tabulate", "playwright"):
+            self.assertIn(package, cmd)
+        self.assertNotIn("pypdf", cmd)
+        self.assertEqual(cmd[cmd.index("--backend") + 1], "official-web")
+        self.assertIn("--no-wait-login", cmd)
+        self.assertEqual(cmd[cmd.index("--output") + 1], "OUT")
+        self.assertTrue(cmd[cmd.index("python") + 1].endswith("convert.py"))
+
+    def test_the_api_command_keeps_the_old_arguments(self):
+        cmd = doctor.smoke_command("api", "OUT")
         self.assertEqual(cmd[:1], ["uv"])
         for package in ("requests", "lxml", "tabulate", "pypdf"):
             self.assertIn(package, cmd)
-        self.assertEqual(cmd[cmd.index("--output") + 1], "OUT")
-        self.assertTrue(cmd[cmd.index("python") + 1].endswith("convert.py"))
+        self.assertNotIn("playwright", cmd)
+        self.assertEqual(cmd[cmd.index("--backend") + 1], "api")
+        self.assertNotIn("--no-wait-login", cmd)
+
+    def test_the_web_smoke_allows_time_for_the_browser(self):
+        seen = {}
+
+        def run(cmd, timeout):
+            seen["timeout"] = timeout
+            return subprocess.CompletedProcess(cmd, 1, "", "没登录")
+
+        doctor.check_smoke("official-web", runner=run)
+        self.assertGreaterEqual(seen["timeout"], 600)
+
+    def test_the_api_smoke_keeps_the_shorter_timeout(self):
+        seen = {}
+
+        def run(cmd, timeout):
+            seen["timeout"] = timeout
+            return subprocess.CompletedProcess(cmd, 1, "", "没 token")
+
+        doctor.check_smoke("api", runner=run)
+        self.assertEqual(seen["timeout"], doctor.SMOKE_TIMEOUT)
 
     def test_a_good_run_reports_how_long_it_took(self):
         check = doctor.check_smoke(runner=self._runner())
@@ -3520,24 +3658,25 @@ class TestDoctorMain(unittest.TestCase):
         self.addCleanup(patcher.stop)
         self.out = out
 
-    def _patch(self, uv=True, token=True, smoke=True):
-        """把三项都顶掉，返回三个 mock——已经 start，退出时自动停。"""
-        mocks = []
-        for patcher in (
-            mock.patch.object(doctor, "check_uv",
-                              return_value=doctor.Check("uv 在 PATH 上", uv,
-                                                        "" if uv else "找不到 uv。",
-                                                        "装一个 uv。")),
-            mock.patch.object(doctor, "check_token",
-                              return_value=doctor.Check("token 环境变量在", token,
-                                                        "" if token else "环境里没有它。",
-                                                        "去 settings.json 里配。")),
-            mock.patch.object(doctor, "check_smoke",
-                              return_value=doctor.Check("真转一份内置 1 页 PDF", smoke,
-                                                        "13.4 秒" if smoke else "服务说不行。",
-                                                        "")),
-        ):
-            mocks.append(patcher.start())
+    def _patch(self, uv=True, credential=True, token=True, smoke=True):
+        """把各项顶掉，返回按名字取用的 mock——已经 start，退出时自动停。"""
+        results = {
+            "check_uv": ("uv 在 PATH 上", uv, "找不到 uv。", "装一个 uv。"),
+            "check_profile_dir": ("浏览器配置目录能写", credential,
+                                  "配置目录写不进去。", "换一个目录。"),
+            "check_credentials": ("凭据文件", credential,
+                                  "凭据文件坏了。", "改一下文件。"),
+            "check_token": ("token 环境变量在", token,
+                            "环境里没有它。", "去 settings.json 里配。"),
+            "check_smoke": ("真转一份内置 1 页 PDF", smoke,
+                            "服务说不行。", ""),
+        }
+        mocks = {}
+        for target, (name, ok, detail, fix) in results.items():
+            patcher = mock.patch.object(
+                doctor, target,
+                return_value=doctor.Check(name, ok, "" if ok else detail, fix))
+            mocks[target.removeprefix("check_")] = patcher.start()
             self.addCleanup(patcher.stop)
         return mocks
 
@@ -3552,26 +3691,50 @@ class TestDoctorMain(unittest.TestCase):
         # 样例转出来的东西落在哪，是跑体检的人会问的第一件事
         self.assertIn("临时目录", text)
 
+    def test_the_web_backend_does_not_need_a_token(self):
+        mocks = self._patch()
+        self.assertEqual(doctor.main([]), 0)
+        self.assertEqual(mocks["token"].call_count, 0)
+        self.assertEqual(mocks["profile_dir"].call_count, 1)
+        self.assertEqual(mocks["credentials"].call_count, 1)
+
+    def test_the_api_backend_checks_the_token_instead(self):
+        mocks = self._patch(token=False)
+        self.assertEqual(doctor.main(["--backend", "api"]), 2)
+        self.assertEqual(mocks["token"].call_count, 1)
+        self.assertEqual(mocks["profile_dir"].call_count, 0)
+        self.assertEqual(mocks["credentials"].call_count, 0)
+        self.assertIn("环境里没有它。", self.out.getvalue())
+
+    def test_the_smoke_step_gets_the_selected_backend(self):
+        mocks = self._patch()
+        doctor.main(["--backend", "api"])
+        self.assertEqual(mocks["smoke"].call_args.args, ("api",))
+        self.assertEqual(doctor.main([]), 0)
+        self.assertEqual(mocks["smoke"].call_args.args, ("official-web",))
+
     def test_anything_red_says_it_cannot_and_exits_2(self):
         self.assertEqual(self._run_main([], smoke=False), 2)
         self.assertIn("服务说不行。", self.out.getvalue())
 
     def test_a_local_failure_stops_before_the_smoke_step(self):
         """本地就没配好时不去花配额——这条钉的正是白花配额那件事。"""
-        mocks = self._patch(token=False)
+        mocks = self._patch(credential=False)
         self.assertEqual(doctor.main([]), 2)
-        self.assertEqual(mocks[2].call_count, 0)
+        self.assertEqual(mocks["smoke"].call_count, 0)
         self.assertIn("没跑", self.out.getvalue())
 
     def test_every_local_check_runs_so_all_the_problems_show_at_once(self):
         """本机那几项一次全跑完：让人修一个跑一次太折腾。"""
-        mocks = self._patch(uv=False, token=False)
+        mocks = self._patch(uv=False, credential=False)
         self.assertEqual(doctor.main([]), 2)
-        self.assertEqual(mocks[0].call_count, 1)
-        self.assertEqual(mocks[1].call_count, 1)
+        self.assertEqual(mocks["uv"].call_count, 1)
+        self.assertEqual(mocks["profile_dir"].call_count, 1)
+        self.assertEqual(mocks["credentials"].call_count, 1)
         text = self.out.getvalue()
         self.assertIn("找不到 uv。", text)
-        self.assertIn("环境里没有它。", text)
+        self.assertIn("配置目录写不进去。", text)
+        self.assertIn("凭据文件坏了。", text)
 
     def test_the_output_dir_is_probed_only_when_one_is_given(self):
         path = tempfile.TemporaryDirectory()
@@ -3586,7 +3749,7 @@ class TestDoctorMain(unittest.TestCase):
         self.assertEqual(started.call_count, 1)
 
     def test_an_empty_machine_gets_a_report_not_a_traceback(self):
-        """在一台什么都没装的机器上跑：没有 uv、没有 token，连 requests 都没有。
+        """在一台什么都没装的机器上跑：没有 uv，连 requests 都没有。
 
         这条同时钉两件事：doctor 只用标准库（`-S` 下 import requests 会直接
         炸出栈来），以及它把问题说成人话。PATH 指到一个不存在的目录，等于
@@ -3595,12 +3758,25 @@ class TestDoctorMain(unittest.TestCase):
         env = {k: v for k, v in os.environ.items() if k != doctor.TOKEN_ENV}
         env["PATH"] = os.path.join(tempfile.gettempdir(), "体检-这里没有-uv")
         env["PYTHONIOENCODING"] = "gbk"      # 本机管道上的默认编码
-        proc = subprocess.run([sys.executable, "-S", os.path.abspath(doctor.__file__)],
-                              capture_output=True, env=env, timeout=120)
+
+        def run(*argv):
+            return subprocess.run(
+                [sys.executable, "-S", os.path.abspath(doctor.__file__), *argv],
+                capture_output=True, env=env, timeout=120)
+
+        proc = run()
         text = proc.stdout.decode("utf-8")
         self.assertEqual(proc.returncode, 2,
                          text + proc.stderr.decode("utf-8", "replace"))
         self.assertIn("uv", text)
+        # 默认走官网方式：报告里要提浏览器配置与凭据，不提 token。
+        self.assertIn("浏览器配置目录", text)
+        self.assertNotIn(doctor.TOKEN_ENV, text)
+
+        proc = run("--backend", "api")
+        text = proc.stdout.decode("utf-8")
+        self.assertEqual(proc.returncode, 2,
+                         text + proc.stderr.decode("utf-8", "replace"))
         self.assertIn(doctor.TOKEN_ENV, text)
 
 
