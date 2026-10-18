@@ -26,8 +26,9 @@ from aistudio import JobFailed, NetworkError, SubmitRejected
 import markdown
 from markdown import (JsonlLineError, Page, PlaceholderLeftover, allocate_names,
                       assemble, clean_markdown, convert_tables, image_downloads,
-                      normalize_blank_lines, parse_jsonl, rewrite_image_refs,
-                      strip_page_markers, strip_wrapper_tags)
+                      merge_cross_page_tables, normalize_blank_lines, parse_jsonl,
+                      rewrite_image_refs, strip_page_markers,
+                      strip_wrapper_tags)
 
 
 class TestConvertTables(unittest.TestCase):
@@ -477,6 +478,173 @@ class TestCrossPageTablePair(unittest.TestCase):
 
     def test_pages_without_a_page_size_do_not_merge(self):
         self.assertIsNone(self.pair(next_size=None))
+
+
+HEADER_3COL = "<tr><th>项目</th><th>期末余额</th><th>期初余额</th></tr>"
+
+
+class TestMergeCrossPageTables(unittest.TestCase):
+    IGNORED = {"header", "number"}
+
+    @staticmethod
+    def table(*rows):
+        return "<table>" + "".join(rows) + "</table>"
+
+    def pages(self, prev_rows, next_rows, next_tail=""):
+        prev = make_page(self.table(*prev_rows), BOTTOM_BLOCKS, index=0)
+        nxt = make_page(self.table(*next_rows) + next_tail, TOP_BLOCKS, index=1)
+        return prev, nxt
+
+    def merge(self, pages):
+        return merge_cross_page_tables(pages, ignore_labels=self.IGNORED)
+
+    def test_rows_are_appended_and_the_header_appears_once(self):
+        prev, nxt = self.pages(
+            (HEADER_3COL, "<tr><td>资产总计</td><td>1</td><td>2</td></tr>"),
+            ("<tr><td>流动负债：</td><td></td><td></td></tr>",
+             "<tr><td>负债合计</td><td>3</td><td>4</td></tr>"),
+            "\n\n法定代表人：江南春")
+        merged = self.merge([prev, nxt])
+        md = clean_markdown(merged[0].text, None)
+        self.assertEqual(md.count("| 项目"), 1)
+        self.assertIn("| 资产总计", md)
+        self.assertIn("| 流动负债：", md)
+        self.assertEqual(clean_markdown(merged[1].text, None).strip(),
+                         "法定代表人：江南春")
+
+    def test_a_repeated_header_row_is_dropped(self):
+        prev, nxt = self.pages(
+            (HEADER_3COL, "<tr><td>资产总计</td><td>1</td><td>2</td></tr>"),
+            (HEADER_3COL, "<tr><td>流动负债：</td><td></td><td></td></tr>"))
+        md = clean_markdown(self.merge([prev, nxt])[0].text, None)
+        self.assertEqual(md.count("| 项目"), 1)
+        self.assertEqual(md.count("| 流动负债："), 1)
+        self.assertIn("| 资产总计", md)
+
+    def test_a_repeated_multi_row_header_is_dropped(self):
+        header = ("<tr><th>项目</th><th>期末余额</th><th>期初余额</th></tr>"
+                  "<tr><th></th><th>2024年</th><th>2023年</th></tr>")
+        prev, nxt = self.pages(
+            (header, "<tr><td>资产总计</td><td>1</td><td>2</td></tr>"),
+            (header, "<tr><td>流动负债：</td><td></td><td></td></tr>"))
+        md = clean_markdown(self.merge([prev, nxt])[0].text, None)
+        self.assertEqual(md.count("| 项目"), 1)
+        self.assertEqual(md.count("| 期末余额"), 1)
+        self.assertEqual(md.count("2024年"), 1)
+        self.assertIn("| 流动负债：", md)
+
+    def test_a_colspan_header_is_not_mistaken_for_data(self):
+        prev, nxt = self.pages(
+            (HEADER_3COL, "<tr><td>资产总计</td><td>1</td><td>2</td></tr>"),
+            ('<tr><th colspan="3">母公司资产负债表</th></tr>',
+             "<tr><td>货币资金</td><td>5</td><td>6</td></tr>"))
+        merged = self.merge([prev, nxt])
+        self.assertNotIn("货币资金", clean_markdown(merged[0].text, None))
+        self.assertTrue(
+            clean_markdown(merged[1].text, None).lstrip().startswith("|"))
+
+    def test_a_data_first_row_is_kept(self):
+        prev, nxt = self.pages(
+            (HEADER_3COL, "<tr><td>资产总计</td><td>1</td><td>2</td></tr>"),
+            ("<tr><td>流动资产合计</td><td>9,657,775,018.21</td>"
+             "<td>12,226,744,131.71</td></tr>",))
+        md = clean_markdown(self.merge([prev, nxt])[0].text, None)
+        self.assertEqual(md.count("| 流动资产合计"), 1)
+        self.assertIn("| 资产总计", md)
+
+    def test_a_new_table_header_blocks_the_merge(self):
+        prev, nxt = self.pages(
+            (HEADER_3COL, "<tr><td>资产总计</td><td>1</td><td>2</td></tr>"),
+            ("<tr><td>项目</td><td>金额</td><td>占比</td></tr>",
+             "<tr><td>货币资金</td><td>5</td><td>6</td></tr>"))
+        merged = self.merge([prev, nxt])
+        self.assertNotIn("货币资金", clean_markdown(merged[0].text, None))
+        self.assertTrue(
+            clean_markdown(merged[1].text, None).lstrip().startswith("|"))
+
+    def test_three_pages_form_one_table(self):
+        mid_blocks = (("header", (650, 86, 1081, 108)),
+                      ("table", (112, 143, 1081, 1520)),
+                      ("number", (1057, 1566, 1081, 1586)))
+        p1 = make_page(
+            self.table(HEADER_3COL,
+                       "<tr><td>第一页数据</td><td>1</td><td>2</td></tr>"),
+            BOTTOM_BLOCKS, index=0)
+        p2 = make_page(
+            self.table(HEADER_3COL,
+                       "<tr><td>第二页数据</td><td>3</td><td>4</td></tr>"),
+            mid_blocks, index=1)
+        p3 = make_page(
+            self.table(HEADER_3COL,
+                       "<tr><td>第三页数据</td><td>5</td><td>6</td></tr>"),
+            TOP_BLOCKS, index=2)
+        merged = self.merge([p1, p2, p3])
+        md = clean_markdown(merged[0].text, None)
+        self.assertEqual(md.count("| 项目"), 1)
+        for row in ("| 第一页数据", "| 第二页数据", "| 第三页数据"):
+            self.assertIn(row, md)
+
+    def test_two_chains_on_one_page_do_not_cross(self):
+        a_header = "<tr><th>项目</th><th>余额</th><th>占比</th></tr>"
+        b_header = "<tr><th>项目</th><th>数量</th><th>金额</th></tr>"
+        mid_blocks = (("header", (650, 86, 1081, 108)),
+                      ("table", (112, 143, 1081, 400)),
+                      ("table", (112, 800, 1081, 1520)),
+                      ("number", (1057, 1566, 1081, 1586)))
+        p1 = make_page(
+            self.table(a_header, "<tr><td>A1</td><td>1</td><td>2</td></tr>"),
+            BOTTOM_BLOCKS, index=0)
+        p2 = make_page(
+            self.table("<tr><td>A2</td><td>3</td><td>4</td></tr>")
+            + "\n\n分隔段\n\n"
+            + self.table(b_header, "<tr><td>B1</td><td>5</td><td>6</td></tr>"),
+            mid_blocks, index=1)
+        p3 = make_page(
+            self.table(b_header, "<tr><td>B2</td><td>7</td><td>8</td></tr>")
+            + "\n\n结尾\n\n"
+            + self.table("<tr><td>C</td><td>9</td><td>10</td></tr>"),
+            mid_blocks, index=2)
+        merged = self.merge([p1, p2, p3])
+        md0 = clean_markdown(merged[0].text, None)
+        md1 = clean_markdown(merged[1].text, None)
+        md2 = clean_markdown(merged[2].text, None)
+        self.assertIn("| A1", md0)
+        self.assertIn("| A2", md0)
+        self.assertNotIn("| B2", md0)
+        self.assertIn("分隔段", md1)
+        self.assertIn("| B1", md1)
+        self.assertIn("| B2", md1)
+        self.assertNotIn("| A2", md1)
+        self.assertIn("| C", md2)
+
+    def test_a_table_with_an_image_is_not_merged(self):
+        prev, nxt = self.pages(
+            (HEADER_3COL, "<tr><td>资产总计</td><td>1</td><td>2</td></tr>"),
+            ('<tr><td>流动负债：<img src="imgs/x.jpg"/></td>'
+             "<td></td><td></td></tr>",),
+            "\n\n法定代表人：江南春")
+        merged = self.merge([prev, nxt])
+        self.assertNotIn("流动负债", clean_markdown(merged[0].text, None))
+        self.assertTrue(
+            clean_markdown(merged[1].text, None).lstrip().startswith("|"))
+
+    def test_text_after_the_next_table_is_preserved(self):
+        prev, nxt = self.pages(
+            (HEADER_3COL, "<tr><td>资产总计</td><td>1</td><td>2</td></tr>"),
+            ("<tr><td>流动负债：</td><td></td><td></td></tr>",),
+            "\n\n法定代表人：江南春\n\n主管会计工作负责人：孔微微")
+        merged = self.merge([prev, nxt])
+        self.assertEqual(
+            clean_markdown(merged[1].text, None).strip(),
+            "法定代表人：江南春\n\n主管会计工作负责人：孔微微")
+
+    def test_the_input_pages_are_not_modified(self):
+        prev, nxt = self.pages(
+            (HEADER_3COL, "<tr><td>资产总计</td><td>1</td><td>2</td></tr>"),
+            ("<tr><td>流动负债：</td><td></td><td></td></tr>",))
+        before = (prev.text, nxt.text)
+        self.merge([prev, nxt])
+        self.assertEqual((prev.text, nxt.text), before)
 
 
 class TestParseJsonl(unittest.TestCase):

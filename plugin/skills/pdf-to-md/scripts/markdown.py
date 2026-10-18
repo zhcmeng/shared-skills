@@ -2,6 +2,7 @@
 
 所有能单测的逻辑都集中在这里。
 """
+import dataclasses
 import json
 import re
 import string
@@ -429,17 +430,70 @@ def _same_size(a, b):
                for x, y in zip(a, b))
 
 
-def _table_columns(raw_html):
-    """这张表展开 rowspan/colspan 后的网格宽度；认不出来就是 0。"""
+def _table_element(raw_html):
+    """从一段 HTML 里取出第一张表；认不出来就返回 None。"""
     try:
         doc = lxml_html.fragment_fromstring(raw_html, create_parent="div")
     except Exception:
-        return 0
+        return None
     tables = doc.xpath(".//table")
-    if not tables:
+    return tables[0] if tables else None
+
+
+def _table_columns(raw_html):
+    """这张表展开 rowspan/colspan 后的网格宽度；认不出来就是 0。"""
+    table = _table_element(raw_html)
+    if table is None:
         return 0
-    grid = _table_grid(tables[0])
+    grid = _table_grid(table)
     return len(grid[0]) if grid else 0
+
+
+def _table_rows(raw_html):
+    """这张表的 <tr>，按文档顺序；内层表格的行不算。"""
+    table = _table_element(raw_html)
+    if table is None:
+        return []
+    rows = []
+    for tr in table.iter("tr"):
+        nearest = tr.getparent()
+        while nearest is not None and nearest.tag != "table":
+            nearest = nearest.getparent()
+        if nearest is table:
+            rows.append(tr)
+    return rows
+
+
+def _row_cells(tr):
+    """一行里原始的 <td>/<th> 文字，不展开 rowspan/colspan。"""
+    return [_cell_text(cell) for cell in tr.xpath("./td | ./th")]
+
+
+def _repeated_header_rows(root_rows, next_rows):
+    """下页表开头有几行与根表表头逐行相同，最多 5 行。"""
+    limit = min(5, len(root_rows), len(next_rows))
+    n = 0
+    while n < limit and _row_cells(root_rows[n]) == _row_cells(next_rows[n]):
+        n += 1
+    return n
+
+
+def _looks_like_data(tr):
+    """一行像数据：有空单元格，或者有单元格含数字。"""
+    cells = _row_cells(tr)
+    return any(not cell for cell in cells) or any(re.search(r"\d", cell)
+                                                  for cell in cells)
+
+
+def _table_has_image(raw_html):
+    table = _table_element(raw_html)
+    return bool(table is not None and table.xpath(".//img"))
+
+
+def _rows_to_html(rows):
+    """把 <tr> 列表拼回一张表；后面还会整体渲染成 Markdown。"""
+    return "<table>" + "".join(
+        lxml_html.tostring(tr, encoding="unicode") for tr in rows) + "</table>"
 
 
 def _cross_page_table_pair(prev_page, next_page, ignore_labels):
@@ -504,6 +558,81 @@ def _cross_page_table_pair(prev_page, next_page, ignore_labels):
         return None
 
     return prev_span, next_span
+
+
+def merge_cross_page_tables(pages, ignore_labels=()):
+    """把确认是同一张的跨页表格接成一张，重复表头只留一次。
+
+    返回新的页表，不就地改原对象。判断条件见 `_cross_page_table_pair`：
+    判断不了就原样留着——漏合看得见，误合看不出来。
+    """
+    if len(pages) < 2:
+        return list(pages)
+
+    spans = {}         # (页号, 区间起点) → (起, 止)
+    for i, page in enumerate(pages):
+        for span in _find_table_spans(page.text):
+            spans[(i, span[0])] = span
+
+    root_of = {}       # 被接走的表 → 这一条链的根表
+    next_link = {}     # 表的结尾 → (下一张表, 删掉的开头几行)
+
+    for i in range(len(pages) - 1):
+        pair = _cross_page_table_pair(pages[i], pages[i + 1], ignore_labels)
+        if pair is None:
+            continue
+        prev_span, next_span = pair
+        source = (i, prev_span[0])
+        target = (i + 1, next_span[0])
+        root = root_of.get(source, source)
+
+        target_html = pages[i + 1].text[next_span[0]:next_span[1]]
+        if _table_has_image(target_html):
+            continue
+        target_rows = _table_rows(target_html)
+        root_start, root_end = spans[root]
+        root_rows = _table_rows(pages[root[0]].text[root_start:root_end])
+        drop = _repeated_header_rows(root_rows, target_rows)
+        if drop == 0 and target_rows and not _looks_like_data(target_rows[0]):
+            continue
+
+        root_of[target] = root
+        next_link[source] = (target, drop)
+
+    if not next_link:
+        return list(pages)
+
+    edits = {}   # 页号 → [(起, 止, 替换文本)]
+    for root in spans:
+        if root in root_of:
+            continue
+        chain = []
+        current = root
+        while current in next_link:
+            target, drop = next_link[current]
+            chain.append((target, drop))
+            current = target
+        if not chain:
+            continue
+
+        root_start, root_end = spans[root]
+        rows = _table_rows(pages[root[0]].text[root_start:root_end])
+        for target, drop in chain:
+            start, end = spans[target]
+            rows.extend(_table_rows(pages[target[0]].text[start:end])[drop:])
+            edits.setdefault(target[0], []).append((start, end, ""))
+        edits.setdefault(root[0], []).append(
+            (root_start, root_end, _rows_to_html(rows)))
+
+    texts = [page.text for page in pages]
+    for i, page_edits in edits.items():
+        text = texts[i]
+        for start, end, replacement in sorted(page_edits, reverse=True):
+            text = text[:start] + replacement + text[end:]
+        texts[i] = text
+
+    return [dataclasses.replace(page, text=text)
+            for page, text in zip(pages, texts)]
 
 
 def parse_jsonl(raw: str) -> list[Page]:
