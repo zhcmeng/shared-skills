@@ -472,7 +472,8 @@ def _convert_single_pages(task, model, token, page_jobs, image_dir,
                                        text=page.text,
                                        images=page.images,
                                        blocks=page.blocks,
-                                       page_size=page.page_size))
+                                       page_size=page.page_size,
+                                       tables=page.tables))
     return pages, fetched, failed
 
 

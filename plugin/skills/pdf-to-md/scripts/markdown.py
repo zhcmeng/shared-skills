@@ -344,6 +344,9 @@ class Page:
     # 版面块 (label, (左, 上, 右, 下))，按服务给的顺序。判断表格是否跨页要用它。
     blocks: tuple = ()
     page_size: tuple | None = None   # 这一页的 (宽, 高)；服务没给就是 None
+    # 版面里的表格块 ((左, 上, 右, 下), HTML)，按服务给的顺序。
+    # 判断页边那张表、取它的行列结构都用这里；认不出的块不进这个表。
+    tables: tuple = ()
 
 
 _NO_DEFAULT = object()
@@ -369,12 +372,13 @@ def _expect(value, want, what, lineno, empty=_NO_DEFAULT):
 
 
 def _page_geometry(pruned):
-    """从 prunedResult 里取版面块与页面尺寸。
+    """从 prunedResult 里取版面块、页面尺寸与表格块。
 
     服务没给、或者形状不对的块直接跳过——这里只用来判断表格跨页，
     少一个块最多是少合一次，不该让整份转换失败。
     """
     blocks = []
+    tables = []
     raw_blocks = pruned.get("parsing_res_list")
     if isinstance(raw_blocks, list):
         for b in raw_blocks:
@@ -391,19 +395,26 @@ def _page_geometry(pruned):
             except (TypeError, ValueError):
                 continue
             blocks.append((label, box))
+            if label == "table":
+                content = b.get("block_content")
+                if isinstance(content, str) and content.strip():
+                    tables.append((box, content))
     width = pruned.get("width")
     height = pruned.get("height")
     size = None
     if isinstance(width, (int, float)) and isinstance(height, (int, float)):
         size = (float(width), float(height))
-    return tuple(blocks), size
+    return tuple(blocks), size, tuple(tables)
 
 
-# 判断两张表是否跨页相连时的容差。实测第 75、76 页：表格底边占页高 0.902、
-# 下一页表格顶边 0.085，左右边界差 2 像素（页宽 1191）。这几个值只能往严里调。
+# 判断两张表是否跨页相连时的容差。有页码/页眉时按它们的位置算；没有时
+# 以纸张边缘算，放宽一点——纸张边缘外还有空白边距。实测第 75、76 页：
+# 表格底边占页高 0.902、下一页表格顶边 0.085，两处离参照都不到 3%。
 _EDGE_TOLERANCE_RATIO = 0.05
-_EDGE_ALIGN_RATIO = 0.02
-_PAGE_SIZE_TOLERANCE = 0.02
+_EDGE_FALLBACK_RATIO = 0.10
+
+# 坐标是浮点数，判断「有没有更靠下/更靠上的块」时留半像素余量。
+_POSITION_EPSILON = 0.5
 
 _HEADER_LABELS = {"header", "header_image"}
 _FOOTER_LABELS = {"footer", "footer_image"}
@@ -441,23 +452,50 @@ def _top_anchor(blocks, table_top):
     return max(bottoms) if bottoms else None
 
 
+def _flush_bottom(page, box, blocks):
+    """上一页的表贴到页底：表底边够得着页码/页脚的上沿。
+
+    没有页码和页脚时以纸张下边缘为准，容差放宽；纸张边缘外还有空白边距，
+    照 5% 算会把正常的表挡掉。
+    """
+    height = page.page_size[1]
+    anchor = _bottom_anchor(blocks, box[3])
+    if anchor is None:
+        return box[3] >= height - _EDGE_FALLBACK_RATIO * height
+    return box[3] >= anchor - _EDGE_TOLERANCE_RATIO * height
+
+
+def _flush_top(page, box, blocks):
+    """下一页的表贴到页顶：表顶边够得着页眉的下沿。
+
+    没有页眉时以纸张上边缘为准，容差放宽。
+    """
+    height = page.page_size[1]
+    anchor = _top_anchor(blocks, box[1])
+    if anchor is None:
+        return box[1] <= _EDGE_FALLBACK_RATIO * height
+    return box[1] <= anchor + _EDGE_TOLERANCE_RATIO * height
+
+
+def _is_bottom_most(blocks, box):
+    """这张表是不是正文里最靠下的一块（下方没有别的正文块）。"""
+    return all(other[3] <= box[3] + _POSITION_EPSILON for _, other in blocks)
+
+
+def _is_top_most(blocks, box):
+    """这张表是不是正文里最靠上的一块（上方没有别的正文块）。"""
+    return all(other[1] >= box[1] - _POSITION_EPSILON for _, other in blocks)
+
+
 def _table_has_image(raw_html):
     """表里有图片引用——HTML 的 <img> 或 Markdown 的 ![](...) 都算。
 
-    图片是按页分配、按页改写的；把行搬到别页会让引用留在原来那页的映射里，
-    合并后就成了坏图。
+    接的过程会把单元格压成纯文字；图片没法跟着行搬过去，留着不管就是坏图。
     """
     if _MD_IMG_RE.search(raw_html):
         return True
     table = _table_element(raw_html)
     return bool(table is not None and table.xpath(".//img"))
-
-
-def _same_size(a, b):
-    if not a or not b:
-        return False
-    return all(x and y and abs(x - y) <= _PAGE_SIZE_TOLERANCE * max(x, y)
-               for x, y in zip(a, b))
 
 
 def _table_element(raw_html):
@@ -493,8 +531,8 @@ def _raw_grid(raw_html):
     return grid or None
 
 
-def _aligned_grids(prev_html, next_html):
-    """两张表列数对得上时，返回合并要用的两份网格；对不上返回 None。
+def _align_grids(prev_raw, next_raw):
+    """两份行表列数对得上时，返回合并要用的两份；对不上返回 None。
 
     先按原样比：宽度相同就原样合并，什么都不丢。宽度不同时才允许忽略
     整列为空的「幻影列」——两张表都丢掉全空列后宽度相同，才算对上。
@@ -502,10 +540,6 @@ def _aligned_grids(prev_html, next_html):
 
     返回 `(前表网格, 后表网格, 是否丢了全空列)`。
     """
-    prev_raw = _raw_grid(prev_html)
-    next_raw = _raw_grid(next_html)
-    if prev_raw is None or next_raw is None:
-        return None
     if len(prev_raw[0]) == len(next_raw[0]):
         return prev_raw, next_raw, False
     prev_effective = _drop_empty_columns(prev_raw)
@@ -516,35 +550,37 @@ def _aligned_grids(prev_html, next_html):
     return None
 
 
-def _raw_rows(raw_html):
-    """每行原始的 <td>/<th> 文字，不展开 rowspan/colspan；认不出就是 []。"""
-    table = _table_element(raw_html)
-    if table is None:
-        return []
-    rows = []
-    for tr in table.iter("tr"):
-        nearest = tr.getparent()
-        while nearest is not None and nearest.tag != "table":
-            nearest = nearest.getparent()
-        if nearest is table:
-            rows.append([_cell_plain(cell)
-                         for cell in tr.xpath("./td | ./th")])
-    return rows
-
-
-def _first_row_for_guard(raw_html, dropped_empty_columns):
-    """判断「第一行像不像数据」用的那一行。
-
-    用原始格子、不用展开后的网格：表头里的 colspan 展开后会多出一串空
-    格子，会被「有空单元格就是数据」误判成数据行，正好把一张新表的表头
-    放进来。只有合并确实丢了幻影列时，才在原始格子上也丢一遍。
-    """
-    rows = _raw_rows(raw_html)
-    if not rows:
+def _aligned_grids(prev_html, next_html):
+    """两张表的 HTML 列数对得上时，返回合并要用的两份网格；对不上返回 None。"""
+    prev_raw = _raw_grid(prev_html)
+    next_raw = _raw_grid(next_html)
+    if prev_raw is None or next_raw is None:
         return None
-    if dropped_empty_columns and len({len(row) for row in rows}) == 1:
-        rows = _drop_empty_columns(rows)
-    return rows[0]
+    return _align_grids(prev_raw, next_raw)
+
+
+def _edge_table(page, at_bottom):
+    """取页边那张表：版面块的坐标与 HTML，以及正文里对应的区间。
+
+    只在页边这张表上核对版面 HTML 和正文 HTML 的行列内容，不数整页有几张表；
+    别处多一张少一张表不影响判断。返回 (区间, 坐标, HTML, 网格)，
+    认不出或对不上就是 None。
+    """
+    if not page.tables:
+        return None
+    if at_bottom:
+        box, html = max(page.tables, key=lambda item: item[0][3])
+    else:
+        box, html = min(page.tables, key=lambda item: item[0][1])
+    grid = _raw_grid(html)
+    if grid is None:
+        return None
+    spans = _find_table_spans(page.text)
+    candidates = reversed(spans) if at_bottom else spans
+    for span in candidates:
+        if _raw_grid(page.text[span[0]:span[1]]) == grid:
+            return span, box, html, grid
+    return None
 
 
 def _repeated_header_rows(root_rows, next_rows):
@@ -558,12 +594,6 @@ def _repeated_header_rows(root_rows, next_rows):
     while n < limit and root_rows[n] == next_rows[n]:
         n += 1
     return n
-
-
-def _looks_like_data(cells):
-    """一行像数据：有空单元格，或者有单元格含数字。"""
-    return any(not cell for cell in cells) or any(re.search(r"\d", cell)
-                                                  for cell in cells)
 
 
 def _grid_to_html(rows):
@@ -581,61 +611,36 @@ def _grid_to_html(rows):
 def _cross_page_table_pair(prev_page, next_page, ignore_labels):
     """判断上一页末尾的表和下一页开头的表是不是同一张被页边界切断的表。
 
-    成立时返回两张表的 (起, 止) 区间；任何一条不成立都返回 None——
-    漏合看得见，误合看不出来，所以判不准就不合。
+    只看两件事：上一页的表贴到页底，下一页的表贴到页顶。列数和图片不参与
+    「是不是同一张」的判断；但列数对不上会行错位、表里有图会丢图，这两种
+    情况下接了也是错的，所以同样不接。
+
+    成立时返回两张表的 (起, 止) 区间；否则返回 None。
     """
-    if not _same_size(prev_page.page_size, next_page.page_size):
+    if not prev_page.page_size or not next_page.page_size:
         return None
+
+    prev = _edge_table(prev_page, at_bottom=True)
+    nxt = _edge_table(next_page, at_bottom=False)
+    if prev is None or nxt is None:
+        return None
+    prev_span, prev_box, prev_html, prev_grid = prev
+    next_span, next_box, next_html, next_grid = nxt
 
     prev_blocks = _content_blocks(prev_page, ignore_labels)
     next_blocks = _content_blocks(next_page, ignore_labels)
-    if not prev_blocks or not next_blocks:
+    if not _is_bottom_most(prev_blocks, prev_box):
         return None
-    if prev_blocks[-1][0] != "table" or next_blocks[0][0] != "table":
+    if not _is_top_most(next_blocks, next_box):
         return None
-
-    prev_spans = _find_table_spans(prev_page.text)
-    next_spans = _find_table_spans(next_page.text)
-    if not prev_spans or not next_spans:
+    if not _flush_bottom(prev_page, prev_box, prev_page.blocks):
         return None
-    # 正文里的表要和版面块里的表一一对上：对不上说明我认表的办法和服务
-    # 给的结构不一致，宁可不合。
-    if (len(prev_spans)
-            != sum(1 for label, _ in prev_page.blocks if label == "table")
-            or len(next_spans)
-            != sum(1 for label, _ in next_page.blocks if label == "table")):
+    if not _flush_top(next_page, next_box, next_page.blocks):
         return None
 
-    prev_span = prev_spans[-1]
-    next_span = next_spans[0]
-    # 上一页正文在最后一张表之后不许再有东西；下一页正文在第一张表之前
-    # 不许再有东西。表格另一侧的内容（标题、签名行）不影响判断。
-    if prev_page.text[prev_span[1]:].strip():
+    if _align_grids(prev_grid, next_grid) is None:
         return None
-    if next_page.text[:next_span[0]].strip():
-        return None
-
-    prev_box = prev_blocks[-1][1]
-    next_box = next_blocks[0][1]
-    anchor = _bottom_anchor(prev_page.blocks, prev_box[3])
-    header = _top_anchor(next_page.blocks, next_box[1])
-    if anchor is None or header is None:
-        return None
-
-    height = prev_page.page_size[1]
-    if prev_box[3] < anchor - _EDGE_TOLERANCE_RATIO * height:
-        return None
-    if next_box[1] > header + _EDGE_TOLERANCE_RATIO * height:
-        return None
-
-    width = prev_page.page_size[0]
-    if abs(prev_box[0] - next_box[0]) > _EDGE_ALIGN_RATIO * width:
-        return None
-    if abs(prev_box[2] - next_box[2]) > _EDGE_ALIGN_RATIO * width:
-        return None
-
-    if _aligned_grids(prev_page.text[prev_span[0]:prev_span[1]],
-                      next_page.text[next_span[0]:next_span[1]]) is None:
+    if _table_has_image(prev_html) or _table_has_image(next_html):
         return None
 
     return prev_span, next_span
@@ -645,7 +650,7 @@ def merge_cross_page_tables(pages, ignore_labels=()):
     """把确认是同一张的跨页表格接成一张，重复表头只留一次。
 
     返回新的页表，不就地改原对象。判断条件见 `_cross_page_table_pair`：
-    判断不了就原样留着——漏合看得见，误合看不出来。
+    只看页边位置；列数对不上或表里有图片时不接。
     """
     if len(pages) < 2:
         return list(pages)
@@ -656,7 +661,7 @@ def merge_cross_page_tables(pages, ignore_labels=()):
             spans[(i, span[0])] = span
 
     root_of = {}       # 被接走的表 → 这一条链的根表
-    next_link = {}     # 表的结尾 → (下一张表, 删掉的开头几行)
+    next_link = {}     # 表的结尾 → 下一张表
 
     for i in range(len(pages) - 1):
         pair = _cross_page_table_pair(pages[i], pages[i + 1], ignore_labels)
@@ -668,18 +673,13 @@ def merge_cross_page_tables(pages, ignore_labels=()):
         root = root_of.get(source, source)
 
         target_html = pages[i + 1].text[next_span[0]:next_span[1]]
-        if _table_has_image(target_html):
-            continue
         root_start, root_end = spans[root]
         aligned = _aligned_grids(
             pages[root[0]].text[root_start:root_end], target_html)
         if aligned is None:
             continue
-        root_grid, target_grid, dropped = aligned
+        root_grid, target_grid, _ = aligned
         drop = _repeated_header_rows(root_grid, target_grid)
-        guard = _first_row_for_guard(target_html, dropped)
-        if drop == 0 and guard is not None and not _looks_like_data(guard):
-            continue
 
         root_of[target] = root
         next_link[source] = target
@@ -726,12 +726,10 @@ def merge_cross_page_tables(pages, ignore_labels=()):
         if all(len(grid[0]) == raw_width for grid in target_raw.values()):
             root_rows = root_raw
             grids = target_raw
-            use_effective = False
         elif all(len(grid[0]) == len(root_effective[0])
                  for grid in target_effective.values()):
             root_rows = root_effective
             grids = target_effective
-            use_effective = True
         else:
             # 判断阶段是逐对看的；整条链对不齐就整条不合，
             # 免得删了后面的表却没接上。
@@ -739,20 +737,12 @@ def merge_cross_page_tables(pages, ignore_labels=()):
 
         rows = list(root_rows)
         merges = []
-        usable = True
         for target in chain:
             start, end = spans[target]
             grid = grids[target]
             drop = _repeated_header_rows(root_rows, grid)
-            guard = _first_row_for_guard(
-                pages[target[0]].text[start:end], use_effective)
-            if drop == 0 and guard is not None and not _looks_like_data(guard):
-                usable = False
-                break
             rows.extend(grid[drop:])
             merges.append((target[0], start, end))
-        if not usable:
-            continue
         for page_no, start, end in merges:
             edits.setdefault(page_no, []).append((start, end, ""))
         edits.setdefault(root[0], []).append(
@@ -817,7 +807,7 @@ def parse_jsonl(raw: str) -> list[Page]:
             # 版面坐标只用来判断跨页表格，形状不对就当没给：一份本来能转的
             # 文档不该因为辅助字段坏了而失败。
             pruned = item.get("prunedResult")
-            blocks, page_size = _page_geometry(
+            blocks, page_size, tables = _page_geometry(
                 pruned if isinstance(pruned, dict) else {})
             pages.append(Page(
                 index=len(pages),
@@ -825,6 +815,7 @@ def parse_jsonl(raw: str) -> list[Page]:
                 images=dict(images),
                 blocks=blocks,
                 page_size=page_size,
+                tables=tables,
             ))
     return pages
 

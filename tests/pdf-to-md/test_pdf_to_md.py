@@ -385,8 +385,21 @@ TOP_BLOCKS = (("header", (650, 86, 1082, 108)),
               ("number", (1057, 1566, 1081, 1586)))
 
 
-def make_page(text, blocks, size=(1191, 1685), index=0):
-    return Page(index=index, text=text, images={}, blocks=blocks, page_size=size)
+def make_page(text, blocks, size=(1191, 1685), index=0, tables=None):
+    """造一页。tables 不给时，把正文里的表和版面里的 table 块按顺序配上。
+
+    数量对不上就不配——这种情况要测什么，由用例自己显式传 tables。
+    """
+    if tables is None:
+        spans = markdown._find_table_spans(text)
+        boxes = [box for label, box in blocks if label == "table"]
+        if len(spans) == len(boxes):
+            tables = tuple((box, text[start:end])
+                           for box, (start, end) in zip(boxes, spans))
+        else:
+            tables = ()
+    return Page(index=index, text=text, images={}, blocks=blocks,
+                page_size=size, tables=tables)
 
 
 class TestCrossPageTablePair(unittest.TestCase):
@@ -395,9 +408,12 @@ class TestCrossPageTablePair(unittest.TestCase):
 
     def pair(self, prev_blocks=BOTTOM_BLOCKS, next_blocks=TOP_BLOCKS,
              prev_text=PREV_TABLE, next_text=NEXT_TABLE,
-             prev_size=(1191, 1685), next_size=(1191, 1685)):
-        prev = make_page(prev_text, prev_blocks, size=prev_size, index=0)
-        nxt = make_page(next_text, next_blocks, size=next_size, index=1)
+             prev_size=(1191, 1685), next_size=(1191, 1685),
+             prev_tables=None, next_tables=None):
+        prev = make_page(prev_text, prev_blocks, size=prev_size, index=0,
+                         tables=prev_tables)
+        nxt = make_page(next_text, next_blocks, size=next_size, index=1,
+                        tables=next_tables)
         return markdown._cross_page_table_pair(prev, nxt, self.IGNORED)
 
     def test_a_table_at_the_page_bottom_and_top_is_a_continuation(self):
@@ -416,24 +432,27 @@ class TestCrossPageTablePair(unittest.TestCase):
                   ("number", (1057, 1566, 1081, 1586)))
         self.assertIsNone(self.pair(next_blocks=blocks))
 
-    def test_misaligned_left_or_right_edge_blocks_the_merge(self):
+    def test_misaligned_left_or_right_edge_still_merges(self):
+        # 左右边缘不再参与判断；列数对上、贴着页边就够了
         for left, right in ((200, 1082), (110, 1150)):
             with self.subTest(left=left, right=right):
                 blocks = (("header", (650, 86, 1082, 108)),
                           ("table", (left, 143, right, 1500)),
                           ("number", (1057, 1566, 1081, 1586)))
-                self.assertIsNone(self.pair(next_blocks=blocks))
+                self.assertIsNotNone(self.pair(next_blocks=blocks))
 
-    def test_different_page_sizes_block_the_merge(self):
-        self.assertIsNone(self.pair(next_size=(1000, 1685)))
+    def test_different_page_sizes_still_merge(self):
+        # 每页用自己的页高算容差，两页尺寸不必相同
+        self.assertIsNotNone(self.pair(next_size=(1000, 1500)))
 
-    def test_missing_header_or_number_anchor_blocks_the_merge(self):
+    def test_missing_anchor_falls_back_to_the_paper_edge(self):
+        # 没有页码/页脚时以下纸边为准；没有页眉时以上纸边为准
         no_number = (("header", (650, 86, 1081, 108)),
                      ("table", (112, 231, 1081, 1520)))
-        self.assertIsNone(self.pair(prev_blocks=no_number))
+        self.assertIsNotNone(self.pair(prev_blocks=no_number))
         no_header = (("table", (110, 143, 1082, 1500)),
                      ("number", (1057, 1566, 1081, 1586)))
-        self.assertIsNone(self.pair(next_blocks=no_header))
+        self.assertIsNotNone(self.pair(next_blocks=no_header))
 
     def test_footer_can_stand_in_for_a_missing_number(self):
         footer = (("header", (650, 86, 1081, 108)),
@@ -456,7 +475,8 @@ class TestCrossPageTablePair(unittest.TestCase):
         self.assertIsNone(self.pair(prev_blocks=blocks))
 
     def test_a_header_below_the_table_does_not_count(self):
-        blocks = (("table", (110, 143, 1082, 1500)),
+        # 表本身没贴页顶；下面那块页眉不能被拿来当页顶参照
+        blocks = (("table", (110, 300, 1082, 1500)),
                   ("header", (650, 1520, 1082, 1540)),
                   ("number", (1057, 1566, 1081, 1586)))
         self.assertIsNone(self.pair(next_blocks=blocks))
@@ -484,9 +504,10 @@ class TestCrossPageTablePair(unittest.TestCase):
                   ("number", (1057, 1566, 1081, 1586)))
         self.assertIsNone(self.pair(next_blocks=before))
 
-    def test_text_before_or_after_the_table_blocks_the_merge(self):
-        self.assertIsNone(self.pair(prev_text=PREV_TABLE + "\n后记"))
-        self.assertIsNone(self.pair(next_text="前言\n" + NEXT_TABLE))
+    def test_text_outside_the_table_does_not_block_the_merge(self):
+        # 表贴着页边时，页边之外的前后文字不参与判断
+        self.assertIsNotNone(self.pair(prev_text=PREV_TABLE + "\n后记"))
+        self.assertIsNotNone(self.pair(next_text="前言\n" + NEXT_TABLE))
 
     def test_content_on_the_far_side_of_the_table_is_allowed(self):
         # 实测第 75 页表格前面有标题、第 76 页表格后面有签名行，都不该挡合并
@@ -495,12 +516,15 @@ class TestCrossPageTablePair(unittest.TestCase):
         self.assertIsNotNone(
             self.pair(next_text=NEXT_TABLE + "\n\n法定代表人：江南春"))
 
-    def test_a_block_count_that_disagrees_with_the_text_blocks_the_merge(self):
+    def test_an_extra_table_block_elsewhere_does_not_block_the_merge(self):
+        # 只看页边那张表；别处多一块版面表格、正文里没有，不影响
         blocks = (("header", (650, 86, 1081, 108)),
                   ("table", (112, 231, 1081, 1520)),
                   ("table", (112, 100, 1081, 200)),
                   ("number", (1057, 1566, 1081, 1586)))
-        self.assertIsNone(self.pair(prev_blocks=blocks))
+        self.assertIsNotNone(self.pair(
+            prev_blocks=blocks,
+            prev_tables=(((112.0, 231.0, 1081.0, 1520.0), PREV_TABLE),)))
 
     def test_pages_without_a_page_size_do_not_merge(self):
         self.assertIsNone(self.pair(next_size=None))
@@ -516,9 +540,11 @@ class TestMergeCrossPageTables(unittest.TestCase):
     def table(*rows):
         return "<table>" + "".join(rows) + "</table>"
 
-    def pages(self, prev_rows, next_rows, next_tail=""):
-        prev = make_page(self.table(*prev_rows), BOTTOM_BLOCKS, index=0)
-        nxt = make_page(self.table(*next_rows) + next_tail, TOP_BLOCKS, index=1)
+    def pages(self, prev_rows, next_rows, next_tail="", prev_tail=""):
+        prev = make_page(self.table(*prev_rows) + prev_tail,
+                         BOTTOM_BLOCKS, index=0)
+        nxt = make_page(self.table(*next_rows) + next_tail,
+                        TOP_BLOCKS, index=1)
         return prev, nxt
 
     def merge(self, pages):
@@ -582,16 +608,6 @@ class TestMergeCrossPageTables(unittest.TestCase):
         self.assertEqual(md.count("2024年"), 1)
         self.assertIn("| 流动负债：", md)
 
-    def test_a_colspan_header_is_not_mistaken_for_data(self):
-        prev, nxt = self.pages(
-            (HEADER_3COL, "<tr><td>资产总计</td><td>1</td><td>2</td></tr>"),
-            ('<tr><th colspan="3">母公司资产负债表</th></tr>',
-             "<tr><td>货币资金</td><td>5</td><td>6</td></tr>"))
-        merged = self.merge([prev, nxt])
-        self.assertNotIn("货币资金", clean_markdown(merged[0].text, None))
-        self.assertTrue(
-            clean_markdown(merged[1].text, None).lstrip().startswith("|"))
-
     def test_a_data_first_row_is_kept(self):
         prev, nxt = self.pages(
             (HEADER_3COL, "<tr><td>资产总计</td><td>1</td><td>2</td></tr>"),
@@ -601,14 +617,15 @@ class TestMergeCrossPageTables(unittest.TestCase):
         self.assertEqual(md.count("| 流动资产合计"), 1)
         self.assertIn("| 资产总计", md)
 
-    def test_a_new_table_header_blocks_the_merge(self):
+    def test_a_new_table_header_no_longer_blocks_the_merge(self):
+        # 位置和列数对上就接；第一行像不像新表头不再参与判断
         prev, nxt = self.pages(
             (HEADER_3COL, "<tr><td>资产总计</td><td>1</td><td>2</td></tr>"),
             ("<tr><td>项目</td><td>金额</td><td>占比</td></tr>",
              "<tr><td>货币资金</td><td>5</td><td>6</td></tr>"))
         merged = self.merge([prev, nxt])
-        self.assertNotIn("货币资金", clean_markdown(merged[0].text, None))
-        self.assertTrue(
+        self.assertIn("货币资金", clean_markdown(merged[0].text, None))
+        self.assertFalse(
             clean_markdown(merged[1].text, None).lstrip().startswith("|"))
 
     def test_three_pages_form_one_table(self):
@@ -718,6 +735,26 @@ class TestMergeCrossPageTables(unittest.TestCase):
         self.assertNotIn("流动负债", clean_markdown(merged[0].text, None))
         self.assertTrue(
             clean_markdown(merged[1].text, None).lstrip().startswith("|"))
+
+    def test_a_root_table_with_an_image_is_not_merged(self):
+        # 接的过程会把格子压成纯文字；上一页那张表带图也会丢，所以两张都查
+        prev, nxt = self.pages(
+            (HEADER_3COL,
+             '<tr><td>资产总计<img src="imgs/x.jpg"/></td><td>1</td><td>2</td></tr>'),
+            ("<tr><td>流动负债：</td><td></td><td></td></tr>",))
+        merged = self.merge([prev, nxt])
+        self.assertNotIn("流动负债", clean_markdown(merged[0].text, None))
+        self.assertTrue(
+            clean_markdown(merged[1].text, None).lstrip().startswith("|"))
+
+    def test_text_after_the_previous_table_stays_after_the_merged_table(self):
+        prev, nxt = self.pages(
+            (HEADER_3COL, "<tr><td>资产总计</td><td>1</td><td>2</td></tr>"),
+            ("<tr><td>流动负债：</td><td></td><td></td></tr>",),
+            prev_tail="\n\n后记")
+        md0 = clean_markdown(self.merge([prev, nxt])[0].text, None)
+        self.assertIn("| 流动负债：", md0)
+        self.assertLess(md0.index("| 流动负债："), md0.index("后记"))
 
     def test_text_after_the_next_table_is_preserved(self):
         prev, nxt = self.pages(
@@ -889,29 +926,45 @@ class TestParseJsonl(unittest.TestCase):
         self.assertIn("第 2 项", str(ctx.exception))
 
     def test_blocks_and_page_size_are_read(self):
+        table_html = "<table><tr><td>项目</td></tr></table>"
         pruned = {"width": 1191, "height": 1685, "parsing_res_list": [
             {"block_label": "header", "block_bbox": [650, 86, 1081, 108]},
-            {"block_label": "table", "block_bbox": [112, 231, 1081, 1520]}]}
+            {"block_label": "table", "block_bbox": [112, 231, 1081, 1520],
+             "block_content": table_html}]}
         raw = jsonl_line([("正文", {})], pruned=[pruned])
         page = parse_jsonl(raw)[0]
         self.assertEqual(page.page_size, (1191.0, 1685.0))
         self.assertEqual(page.blocks,
                          (("header", (650.0, 86.0, 1081.0, 108.0)),
                           ("table", (112.0, 231.0, 1081.0, 1520.0))))
+        self.assertEqual(page.tables,
+                         (((112.0, 231.0, 1081.0, 1520.0), table_html),))
+
+    def test_a_table_block_without_content_is_not_in_tables(self):
+        pruned = {"width": 1191, "height": 1685, "parsing_res_list": [
+            {"block_label": "table", "block_bbox": [1, 2, 3, 4]}]}
+        page = parse_jsonl(jsonl_line([("正文", {})], pruned=[pruned]))[0]
+        self.assertEqual(page.blocks, (("table", (1.0, 2.0, 3.0, 4.0)),))
+        self.assertEqual(page.tables, ())
 
     def test_no_pruned_result_gives_empty_geometry(self):
         page = parse_jsonl(jsonl_line([("正文", {})]))[0]
         self.assertEqual(page.blocks, ())
         self.assertIsNone(page.page_size)
+        self.assertEqual(page.tables, ())
 
     def test_malformed_blocks_are_skipped(self):
+        table_html = "<table><tr><td>有效</td></tr></table>"
         pruned = {"width": 1191, "height": 1685, "parsing_res_list": [
             {"block_label": "table", "block_bbox": [1, 2, 3]},
             {"block_label": "table", "block_bbox": "x"},
             {"block_label": 7, "block_bbox": [1, 2, 3, 4]},
-            {"block_label": "table", "block_bbox": [1, 2, 3, 4]}]}
+            {"block_label": "table", "block_bbox": [1, 2, 3, 4],
+             "block_content": table_html}]}
         page = parse_jsonl(jsonl_line([("正文", {})], pruned=[pruned]))[0]
         self.assertEqual(page.blocks, (("table", (1.0, 2.0, 3.0, 4.0)),))
+        self.assertEqual(page.tables,
+                         (((1.0, 2.0, 3.0, 4.0), table_html),))
 
     def test_a_non_dict_pruned_result_is_treated_as_no_geometry(self):
         # 版面坐标只用来判断跨页表格；服务给坏了不该让一份本来能转的文档失败
@@ -921,6 +974,7 @@ class TestParseJsonl(unittest.TestCase):
         self.assertEqual(page.text, "正文")
         self.assertEqual(page.blocks, ())
         self.assertIsNone(page.page_size)
+        self.assertEqual(page.tables, ())
 
     def test_geometry_does_not_change_the_assembled_output(self):
         text = "<table><tr><td>项目</td><td>金额</td></tr></table>"
@@ -2214,10 +2268,12 @@ class TestFinancialSinglePage(unittest.TestCase):
                 os.path.join(self.out, "report", "images", name)))
 
     @staticmethod
-    def pruned_result(blocks, size=(1191, 1685)):
+    def pruned_result(blocks, size=(1191, 1685), table_html=None):
         return {"width": size[0], "height": size[1],
                 "parsing_res_list": [
-                    {"block_label": label, "block_bbox": list(box)}
+                    {"block_label": label, "block_bbox": list(box),
+                     **({"block_content": table_html}
+                        if label == "table" and table_html is not None else {})}
                     for label, box in blocks]}
 
     def two_table_pages(self):
@@ -2232,8 +2288,10 @@ class TestFinancialSinglePage(unittest.TestCase):
     def test_pages_whose_tables_line_up_are_stitched(self):
         texts = self.two_table_pages()
         self.fake_api(texts=texts,
-                      pruned={1: self.pruned_result(BOTTOM_BLOCKS),
-                              2: self.pruned_result(TOP_BLOCKS)})
+                      pruned={1: self.pruned_result(
+                                  BOTTOM_BLOCKS, table_html=texts[1][0]),
+                              2: self.pruned_result(
+                                  TOP_BLOCKS, table_html=texts[2][0])})
         with mock.patch.object(convert.time, "sleep", lambda *_: None):
             self.convert()
         body = self.read_md()
@@ -2276,8 +2334,10 @@ class TestFinancialSinglePage(unittest.TestCase):
     def test_debug_records_pages_before_and_after_the_merge(self):
         texts = self.two_table_pages()
         self.fake_api(texts=texts,
-                      pruned={1: self.pruned_result(BOTTOM_BLOCKS),
-                              2: self.pruned_result(TOP_BLOCKS)})
+                      pruned={1: self.pruned_result(
+                                  BOTTOM_BLOCKS, table_html=texts[1][0]),
+                              2: self.pruned_result(
+                                  TOP_BLOCKS, table_html=texts[2][0])})
         with mock.patch.object(convert.time, "sleep", lambda *_: None):
             self.convert(debug=True)
         debug = self.debug_runs()
