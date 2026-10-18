@@ -388,6 +388,124 @@ def _page_geometry(pruned):
     return tuple(blocks), size
 
 
+# 判断两张表是否跨页相连时的容差。实测第 75、76 页：表格底边占页高 0.902、
+# 下一页表格顶边 0.085，左右边界差 2 像素（页宽 1191）。这几个值只能往严里调。
+_EDGE_TOLERANCE_RATIO = 0.05
+_EDGE_ALIGN_RATIO = 0.02
+_PAGE_SIZE_TOLERANCE = 0.02
+
+_HEADER_LABELS = {"header", "header_image"}
+_FOOTER_LABELS = {"footer", "footer_image"}
+
+
+def _content_blocks(page, ignore_labels):
+    """去掉页眉、页码这类不占正文的块，留下判断页边界的块。"""
+    ignored = set(ignore_labels or ())
+    return [(label, box) for label, box in page.blocks if label not in ignored]
+
+
+def _bottom_anchor(blocks):
+    """上一页表格下方的参照：页码的顶边；没有页码就用页脚的顶边。
+
+    有多个时取最靠上的那条顶边——阈值更低，判断更严，宁可漏合。
+    """
+    for labels in ({"number"}, _FOOTER_LABELS):
+        tops = [box[1] for label, box in blocks if label in labels]
+        if tops:
+            return min(tops)
+    return None
+
+
+def _top_anchor(blocks):
+    """下一页表格上方的参照：页眉的底边；多个时取最靠下的，判断更严。"""
+    bottoms = [box[3] for label, box in blocks if label in _HEADER_LABELS]
+    return max(bottoms) if bottoms else None
+
+
+def _same_size(a, b):
+    if not a or not b:
+        return False
+    return all(x and y and abs(x - y) <= _PAGE_SIZE_TOLERANCE * max(x, y)
+               for x, y in zip(a, b))
+
+
+def _table_columns(raw_html):
+    """这张表展开 rowspan/colspan 后的网格宽度；认不出来就是 0。"""
+    try:
+        doc = lxml_html.fragment_fromstring(raw_html, create_parent="div")
+    except Exception:
+        return 0
+    tables = doc.xpath(".//table")
+    if not tables:
+        return 0
+    grid = _table_grid(tables[0])
+    return len(grid[0]) if grid else 0
+
+
+def _cross_page_table_pair(prev_page, next_page, ignore_labels):
+    """判断上一页末尾的表和下一页开头的表是不是同一张被页边界切断的表。
+
+    成立时返回两张表的 (起, 止) 区间；任何一条不成立都返回 None——
+    漏合看得见，误合看不出来，所以判不准就不合。
+    """
+    if not _same_size(prev_page.page_size, next_page.page_size):
+        return None
+
+    prev_blocks = _content_blocks(prev_page, ignore_labels)
+    next_blocks = _content_blocks(next_page, ignore_labels)
+    if not prev_blocks or not next_blocks:
+        return None
+    if prev_blocks[-1][0] != "table" or next_blocks[0][0] != "table":
+        return None
+
+    prev_spans = _find_table_spans(prev_page.text)
+    next_spans = _find_table_spans(next_page.text)
+    if not prev_spans or not next_spans:
+        return None
+    # 正文里的表要和版面块里的表一一对上：对不上说明我认表的办法和服务
+    # 给的结构不一致，宁可不合。
+    if (len(prev_spans)
+            != sum(1 for label, _ in prev_page.blocks if label == "table")
+            or len(next_spans)
+            != sum(1 for label, _ in next_page.blocks if label == "table")):
+        return None
+
+    prev_span = prev_spans[-1]
+    next_span = next_spans[0]
+    # 上一页正文在最后一张表之后不许再有东西；下一页正文在第一张表之前
+    # 不许再有东西。表格另一侧的内容（标题、签名行）不影响判断。
+    if prev_page.text[prev_span[1]:].strip():
+        return None
+    if next_page.text[:next_span[0]].strip():
+        return None
+
+    anchor = _bottom_anchor(prev_page.blocks)
+    header = _top_anchor(next_page.blocks)
+    if anchor is None or header is None:
+        return None
+
+    prev_box = prev_blocks[-1][1]
+    next_box = next_blocks[0][1]
+    height = prev_page.page_size[1]
+    if prev_box[3] < anchor - _EDGE_TOLERANCE_RATIO * height:
+        return None
+    if next_box[1] > header + _EDGE_TOLERANCE_RATIO * height:
+        return None
+
+    width = prev_page.page_size[0]
+    if abs(prev_box[0] - next_box[0]) > _EDGE_ALIGN_RATIO * width:
+        return None
+    if abs(prev_box[2] - next_box[2]) > _EDGE_ALIGN_RATIO * width:
+        return None
+
+    prev_cols = _table_columns(prev_page.text[prev_span[0]:prev_span[1]])
+    next_cols = _table_columns(next_page.text[next_span[0]:next_span[1]])
+    if not prev_cols or prev_cols != next_cols:
+        return None
+
+    return prev_span, next_span
+
+
 def parse_jsonl(raw: str) -> list[Page]:
     """把结果 JSONL 摊成一份文档的页表。
 

@@ -370,6 +370,115 @@ def jsonl_line(pages, error_code=0, error_msg="Success", num_pages=None,
     }, ensure_ascii=False)
 
 
+PREV_TABLE = ("<table><tr><th>项目</th><th>期末余额</th><th>期初余额</th></tr>"
+              "<tr><td>资产总计</td><td>1</td><td>2</td></tr></table>")
+NEXT_TABLE = ("<table><tr><td>流动负债：</td><td></td><td></td></tr>"
+              "<tr><td>负债合计</td><td>3</td><td>4</td></tr></table>")
+
+# 按第 75、76 页实测抄下来的版面：表格贴着页底 / 页顶，页眉和页码都在。
+BOTTOM_BLOCKS = (("header", (650, 86, 1081, 108)),
+                 ("table", (112, 231, 1081, 1520)),
+                 ("number", (1057, 1566, 1081, 1586)))
+TOP_BLOCKS = (("header", (650, 86, 1082, 108)),
+              ("table", (110, 143, 1082, 1500)),
+              ("number", (1057, 1566, 1081, 1586)))
+
+
+def make_page(text, blocks, size=(1191, 1685), index=0):
+    return Page(index=index, text=text, images={}, blocks=blocks, page_size=size)
+
+
+class TestCrossPageTablePair(unittest.TestCase):
+    IGNORED = ("header", "header_image", "footer", "footer_image",
+               "number", "footnote", "aside_text")
+
+    def pair(self, prev_blocks=BOTTOM_BLOCKS, next_blocks=TOP_BLOCKS,
+             prev_text=PREV_TABLE, next_text=NEXT_TABLE,
+             prev_size=(1191, 1685), next_size=(1191, 1685)):
+        prev = make_page(prev_text, prev_blocks, size=prev_size, index=0)
+        nxt = make_page(next_text, next_blocks, size=next_size, index=1)
+        return markdown._cross_page_table_pair(prev, nxt, self.IGNORED)
+
+    def test_a_table_at_the_page_bottom_and_top_is_a_continuation(self):
+        self.assertEqual(self.pair(),
+                         ((0, len(PREV_TABLE)), (0, len(NEXT_TABLE))))
+
+    def test_a_table_that_stops_mid_page_is_not_a_continuation(self):
+        blocks = (("header", (650, 86, 1081, 108)),
+                  ("table", (112, 231, 1081, 1200)),
+                  ("number", (1057, 1566, 1081, 1586)))
+        self.assertIsNone(self.pair(prev_blocks=blocks))
+
+    def test_a_table_that_starts_low_on_the_next_page_is_not(self):
+        blocks = (("header", (650, 86, 1082, 108)),
+                  ("table", (110, 300, 1082, 1500)),
+                  ("number", (1057, 1566, 1081, 1586)))
+        self.assertIsNone(self.pair(next_blocks=blocks))
+
+    def test_misaligned_left_or_right_edge_blocks_the_merge(self):
+        for left, right in ((200, 1082), (110, 1150)):
+            with self.subTest(left=left, right=right):
+                blocks = (("header", (650, 86, 1082, 108)),
+                          ("table", (left, 143, right, 1500)),
+                          ("number", (1057, 1566, 1081, 1586)))
+                self.assertIsNone(self.pair(next_blocks=blocks))
+
+    def test_different_page_sizes_block_the_merge(self):
+        self.assertIsNone(self.pair(next_size=(1000, 1685)))
+
+    def test_missing_header_or_number_anchor_blocks_the_merge(self):
+        no_number = (("header", (650, 86, 1081, 108)),
+                     ("table", (112, 231, 1081, 1520)))
+        self.assertIsNone(self.pair(prev_blocks=no_number))
+        no_header = (("table", (110, 143, 1082, 1500)),
+                     ("number", (1057, 1566, 1081, 1586)))
+        self.assertIsNone(self.pair(next_blocks=no_header))
+
+    def test_footer_can_stand_in_for_a_missing_number(self):
+        footer = (("header", (650, 86, 1081, 108)),
+                  ("table", (112, 231, 1081, 1520)),
+                  ("footer", (400, 1580, 800, 1600)))
+        self.assertIsNotNone(self.pair(prev_blocks=footer))
+
+    def test_different_column_counts_block_the_merge(self):
+        two_cols = ("<table><tr><td>流动负债：</td><td></td></tr>"
+                    "<tr><td>负债合计</td><td>3</td></tr></table>")
+        self.assertIsNone(self.pair(next_text=two_cols))
+
+    def test_a_paragraph_before_or_after_the_table_blocks_the_merge(self):
+        after = (("header", (650, 86, 1081, 108)),
+                 ("table", (112, 231, 1081, 1520)),
+                 ("text", (112, 1530, 1081, 1550)),
+                 ("number", (1057, 1566, 1081, 1586)))
+        self.assertIsNone(self.pair(prev_blocks=after))
+        before = (("header", (650, 86, 1082, 108)),
+                  ("text", (112, 110, 1082, 140)),
+                  ("table", (110, 143, 1082, 1500)),
+                  ("number", (1057, 1566, 1081, 1586)))
+        self.assertIsNone(self.pair(next_blocks=before))
+
+    def test_text_before_or_after_the_table_blocks_the_merge(self):
+        self.assertIsNone(self.pair(prev_text=PREV_TABLE + "\n后记"))
+        self.assertIsNone(self.pair(next_text="前言\n" + NEXT_TABLE))
+
+    def test_content_on_the_far_side_of_the_table_is_allowed(self):
+        # 实测第 75 页表格前面有标题、第 76 页表格后面有签名行，都不该挡合并
+        self.assertIsNotNone(
+            self.pair(prev_text="2、母公司资产负债表\n" + PREV_TABLE))
+        self.assertIsNotNone(
+            self.pair(next_text=NEXT_TABLE + "\n\n法定代表人：江南春"))
+
+    def test_a_block_count_that_disagrees_with_the_text_blocks_the_merge(self):
+        blocks = (("header", (650, 86, 1081, 108)),
+                  ("table", (112, 231, 1081, 1520)),
+                  ("table", (112, 100, 1081, 200)),
+                  ("number", (1057, 1566, 1081, 1586)))
+        self.assertIsNone(self.pair(prev_blocks=blocks))
+
+    def test_pages_without_a_page_size_do_not_merge(self):
+        self.assertIsNone(self.pair(next_size=None))
+
+
 class TestParseJsonl(unittest.TestCase):
     def test_flat_order_is_line_then_page(self):
         raw = "\n".join([
