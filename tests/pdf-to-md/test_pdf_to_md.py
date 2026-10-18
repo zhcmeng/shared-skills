@@ -1944,8 +1944,11 @@ class TestFinancialSinglePage(unittest.TestCase):
             writer.write(f)
 
     def fake_api(self, fail_first=(), empty_first=(), fail_always=(),
-                 texts=None):
-        """按页码造假结果；失败/空结果可以指定只发生一次或每次都发生。"""
+                 texts=None, pruned=None):
+        """按页码造假结果；失败/空结果可以指定只发生一次或每次都发生。
+
+        pruned 是 {页码: prunedResult}，给了就按页附上版面坐标。
+        """
         attempts = {}
         seen = []
 
@@ -1969,7 +1972,10 @@ class TestFinancialSinglePage(unittest.TestCase):
             if page in empty_first and attempts[page] == 1:
                 return ""
             text, images = (texts or {}).get(page, (f"正文{page}", {}))
-            return jsonl_line([(text, images)])
+            geometry = None
+            if pruned is not None:
+                geometry = [pruned.get(page, {})]
+            return jsonl_line([(text, images)], pruned=geometry)
 
         patcher = mock.patch.multiple(
             aistudio,
@@ -2047,6 +2053,49 @@ class TestFinancialSinglePage(unittest.TestCase):
         for name in ("x.jpg", "y.jpg"):
             self.assertTrue(os.path.isfile(
                 os.path.join(self.out, "report", "images", name)))
+
+    @staticmethod
+    def pruned_result(blocks, size=(1191, 1685)):
+        return {"width": size[0], "height": size[1],
+                "parsing_res_list": [
+                    {"block_label": label, "block_bbox": list(box)}
+                    for label, box in blocks]}
+
+    def two_table_pages(self):
+        self.write_pdf(self.pdf, 2)
+        prev_text = ("<table><tr><th>项目</th><th>期末余额</th><th>期初余额</th></tr>"
+                     "<tr><td>资产总计</td><td>1</td><td>2</td></tr></table>")
+        next_text = ("<table><tr><td>流动负债：</td><td></td><td></td></tr>"
+                     "<tr><td>负债合计</td><td>3</td><td>4</td></tr></table>"
+                     "\n\n法定代表人：江南春")
+        return {1: (prev_text, {}), 2: (next_text, {})}
+
+    def test_pages_whose_tables_line_up_are_stitched(self):
+        texts = self.two_table_pages()
+        self.fake_api(texts=texts,
+                      pruned={1: self.pruned_result(BOTTOM_BLOCKS),
+                              2: self.pruned_result(TOP_BLOCKS)})
+        with mock.patch.object(convert.time, "sleep", lambda *_: None):
+            self.convert()
+        body = self.read_md()
+        self.assertEqual(body.count("| 项目"), 1)
+        self.assertIn("| 流动负债：", body)
+        self.assertIn("法定代表人：江南春", body)
+        separators = [line for line in body.splitlines()
+                      if line.startswith("|:")]
+        self.assertEqual(len(separators), 1)
+
+    def test_pages_without_geometry_stay_split(self):
+        texts = self.two_table_pages()
+        self.fake_api(texts=texts)
+        with mock.patch.object(convert.time, "sleep", lambda *_: None):
+            self.convert()
+        body = self.read_md()
+        self.assertIn("| 项目", body)
+        self.assertIn("| 流动负债：", body)
+        separators = [line for line in body.splitlines()
+                      if line.startswith("|:")]
+        self.assertEqual(len(separators), 2)
 
     def test_a_url_is_rejected_in_financial_mode(self):
         # 单页切分要有本地文件；不偷偷去下载一份，也不把整本网址提交上去

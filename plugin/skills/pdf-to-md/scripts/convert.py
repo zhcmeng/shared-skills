@@ -433,6 +433,10 @@ def convert_one(task, out_root, model, token, on_pages=None,
                 prefix="pdf-to-md-images-") as image_tmp:
             pages, fetched, failed = _convert_single_pages(
                 task, model, token, page_jobs, image_tmp, on_pages)
+            pages = md_utils.merge_cross_page_tables(
+                pages,
+                ignore_labels=aistudio.FINANCIAL_OPTIONAL_PAYLOAD[
+                    "markdownIgnoreLabels"])
             return _finish_document(task, out_root, pages, t0,
                                     prefetched=fetched, failed_urls=failed)
 
