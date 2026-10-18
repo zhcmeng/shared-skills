@@ -466,6 +466,12 @@ class TestCrossPageTablePair(unittest.TestCase):
                     "<tr><td>负债合计</td><td>3</td></tr></table>")
         self.assertIsNone(self.pair(next_text=two_cols))
 
+    def test_a_phantom_empty_column_does_not_block_the_merge(self):
+        # 第 74 页实测：每行 4 个 <td>，第 2 列整列为空；有效列数是 3。
+        phantom = ("<table><tr><td>流动负债：</td><td></td><td></td><td></td></tr>"
+                   "<tr><td>负债合计</td><td></td><td>3</td><td>4</td></tr></table>")
+        self.assertIsNotNone(self.pair(next_text=phantom))
+
     def test_a_paragraph_before_or_after_the_table_blocks_the_merge(self):
         after = (("header", (650, 86, 1081, 108)),
                  ("table", (112, 231, 1081, 1520)),
@@ -540,6 +546,29 @@ class TestMergeCrossPageTables(unittest.TestCase):
         self.assertEqual(md.count("| 项目"), 1)
         self.assertEqual(md.count("| 流动负债："), 1)
         self.assertIn("| 资产总计", md)
+
+    def test_a_phantom_empty_column_is_dropped_when_merging(self):
+        # 不丢这一列的话，接过来的行会比根表多一列，金额整体错位
+        phantom = ("<tr><td>流动负债：</td><td></td><td></td><td></td></tr>"
+                   "<tr><td>负债合计</td><td></td><td>3</td><td>4</td></tr>")
+        prev, nxt = self.pages(
+            (HEADER_3COL, "<tr><td>资产总计</td><td>1</td><td>2</td></tr>"),
+            (phantom,))
+        md = clean_markdown(self.merge([prev, nxt])[0].text, None)
+        for text in ("项目", "资产总计", "流动负债：", "负债合计"):
+            line = next(line for line in md.splitlines() if text in line)
+            self.assertEqual(line.count("|"), 4, line)
+
+    def test_a_repeated_header_with_a_phantom_column_is_dropped(self):
+        phantom_header = ("<tr><th>项目</th><th></th><th>期末余额</th>"
+                          "<th>期初余额</th></tr>")
+        prev, nxt = self.pages(
+            (HEADER_3COL, "<tr><td>资产总计</td><td>1</td><td>2</td></tr>"),
+            (phantom_header,
+             "<tr><td>流动负债：</td><td></td><td></td><td></td></tr>"))
+        md = clean_markdown(self.merge([prev, nxt])[0].text, None)
+        self.assertEqual(md.count("| 项目"), 1)
+        self.assertEqual(md.count("| 流动负债："), 1)
 
     def test_a_repeated_multi_row_header_is_dropped(self):
         header = ("<tr><th>项目</th><th>期末余额</th><th>期初余额</th></tr>"
@@ -1743,6 +1772,12 @@ class TestParseArgs(unittest.TestCase):
         self.assertEqual(args.page_jobs, 4)
         self.assertEqual(args.source_type, "general")
         self.assertFalse(args.force)
+        self.assertFalse(args.debug)
+
+    def test_debug_flag_is_accepted(self):
+        args = convert.parse_args(["a.pdf", "--output", self.output(),
+                                   "--debug"])
+        self.assertTrue(args.debug)
 
     def test_financial_mode_pins_the_model(self):
         args = convert.parse_args(["a.pdf", "--output", self.output(),
@@ -2002,6 +2037,42 @@ class TestConvertOne(unittest.TestCase):
                                 on_pages=lambda d, t: seen.append((d, t)))
         self.assertEqual(seen, [(2, 2)])
 
+    def debug_runs(self, name="a"):
+        """这一次转换留下的调试目录；一次运行只会有一个。"""
+        root = os.path.join(self.root, name, "debug")
+        runs = sorted(os.listdir(root))
+        self.assertEqual(len(runs), 1)
+        return os.path.join(root, runs[0])
+
+    def test_debug_keeps_the_raw_result_and_parsed_pages(self):
+        task = convert.Task(target="/tmp/a.pdf", name="a", origin="/tmp/a.pdf")
+        with self.fake_pipeline([("正文一", {}), ("正文二", {})]):
+            convert.convert_one(task, self.root, "m", "t", debug=True)
+        debug = self.debug_runs()
+        with open(os.path.join(debug, "raw", "result.jsonl"),
+                  encoding="utf-8") as f:
+            raw = f.read()
+        self.assertIn("正文一", raw)
+        self.assertIn("正文二", raw)
+        with open(os.path.join(debug, "parsed", "pages.jsonl"),
+                  encoding="utf-8") as f:
+            parsed = [json.loads(line) for line in f]
+        self.assertEqual([page["text"] for page in parsed],
+                         ["正文一", "正文二"])
+        with open(os.path.join(debug, "task.json"), encoding="utf-8") as f:
+            task_meta = json.load(f)
+        self.assertEqual(task_meta["source_type"], "general")
+        self.assertEqual(task_meta["model"], "m")
+        with open(os.path.join(debug, "result.json"), encoding="utf-8") as f:
+            result_meta = json.load(f)
+        self.assertEqual(result_meta["pages"], 2)
+
+    def test_without_debug_no_debug_directory_is_created(self):
+        task = convert.Task(target="/tmp/a.pdf", name="a", origin="/tmp/a.pdf")
+        with self.fake_pipeline([("正文", {})]):
+            convert.convert_one(task, self.root, "m", "t")
+        self.assertFalse(os.path.exists(os.path.join(self.root, "a", "debug")))
+
 
 class TestFinancialSinglePage(unittest.TestCase):
     """财报模式：把 PDF 切成单页逐页提交，再按原页序合起来。"""
@@ -2069,6 +2140,13 @@ class TestFinancialSinglePage(unittest.TestCase):
 
     def md_path(self):
         return os.path.join(self.out, "report", "report.md")
+
+    def debug_runs(self):
+        """这一次转换留下的调试目录；一次运行只会有一个。"""
+        root = os.path.join(self.out, "report", "debug")
+        runs = sorted(os.listdir(root))
+        self.assertEqual(len(runs), 1)
+        return os.path.join(root, runs[0])
 
     def read_md(self):
         with open(self.md_path(), encoding="utf-8") as f:
@@ -2177,6 +2255,73 @@ class TestFinancialSinglePage(unittest.TestCase):
         separators = [line for line in body.splitlines()
                       if line.startswith("|:")]
         self.assertEqual(len(separators), 2)
+
+    def test_debug_keeps_split_pages_and_per_page_results(self):
+        self.fake_api()
+        with mock.patch.object(convert.time, "sleep", lambda *_: None):
+            self.convert(debug=True)
+        debug = self.debug_runs()
+        for page in (1, 2, 3):
+            self.assertTrue(os.path.isfile(
+                os.path.join(debug, "pages", f"page-{page:04d}.pdf")))
+            with open(os.path.join(
+                    debug, "raw", f"page-{page:04d}-attempt-1.jsonl"),
+                    encoding="utf-8") as f:
+                self.assertIn(f"正文{page}", f.read())
+        with open(os.path.join(debug, "parsed", "before-merge.jsonl"),
+                  encoding="utf-8") as f:
+            parsed = [json.loads(line) for line in f]
+        self.assertEqual([page["index"] for page in parsed], [0, 1, 2])
+
+    def test_debug_records_pages_before_and_after_the_merge(self):
+        texts = self.two_table_pages()
+        self.fake_api(texts=texts,
+                      pruned={1: self.pruned_result(BOTTOM_BLOCKS),
+                              2: self.pruned_result(TOP_BLOCKS)})
+        with mock.patch.object(convert.time, "sleep", lambda *_: None):
+            self.convert(debug=True)
+        debug = self.debug_runs()
+        with open(os.path.join(debug, "parsed", "before-merge.jsonl"),
+                  encoding="utf-8") as f:
+            before = [json.loads(line) for line in f]
+        with open(os.path.join(debug, "parsed", "after-merge.jsonl"),
+                  encoding="utf-8") as f:
+            after = [json.loads(line) for line in f]
+        self.assertEqual(before[0]["text"].count("<table>"), 1)
+        self.assertEqual(before[1]["text"].count("<table>"), 1)
+        self.assertEqual(after[0]["text"].count("<table>"), 1)
+        self.assertNotIn("<table>", after[1]["text"])
+
+    def test_debug_records_the_image_mapping(self):
+        self.fake_api(texts={
+            1: ('图\n\n<img src="imgs/x.jpg">',
+                {"imgs/x.jpg": "https://x/1.jpg"}),
+        })
+        with mock.patch.object(convert.time, "sleep", lambda *_: None):
+            self.convert(debug=True)
+        with open(os.path.join(self.debug_runs(), "images.json"),
+                  encoding="utf-8") as f:
+            images = json.load(f)
+        self.assertEqual(images, [{"local": "x.jpg",
+                                   "url": "https://x/1.jpg",
+                                   "status": "ok"}])
+
+    def test_a_failed_page_leaves_debug_artifacts(self):
+        self.fake_api(fail_always={2})
+        with mock.patch.object(convert.time, "sleep", lambda *_: None), \
+             self.assertRaises(convert.PageFailed):
+            self.convert(debug=True)
+        debug = self.debug_runs()
+        with open(os.path.join(debug, "error.txt"), encoding="utf-8") as f:
+            self.assertIn("第 2 页", f.read())
+        self.assertTrue(os.path.isfile(
+            os.path.join(debug, "pages", "page-0002.pdf")))
+        with open(os.path.join(debug, "raw", "page-0002-attempt-1.json"),
+                  encoding="utf-8") as f:
+            attempt = json.load(f)
+        self.assertEqual(attempt["page"], 2)
+        self.assertEqual(attempt["attempt"], 1)
+        self.assertIn("服务说这一页失败", attempt["error"])
 
     def test_a_url_is_rejected_in_financial_mode(self):
         # 单页切分要有本地文件；不偷偷去下载一份，也不把整本网址提交上去

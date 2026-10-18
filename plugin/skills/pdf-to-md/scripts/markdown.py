@@ -79,6 +79,15 @@ def _cell_text(cell):
     return " ".join("".join(cell.itertext()).split()).replace("|", "\\|")
 
 
+def _cell_plain(cell):
+    """一个格子的文字：摊平、空白归一，但不转义竖线。
+
+    合并时要把格子重新拼成 HTML，竖线留给最后的 _cell_text 转义；
+    这里先转义会变成两道反斜杠。
+    """
+    return " ".join("".join(cell.itertext()).split())
+
+
 # colspan/rowspan 写错、写成 0 或负数时按 1 算；上限只是防一份畸形 HTML
 # 用一行 colspan="999999" 把内存撑爆，正常表格远到不了这个数。
 _MAX_SPAN = 1000
@@ -96,7 +105,7 @@ def _span(cell, name):
     return max(1, min(value, _MAX_SPAN))
 
 
-def _table_grid(table):
+def _table_grid(table, text_of=_cell_text):
     """把带 rowspan/colspan 的行展开成等宽的网格。
 
     合并单元格的文字只放在左上角那一格；被它盖住的格子填空字符串，但仍要
@@ -104,7 +113,8 @@ def _table_grid(table):
     一层——空行也要消耗，不然 rowspan=2 会盖住三行。
 
     展开后再交给 tabulate：Markdown 的管道表格没有合并单元格的写法，
-    只能把合并还原成一格一格的空格子。
+    只能把合并还原成一格一格的空格子。`text_of` 决定格子里的字怎么取：
+    渲染时转义竖线，合并时保持原文。
     """
     rows = []
     pending = {}       # 列号 → 还会盖住下面几行
@@ -125,7 +135,7 @@ def _table_grid(table):
                 col += 1
             colspan = _span(cell, "colspan")
             rowspan = _span(cell, "rowspan")
-            row.append(_cell_text(cell))
+            row.append(text_of(cell))
             row.extend([""] * (colspan - 1))
             if rowspan > 1:
                 for c in range(col, col + colspan):
@@ -460,17 +470,54 @@ def _table_element(raw_html):
     return tables[0] if tables else None
 
 
-def _table_columns(raw_html):
-    """这张表展开 rowspan/colspan 后的网格宽度；认不出来就是 0。"""
+def _drop_empty_columns(rows):
+    """去掉每一行都为空的列。
+
+    服务偶尔会多给一列全空的格子（实测第 74 页：每行 4 个 <td>，第 2 列
+    整列为空，而上一页的同名表是 3 列）。这种列不携带任何数据，留着会让
+    两张本来同列数的表对不上，接过来的行也会金额错位。
+    """
+    if not rows:
+        return rows
+    width = len(rows[0])
+    keep = [i for i in range(width) if any(row[i].strip() for row in rows)]
+    return [[row[i] for i in keep] for row in rows]
+
+
+def _raw_grid(raw_html):
+    """展开 rowspan/colspan 后的网格，每一列都留着；认不出来就是 None。"""
     table = _table_element(raw_html)
     if table is None:
-        return 0
-    grid = _table_grid(table)
-    return len(grid[0]) if grid else 0
+        return None
+    grid = _table_grid(table, _cell_plain)
+    return grid or None
 
 
-def _table_rows(raw_html):
-    """这张表的 <tr>，按文档顺序；内层表格的行不算。"""
+def _aligned_grids(prev_html, next_html):
+    """两张表列数对得上时，返回合并要用的两份网格；对不上返回 None。
+
+    先按原样比：宽度相同就原样合并，什么都不丢。宽度不同时才允许忽略
+    整列为空的「幻影列」——两张表都丢掉全空列后宽度相同，才算对上。
+    小表里整列为空、但确实有意义的金额列，因此不会被误删。
+
+    返回 `(前表网格, 后表网格, 是否丢了全空列)`。
+    """
+    prev_raw = _raw_grid(prev_html)
+    next_raw = _raw_grid(next_html)
+    if prev_raw is None or next_raw is None:
+        return None
+    if len(prev_raw[0]) == len(next_raw[0]):
+        return prev_raw, next_raw, False
+    prev_effective = _drop_empty_columns(prev_raw)
+    next_effective = _drop_empty_columns(next_raw)
+    if (prev_effective and next_effective
+            and len(prev_effective[0]) == len(next_effective[0])):
+        return prev_effective, next_effective, True
+    return None
+
+
+def _raw_rows(raw_html):
+    """每行原始的 <td>/<th> 文字，不展开 rowspan/colspan；认不出就是 []。"""
     table = _table_element(raw_html)
     if table is None:
         return []
@@ -480,35 +527,55 @@ def _table_rows(raw_html):
         while nearest is not None and nearest.tag != "table":
             nearest = nearest.getparent()
         if nearest is table:
-            rows.append(tr)
+            rows.append([_cell_plain(cell)
+                         for cell in tr.xpath("./td | ./th")])
     return rows
 
 
-def _row_cells(tr):
-    """一行里原始的 <td>/<th> 文字，不展开 rowspan/colspan。"""
-    return [_cell_text(cell) for cell in tr.xpath("./td | ./th")]
+def _first_row_for_guard(raw_html, dropped_empty_columns):
+    """判断「第一行像不像数据」用的那一行。
+
+    用原始格子、不用展开后的网格：表头里的 colspan 展开后会多出一串空
+    格子，会被「有空单元格就是数据」误判成数据行，正好把一张新表的表头
+    放进来。只有合并确实丢了幻影列时，才在原始格子上也丢一遍。
+    """
+    rows = _raw_rows(raw_html)
+    if not rows:
+        return None
+    if dropped_empty_columns and len({len(row) for row in rows}) == 1:
+        rows = _drop_empty_columns(rows)
+    return rows[0]
 
 
 def _repeated_header_rows(root_rows, next_rows):
-    """下页表开头有几行与根表表头逐行相同，最多 5 行。"""
+    """下页表开头有几行与根表表头逐行相同，最多 5 行。
+
+    入参是 `_raw_grid` / `_drop_empty_columns` 给出的行表：已经展开
+    rowspan/colspan，必要时也丢了幻影列。两边必须用同一套表示，列才对齐。
+    """
     limit = min(5, len(root_rows), len(next_rows))
     n = 0
-    while n < limit and _row_cells(root_rows[n]) == _row_cells(next_rows[n]):
+    while n < limit and root_rows[n] == next_rows[n]:
         n += 1
     return n
 
 
-def _looks_like_data(tr):
+def _looks_like_data(cells):
     """一行像数据：有空单元格，或者有单元格含数字。"""
-    cells = _row_cells(tr)
     return any(not cell for cell in cells) or any(re.search(r"\d", cell)
                                                   for cell in cells)
 
 
-def _rows_to_html(rows):
-    """把 <tr> 列表拼回一张表；后面还会整体渲染成 Markdown。"""
+def _grid_to_html(rows):
+    """把网格拼回一张表；后面还会整体渲染成 Markdown。"""
+    def cell(text):
+        escaped = (text.replace("&", "&amp;").replace("<", "&lt;")
+                   .replace(">", "&gt;"))
+        return f"<td>{escaped}</td>"
+
     return "<table>" + "".join(
-        lxml_html.tostring(tr, encoding="unicode") for tr in rows) + "</table>"
+        "<tr>" + "".join(cell(text) for text in row) + "</tr>"
+        for row in rows) + "</table>"
 
 
 def _cross_page_table_pair(prev_page, next_page, ignore_labels):
@@ -567,9 +634,8 @@ def _cross_page_table_pair(prev_page, next_page, ignore_labels):
     if abs(prev_box[2] - next_box[2]) > _EDGE_ALIGN_RATIO * width:
         return None
 
-    prev_cols = _table_columns(prev_page.text[prev_span[0]:prev_span[1]])
-    next_cols = _table_columns(next_page.text[next_span[0]:next_span[1]])
-    if not prev_cols or prev_cols != next_cols:
+    if _aligned_grids(prev_page.text[prev_span[0]:prev_span[1]],
+                      next_page.text[next_span[0]:next_span[1]]) is None:
         return None
 
     return prev_span, next_span
@@ -604,15 +670,19 @@ def merge_cross_page_tables(pages, ignore_labels=()):
         target_html = pages[i + 1].text[next_span[0]:next_span[1]]
         if _table_has_image(target_html):
             continue
-        target_rows = _table_rows(target_html)
         root_start, root_end = spans[root]
-        root_rows = _table_rows(pages[root[0]].text[root_start:root_end])
-        drop = _repeated_header_rows(root_rows, target_rows)
-        if drop == 0 and target_rows and not _looks_like_data(target_rows[0]):
+        aligned = _aligned_grids(
+            pages[root[0]].text[root_start:root_end], target_html)
+        if aligned is None:
+            continue
+        root_grid, target_grid, dropped = aligned
+        drop = _repeated_header_rows(root_grid, target_grid)
+        guard = _first_row_for_guard(target_html, dropped)
+        if drop == 0 and guard is not None and not _looks_like_data(guard):
             continue
 
         root_of[target] = root
-        next_link[source] = (target, drop)
+        next_link[source] = target
 
     if not next_link:
         return list(pages)
@@ -624,20 +694,69 @@ def merge_cross_page_tables(pages, ignore_labels=()):
         chain = []
         current = root
         while current in next_link:
-            target, drop = next_link[current]
-            chain.append((target, drop))
+            target = next_link[current]
+            chain.append(target)
             current = target
         if not chain:
             continue
 
         root_start, root_end = spans[root]
-        rows = _table_rows(pages[root[0]].text[root_start:root_end])
-        for target, drop in chain:
+        root_html = pages[root[0]].text[root_start:root_end]
+        root_raw = _raw_grid(root_html)
+        if root_raw is None:
+            continue
+
+        target_raw = {}
+        for target in chain:
             start, end = spans[target]
-            rows.extend(_table_rows(pages[target[0]].text[start:end])[drop:])
-            edits.setdefault(target[0], []).append((start, end, ""))
+            grid = _raw_grid(pages[target[0]].text[start:end])
+            if grid is None:
+                target_raw = None
+                break
+            target_raw[target] = grid
+        if target_raw is None:
+            continue
+
+        # 一条链只能选一种表示：要么全按原样，要么全丢幻影列。逐对选的
+        # 话，前一对按原样、后一对按有效列，接出来的行就会错位。
+        root_effective = _drop_empty_columns(root_raw)
+        target_effective = {target: _drop_empty_columns(grid)
+                            for target, grid in target_raw.items()}
+        raw_width = len(root_raw[0])
+        if all(len(grid[0]) == raw_width for grid in target_raw.values()):
+            root_rows = root_raw
+            grids = target_raw
+            use_effective = False
+        elif all(len(grid[0]) == len(root_effective[0])
+                 for grid in target_effective.values()):
+            root_rows = root_effective
+            grids = target_effective
+            use_effective = True
+        else:
+            # 判断阶段是逐对看的；整条链对不齐就整条不合，
+            # 免得删了后面的表却没接上。
+            continue
+
+        rows = list(root_rows)
+        merges = []
+        usable = True
+        for target in chain:
+            start, end = spans[target]
+            grid = grids[target]
+            drop = _repeated_header_rows(root_rows, grid)
+            guard = _first_row_for_guard(
+                pages[target[0]].text[start:end], use_effective)
+            if drop == 0 and guard is not None and not _looks_like_data(guard):
+                usable = False
+                break
+            rows.extend(grid[drop:])
+            merges.append((target[0], start, end))
+        if not usable:
+            continue
+        for page_no, start, end in merges:
+            edits.setdefault(page_no, []).append((start, end, ""))
         edits.setdefault(root[0], []).append(
-            (root_start, root_end, _rows_to_html(rows)))
+            (root_start, root_end, _grid_to_html(rows)))
 
     texts = [page.text for page in pages]
     for i, page_edits in edits.items():

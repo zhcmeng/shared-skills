@@ -163,7 +163,7 @@ done → 下载 resultUrl.jsonUrl 那份 JSONL
 
 ```
 convert.py <输入…> --output <输出根目录> [--model <名字>] [--force] [--jobs <N>]
-           [--source-type general|financial] [--page-jobs <N>]
+           [--source-type general|financial] [--page-jobs <N>] [--debug]
 ```
 
 - `<输入…>`：PDF 文件、目录、或 PDF 的公网网址，可以给多个。给目录就递归找 `*.pdf`
@@ -171,6 +171,7 @@ convert.py <输入…> --output <输出根目录> [--model <名字>] [--force] [
 - `--model`：接口认的模型名，默认 `PaddleOCR-VL-1.6`，另一个是 `PP-StructureV3`。财报模式固定 `PaddleOCR-VL-1.6`
 - `--source-type`：`general`（默认）或 `financial`。`financial` 先把 PDF 切成单页再逐页提交，避免整本多页解析读不全宽表
 - `--page-jobs`：财报单页模式下，一份 PDF 里同时最多几页在转，默认 4
+- `--debug`：保留完整过程。服务原始结果、切出来的单页 PDF、合并前后的页表、图片对照和失败原因都落到 `<输出根>/<任务名>/debug/<时间戳>/`；每次运行一个目录，失败也留。`raw/` 里是服务原样返回的 JSONL，`parsed/` 里是解析后的页表（正文 HTML、图片网址、版面坐标、页面尺寸），排查跨页表格不用再提交一次
 - `--force`：已转过的也重转
 - `--jobs`：同时最多几个文件在转，默认 4。普通模式下一个文件同一时刻只有一个任务在跑，所以这个数也约等于同时在飞的请求数
 

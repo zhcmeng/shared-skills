@@ -2,14 +2,17 @@
 import argparse
 import hashlib
 import importlib.util
+import json
 import os
 import shutil
 import sys
 import tempfile
 import threading
 import time
+import traceback
 import unicodedata
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlparse
@@ -78,6 +81,10 @@ def parse_args(argv=None):
     parser.add_argument("--page-jobs", type=int, default=4,
                         help="财报单页模式下，一份 PDF 里同时最多几页在转，"
                              "默认 4")
+    parser.add_argument("--debug", action="store_true",
+                        help="保留完整过程：服务原始结果、切出来的单页 PDF、"
+                             "合并前后的页表、图片对照和失败原因。放在"
+                             "输出目录的 debug/ 下，每次运行一个带时间戳的子目录")
     args = parser.parse_args(argv)
 
     if args.jobs < 1:
@@ -262,24 +269,112 @@ def split_pdf_pages(path, work_dir):
     return paths
 
 
-def _convert_one_page(path, page_no, model, token):
+def _write_text_file(path, text):
+    """按 UTF-8、LF 写文件；缺的目录一并建出来。"""
+    directory = os.path.dirname(path)
+    if directory:
+        os.makedirs(directory, exist_ok=True)
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
+        f.write(text)
+
+
+def _new_debug_dir(task, out_root, started):
+    """给这一次转换建一个带时间戳的调试目录。
+
+    同一份 PDF 重跑几次就留几份，后一次不覆盖前一次——排查时最需要的
+    往往正是失败那一趟的过程。
+    """
+    root = os.path.join(out_root, task.name, "debug")
+    base = time.strftime("%Y%m%d-%H%M%S", time.localtime(started))
+    path = os.path.join(root, base)
+    n = 1
+    while os.path.exists(path):
+        n += 1
+        path = os.path.join(root, f"{base}-{n}")
+    os.makedirs(os.path.join(path, "raw"), exist_ok=True)
+    return path
+
+
+def _debug_write(debug_dir, name, text):
+    """往调试目录写一份文本；没开调试时什么都不做。"""
+    if not debug_dir:
+        return
+    _write_text_file(os.path.join(debug_dir, name), text)
+
+
+def _debug_json(debug_dir, name, data):
+    """往调试目录写一份 JSON；没开调试时什么都不做。"""
+    if not debug_dir:
+        return
+    _debug_write(debug_dir, name,
+                 json.dumps(data, ensure_ascii=False, indent=2) + "\n")
+
+
+def _debug_pages(debug_dir, stage, pages):
+    """把解析后的页表写成 JSONL。
+
+    正文的原始 HTML、图片网址、版面坐标、页面尺寸全在里面——合并为什么
+    没发生、表为什么接错，都能拿这一份重新跑判断，不必再花配额取一次。
+    """
+    if not debug_dir:
+        return
+    lines = [json.dumps({
+        "index": page.index,
+        "text": page.text,
+        "images": page.images,
+        "blocks": page.blocks,
+        "page_size": page.page_size,
+    }, ensure_ascii=False) for page in pages]
+    _debug_write(debug_dir, os.path.join("parsed", f"{stage}.jsonl"),
+                 "\n".join(lines) + ("\n" if lines else ""))
+
+
+def _debug_error(debug_dir):
+    """把当前异常连同栈写进 error.txt；已经失败时它不能再挡路。"""
+    if not debug_dir:
+        return
+    try:
+        _write_text_file(os.path.join(debug_dir, "error.txt"),
+                         traceback.format_exc())
+    except OSError:
+        pass
+
+
+def _convert_one_page(path, page_no, model, token, debug_dir=None):
     """提交一页，失败重试；重试完仍失败就带着页码抛 PageFailed。"""
     last = None
     for attempt in range(1, FINANCIAL_PAGE_ATTEMPTS + 1):
+        meta = {"page": page_no, "attempt": attempt}
+        meta_path = os.path.join(
+            "raw", f"page-{page_no:04d}-attempt-{attempt}.json")
         try:
             job_id = aistudio.submit(
                 path, model, token,
                 optional_payload=aistudio.FINANCIAL_OPTIONAL_PAYLOAD)
+            meta["job_id"] = job_id
             jsonl_url = aistudio.poll(job_id, token)
+            meta["jsonl_url"] = jsonl_url
             raw = aistudio.fetch_jsonl(jsonl_url)
+            # 先落原始结果再解析：解析炸了，这一份也在
+            _debug_write(
+                debug_dir,
+                os.path.join("raw",
+                             f"page-{page_no:04d}-attempt-{attempt}.jsonl"),
+                raw)
             pages = md_utils.parse_jsonl(raw)
             if not pages:
                 raise _EmptyPage("服务没返回这一页的解析结果")
+            _debug_json(debug_dir, meta_path, meta)
             return pages
         except (aistudio.SubmitRejected, aistudio.JobFailed,
                 aistudio.NetworkError, md_utils.JsonlLineError,
                 _EmptyPage) as exc:
             last = exc
+            meta["error"] = f"{type(exc).__name__}: {exc}"
+            try:
+                _debug_json(debug_dir, meta_path, meta)
+            except OSError:
+                pass
             if attempt < FINANCIAL_PAGE_ATTEMPTS:
                 time.sleep(FINANCIAL_PAGE_RETRY_DELAY * attempt)
     raise PageFailed(page_no, last)
@@ -311,11 +406,12 @@ def _cache_images(pages, image_dir, fetched, failed, lock):
 
 
 def _convert_single_pages(task, model, token, page_jobs, image_dir,
-                          on_pages=None):
+                          on_pages=None, debug_dir=None):
     """财报模式：切单页、逐页提交、按原页序摊平。
 
     返回 `(pages, fetched, failed)`：`fetched` 是「网址 → 临时图片路径」，
     `failed` 是取不回来的网址集合。临时图片目录由调用方保管，落盘时还要用。
+    开了调试时，切出来的单页 PDF 留在调试目录里，不随临时目录删掉。
     """
     if _is_url(task.target):
         raise FinancialSplitError(
@@ -323,8 +419,13 @@ def _convert_single_pages(task, model, token, page_jobs, image_dir,
     if page_jobs < 1:
         page_jobs = 1
 
-    with tempfile.TemporaryDirectory(prefix="pdf-to-md-pages-") as tmp:
-        page_files = split_pdf_pages(task.target, tmp)
+    page_dir_ctx = (
+        nullcontext(os.path.join(debug_dir, "pages")) if debug_dir
+        else tempfile.TemporaryDirectory(prefix="pdf-to-md-pages-"))
+    with page_dir_ctx as page_dir:
+        if debug_dir:
+            os.makedirs(page_dir, exist_ok=True)
+        page_files = split_pdf_pages(task.target, page_dir)
         total = len(page_files)
         if on_pages:
             on_pages(0, total)
@@ -339,7 +440,8 @@ def _convert_single_pages(task, model, token, page_jobs, image_dir,
         def work(index, path):
             nonlocal done
             try:
-                pages = _convert_one_page(path, index + 1, model, token)
+                pages = _convert_one_page(path, index + 1, model, token,
+                                          debug_dir=debug_dir)
             except PageFailed as exc:
                 with lock:
                     errors.append(exc)
@@ -375,12 +477,13 @@ def _convert_single_pages(task, model, token, page_jobs, image_dir,
 
 
 def _finish_document(task, out_root, pages, t0, prefetched=None,
-                     failed_urls=None):
+                     failed_urls=None, debug_dir=None):
     """把页表清理、拼装、取图、落盘。财报模式的图已经提前取好，直接复制。"""
     prefetched = prefetched or {}
     failed_urls = failed_urls or set()
 
     names = md_utils.allocate_names(pages)
+    downloads = list(md_utils.image_downloads(pages, names))
     document = md_utils.assemble(pages, names)
 
     # 守门看的是**清理之后**要落盘的那份东西，不是解析出来的原文：清理前每页都空
@@ -400,7 +503,7 @@ def _finish_document(task, out_root, pages, t0, prefetched=None,
     # 取图要紧跟解析：网址带签名有有效期，不能先存着回头再取。
     # 财报模式在每页解析完时已经取到临时目录了，这里只复制。
     missing = []
-    for local, url in md_utils.image_downloads(pages, names):
+    for local, url in downloads:
         if url in failed_urls:
             missing.append(local)
             continue
@@ -415,6 +518,13 @@ def _finish_document(task, out_root, pages, t0, prefetched=None,
         with open(os.path.join(img_dir, local), "wb") as f:
             f.write(blob)
 
+    if debug_dir:
+        missing_set = set(missing)
+        _debug_json(debug_dir, "images.json", [
+            {"local": local, "url": url,
+             "status": "missing" if local in missing_set else "ok"}
+            for local, url in downloads])
+
     with open(os.path.join(out_dir, f"{task.name}.md"), "w",
               encoding="utf-8", newline="\n") as f:
         f.write(document + "\n")
@@ -424,27 +534,72 @@ def _finish_document(task, out_root, pages, t0, prefetched=None,
 
 
 def convert_one(task, out_root, model, token, on_pages=None,
-                source_type="general", page_jobs=4):
-    """一份 PDF 走完全程：提交 → 轮询 → 取结果 → 取图 → 落盘。"""
+                source_type="general", page_jobs=4, debug=False):
+    """一份 PDF 走完全程：提交 → 轮询 → 取结果 → 取图 → 落盘。
+
+    开了 debug 时，沿途的原始结果、切页文件、合并前后的页表和最终结果
+    都写进 `<输出根>/<任务名>/debug/<时间戳>/`，成功失败都留。
+    """
     t0 = time.time()
     if source_type == "financial":
         model = aistudio.FINANCIAL_MODEL
-        with tempfile.TemporaryDirectory(
-                prefix="pdf-to-md-images-") as image_tmp:
-            pages, fetched, failed = _convert_single_pages(
-                task, model, token, page_jobs, image_tmp, on_pages)
-            pages = md_utils.merge_cross_page_tables(
-                pages,
-                ignore_labels=aistudio.FINANCIAL_OPTIONAL_PAYLOAD[
-                    "markdownIgnoreLabels"])
-            return _finish_document(task, out_root, pages, t0,
-                                    prefetched=fetched, failed_urls=failed)
 
-    job_id = aistudio.submit(task.target, model, token)
-    jsonl_url = aistudio.poll(job_id, token, on_progress=on_pages)
-    raw = aistudio.fetch_jsonl(jsonl_url)
-    pages = md_utils.parse_jsonl(raw)
-    return _finish_document(task, out_root, pages, t0)
+    debug_dir = None
+    if debug:
+        debug_dir = _new_debug_dir(task, out_root, t0)
+        task_meta = {
+            "origin": task.origin,
+            "target": task.target,
+            "name": task.name,
+            "model": model,
+            "source_type": source_type,
+            "page_jobs": page_jobs,
+            "started_at": time.strftime("%Y-%m-%d %H:%M:%S",
+                                        time.localtime(t0)),
+        }
+        if source_type == "financial":
+            task_meta["optional_payload"] = (
+                aistudio.FINANCIAL_OPTIONAL_PAYLOAD)
+        _debug_json(debug_dir, "task.json", task_meta)
+
+    try:
+        if source_type == "financial":
+            with tempfile.TemporaryDirectory(
+                    prefix="pdf-to-md-images-") as image_tmp:
+                pages, fetched, failed = _convert_single_pages(
+                    task, model, token, page_jobs, image_tmp, on_pages,
+                    debug_dir=debug_dir)
+                _debug_pages(debug_dir, "before-merge", pages)
+                pages = md_utils.merge_cross_page_tables(
+                    pages,
+                    ignore_labels=aistudio.FINANCIAL_OPTIONAL_PAYLOAD[
+                        "markdownIgnoreLabels"])
+                _debug_pages(debug_dir, "after-merge", pages)
+                result = _finish_document(task, out_root, pages, t0,
+                                          prefetched=fetched,
+                                          failed_urls=failed,
+                                          debug_dir=debug_dir)
+        else:
+            job_id = aistudio.submit(task.target, model, token)
+            jsonl_url = aistudio.poll(job_id, token, on_progress=on_pages)
+            raw = aistudio.fetch_jsonl(jsonl_url)
+            _debug_write(debug_dir, os.path.join("raw", "result.jsonl"), raw)
+            _debug_json(debug_dir, os.path.join("raw", "job.json"),
+                        {"job_id": job_id, "jsonl_url": jsonl_url})
+            pages = md_utils.parse_jsonl(raw)
+            _debug_pages(debug_dir, "pages", pages)
+            result = _finish_document(task, out_root, pages, t0,
+                                      debug_dir=debug_dir)
+    except Exception:
+        _debug_error(debug_dir)
+        raise
+
+    _debug_json(debug_dir, "result.json", {
+        "pages": result.pages,
+        "seconds": round(result.seconds, 3),
+        "missing_images": result.missing_images,
+    })
+    return result
 
 
 def format_duration(seconds):
@@ -575,7 +730,8 @@ def run(tasks, args):
         return convert_one(
             task, args.output, model, token,
             on_pages=lambda d, t, n=task.name: progress.pages(n, d, t),
-            source_type=source_type, page_jobs=page_jobs)
+            source_type=source_type, page_jobs=page_jobs,
+            debug=getattr(args, "debug", False))
 
     with ThreadPoolExecutor(max_workers=args.jobs) as pool:
         futures = {pool.submit(work, t): t for t in todo}
