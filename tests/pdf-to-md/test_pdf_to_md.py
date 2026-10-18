@@ -492,6 +492,27 @@ class TestCrossPageTablePair(unittest.TestCase):
                    "<tr><td>负债合计</td><td></td><td>3</td><td>4</td></tr></table>")
         self.assertIsNotNone(self.pair(next_text=phantom))
 
+    def test_a_trailing_total_cell_does_not_block_the_merge(self):
+        # 第 163 页实测：续页多出最右一格，分类行的合计金额落在那里；
+        # 这一格其实是最后一列的延续，不是新的一列。
+        spill = ("<table><tr><td>流动负债：</td><td></td><td></td><td>5</td></tr>"
+                 "<tr><td>负债合计</td><td>3</td><td>4</td><td></td></tr></table>")
+        self.assertIsNotNone(self.pair(next_text=spill))
+
+    def test_a_real_extra_column_still_blocks_the_merge(self):
+        cases = (
+            # 最右两列在同一行都有值，是真多出来的一列
+            ("<tr><td>流动负债：</td><td></td><td></td><td>5</td></tr>"
+             "<tr><td>负债合计</td><td>3</td><td>4</td><td>6</td></tr>"),
+            # 最右一格出现在「名称 + 外币余额 + 合计」三格的行里，不像合计溢出
+            ("<tr><td>流动负债：</td><td>9</td><td></td><td>5</td></tr>"
+             "<tr><td>负债合计</td><td>3</td><td>4</td><td></td></tr>"),
+        )
+        for rows in cases:
+            with self.subTest(rows=rows):
+                self.assertIsNone(
+                    self.pair(next_text=f"<table>{rows}</table>"))
+
     def test_a_paragraph_before_or_after_the_table_blocks_the_merge(self):
         after = (("header", (650, 86, 1081, 108)),
                  ("table", (112, 231, 1081, 1520)),
@@ -585,6 +606,20 @@ class TestMergeCrossPageTables(unittest.TestCase):
             line = next(line for line in md.splitlines() if text in line)
             self.assertEqual(line.count("|"), 4, line)
 
+    def test_a_trailing_total_cell_is_folded_into_the_last_column(self):
+        # 分类行的合计落在最右一格；接进 3 列表时要落回最后一列，不能多一列
+        spill = ("<tr><td>流动负债：</td><td></td><td></td><td>5</td></tr>"
+                 "<tr><td>负债合计</td><td>3</td><td>4</td><td></td></tr>")
+        prev, nxt = self.pages(
+            (HEADER_3COL, "<tr><td>资产总计</td><td>1</td><td>2</td></tr>"),
+            (spill,))
+        md = clean_markdown(self.merge([prev, nxt])[0].text, None)
+        for text in ("项目", "资产总计", "流动负债：", "负债合计"):
+            line = next(line for line in md.splitlines() if text in line)
+            self.assertEqual(line.count("|"), 4, line)
+        row = next(line for line in md.splitlines() if "流动负债：" in line)
+        self.assertIn("5", row)
+
     def test_a_repeated_header_with_a_phantom_column_is_dropped(self):
         phantom_header = ("<tr><th>项目</th><th></th><th>期末余额</th>"
                           "<th>期初余额</th></tr>")
@@ -649,6 +684,40 @@ class TestMergeCrossPageTables(unittest.TestCase):
         self.assertEqual(md.count("| 项目"), 1)
         for row in ("| 第一页数据", "| 第二页数据", "| 第三页数据"):
             self.assertIn(row, md)
+
+    def test_a_chain_aligns_every_page_to_the_same_columns(self):
+        # 实测第 162～165 页：第二页最右多一格合计，第三页中间多一列全空，
+        # 第四页回到 3 列。逐对看都能对齐，但根表和第四页的列数不同；
+        # 整条链必须统一到一个两边都放得下的列数。
+        mid_blocks = (("header", (650, 86, 1081, 108)),
+                      ("table", (112, 143, 1081, 1520)),
+                      ("number", (1057, 1566, 1081, 1586)))
+        p1 = make_page(
+            self.table(HEADER_3COL,
+                       "<tr><td>第一页</td><td>1</td><td>2</td></tr>"),
+            BOTTOM_BLOCKS, index=0)
+        p2 = make_page(
+            self.table("<tr><td>第二页：</td><td></td><td></td><td>5</td></tr>",
+                       "<tr><td>明细二</td><td>3</td><td>4</td><td></td></tr>"),
+            mid_blocks, index=1)
+        p3 = make_page(
+            self.table("<tr><td>第三页：</td><td></td><td></td><td></td></tr>",
+                       "<tr><td>明细三</td><td>6</td><td></td><td>7</td></tr>"),
+            mid_blocks, index=2)
+        p4 = make_page(
+            self.table("<tr><td>第四页：</td><td></td><td></td></tr>",
+                       "<tr><td>明细四</td><td>8</td><td>9</td></tr>"),
+            TOP_BLOCKS, index=3)
+        merged = self.merge([p1, p2, p3, p4])
+        md = clean_markdown(merged[0].text, None)
+        for text in ("第一页", "第二页：", "明细二", "第三页：",
+                     "明细三", "第四页：", "明细四"):
+            self.assertIn(text, md)
+        for page in merged[1:]:
+            self.assertEqual(clean_markdown(page.text, None).strip(), "")
+        for line in md.splitlines():
+            if line.startswith("|"):
+                self.assertEqual(line.count("|"), 4, line)
 
     def test_a_later_page_still_drops_the_root_header(self):
         # 第二页没有重复表头、第三页又重复了原始表头：跟根表比才删得掉

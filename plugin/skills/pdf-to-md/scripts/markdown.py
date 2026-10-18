@@ -531,22 +531,80 @@ def _raw_grid(raw_html):
     return grid or None
 
 
-def _align_grids(prev_raw, next_raw):
-    """两份行表列数对得上时，返回合并要用的两份；对不上返回 None。
+def _trailing_column_is_overflow(rows):
+    """最右一列能不能并回左边一列。
 
-    先按原样比：宽度相同就原样合并，什么都不丢。宽度不同时才允许忽略
-    整列为空的「幻影列」——两张表都丢掉全空列后宽度相同，才算对上。
-    小表里整列为空、但确实有意义的金额列，因此不会被误删。
-
-    返回 `(前表网格, 后表网格, 是否丢了全空列)`。
+    服务有时把分类行的合计金额单独放到最右一格，那一格其实是最后一列的
+    延续：两列从不在同一行有值，而且带值的那一行只有「名称 + 合计」两格。
+    真多出来的数据列会在这行里同时有值，或者那一行还有别的金额，都不合并。
     """
-    if len(prev_raw[0]) == len(next_raw[0]):
-        return prev_raw, next_raw, False
-    prev_effective = _drop_empty_columns(prev_raw)
-    next_effective = _drop_empty_columns(next_raw)
-    if (prev_effective and next_effective
-            and len(prev_effective[0]) == len(next_effective[0])):
-        return prev_effective, next_effective, True
+    if len(rows[0]) < 2:
+        return False
+    last = len(rows[0]) - 1
+    for row in rows:
+        if not row[last].strip():
+            continue
+        if row[last - 1].strip():
+            return False
+        if sum(1 for cell in row if cell.strip()) > 2:
+            return False
+    return True
+
+
+def _merge_trailing_column(rows):
+    """把最右一列并进左边一列；调用前已确认两列不会同时有值。"""
+    merged = []
+    for row in rows:
+        value = row[-2] if row[-2].strip() else row[-1]
+        merged.append(row[:-2] + [value])
+    return merged
+
+
+def _fit_grid(rows, width):
+    """把一张表压到指定列数；压不了就返回 None。
+
+    先处理最右一列的「合计溢出」（见 `_trailing_column_is_overflow`），
+    再丢整列为空的列。两种操作都不丢数据，只去掉多余的格子。压不到指定
+    列数就返回 None，由调用方换一个列数再试。
+    """
+    if not rows or width < 1:
+        return None
+    if len(rows[0]) == width:
+        return rows
+    if len(rows[0]) < width:
+        return None
+
+    fitted = rows
+    while len(fitted[0]) > width:
+        if _trailing_column_is_overflow(fitted):
+            fitted = _merge_trailing_column(fitted)
+            continue
+        trimmed = _drop_empty_columns(fitted)
+        if len(trimmed[0]) < len(fitted[0]):
+            fitted = trimmed
+            continue
+        return None
+    return fitted if len(fitted[0]) == width else None
+
+
+def _align_grids(prev_raw, next_raw):
+    """两张表能对齐时，返回合并要用的两份；对不上返回 None。
+
+    列数不同不直接判失败：续页可能多出整列为空的格子，也可能把分类行的
+    合计金额单独放到最右一格。从两张表都放得下的最大列数往下试，第一个
+    两边都能压到的列数就是对齐结果。只压宽的那张，窄的那张原样保留。
+
+    返回 `(前表网格, 后表网格, 是否做过压缩)`。
+    """
+    if not prev_raw or not next_raw:
+        return None
+    upper = min(len(prev_raw[0]), len(next_raw[0]))
+    for width in range(upper, 0, -1):
+        prev_fit = _fit_grid(prev_raw, width)
+        next_fit = _fit_grid(next_raw, width)
+        if prev_fit is not None and next_fit is not None:
+            changed = prev_fit is not prev_raw or next_fit is not next_raw
+            return prev_fit, next_fit, changed
     return None
 
 
@@ -674,12 +732,9 @@ def merge_cross_page_tables(pages, ignore_labels=()):
 
         target_html = pages[i + 1].text[next_span[0]:next_span[1]]
         root_start, root_end = spans[root]
-        aligned = _aligned_grids(
-            pages[root[0]].text[root_start:root_end], target_html)
-        if aligned is None:
+        if _aligned_grids(
+                pages[root[0]].text[root_start:root_end], target_html) is None:
             continue
-        root_grid, target_grid, _ = aligned
-        drop = _repeated_header_rows(root_grid, target_grid)
 
         root_of[target] = root
         next_link[source] = target
@@ -717,23 +772,21 @@ def merge_cross_page_tables(pages, ignore_labels=()):
         if target_raw is None:
             continue
 
-        # 一条链只能选一种表示：要么全按原样，要么全丢幻影列。逐对选的
-        # 话，前一对按原样、后一对按有效列，接出来的行就会错位。
-        root_effective = _drop_empty_columns(root_raw)
-        target_effective = {target: _drop_empty_columns(grid)
-                            for target, grid in target_raw.items()}
-        raw_width = len(root_raw[0])
-        if all(len(grid[0]) == raw_width for grid in target_raw.values()):
-            root_rows = root_raw
-            grids = target_raw
-        elif all(len(grid[0]) == len(root_effective[0])
-                 for grid in target_effective.values()):
-            root_rows = root_effective
-            grids = target_effective
-        else:
-            # 判断阶段是逐对看的；整条链对不齐就整条不合，
-            # 免得删了后面的表却没接上。
+        # 一条链只能选一种列数。判断阶段是逐对看的：相邻两页各自能对齐，
+        # 整条链却可能对不齐（中间某页多一列，根表和最后一页都没有）。
+        # 从所有表都放得下的最大列数往下试，第一个全都压得进去的列数就是
+        # 整条链的表示；一个都没有就整条不合，免得删了后面的表却没接上。
+        chain_raw = [root_raw] + [target_raw[target] for target in chain]
+        fitted = None
+        for width in range(min(len(grid[0]) for grid in chain_raw), 0, -1):
+            candidate = [_fit_grid(grid, width) for grid in chain_raw]
+            if all(grid is not None for grid in candidate):
+                fitted = candidate
+                break
+        if fitted is None:
             continue
+        root_rows = fitted[0]
+        grids = {target: grid for target, grid in zip(chain, fitted[1:])}
 
         rows = list(root_rows)
         merges = []
