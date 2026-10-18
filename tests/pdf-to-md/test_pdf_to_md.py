@@ -2086,7 +2086,8 @@ class TestParseArgs(unittest.TestCase):
     def test_defaults(self):
         args = convert.parse_args(["a.pdf", "--output", self.output()])
         self.assertEqual(args.model, aistudio.DEFAULT_MODEL)
-        self.assertEqual(args.jobs, 4)
+        # 默认走官网方式，一次只能处理一份；api 方式才是 4。
+        self.assertEqual(args.jobs, 1)
         self.assertEqual(args.page_jobs, 4)
         self.assertEqual(args.source_type, "general")
         self.assertFalse(args.force)
@@ -2099,6 +2100,7 @@ class TestParseArgs(unittest.TestCase):
 
     def test_financial_mode_pins_the_model(self):
         args = convert.parse_args(["a.pdf", "--output", self.output(),
+                                   "--backend", "api",
                                    "--source-type", "financial"])
         self.assertEqual(args.source_type, "financial")
         self.assertEqual(args.model, aistudio.FINANCIAL_MODEL)
@@ -2110,6 +2112,7 @@ class TestParseArgs(unittest.TestCase):
         with mock.patch.object(sys, "stderr", err), \
              self.assertRaises(SystemExit) as ctx:
             convert.parse_args(["a.pdf", "--output", self.output(),
+                                "--backend", "api",
                                 "--source-type", "financial",
                                 "--model", "PP-StructureV3"])
         self.assertEqual(ctx.exception.code, 2)
@@ -2143,6 +2146,69 @@ class TestParseArgs(unittest.TestCase):
                 convert.parse_args(["a.pdf", "--output", f.name])
         self.assertEqual(ctx.exception.code, 2)
         self.assertIn("目录", err.getvalue())
+
+
+class TestParseArgsBackend(unittest.TestCase):
+    def parse(self, *extra):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        return convert.parse_args(
+            ["a.pdf", "--output", os.path.join(tmp.name, "out"), *extra])
+
+    def test_official_web_is_the_default(self):
+        args = self.parse()
+        self.assertEqual(args.backend, "official-web")
+        self.assertEqual(args.source_type, "general")
+
+    def test_api_can_be_selected(self):
+        self.assertEqual(self.parse("--backend", "api").backend, "api")
+
+    def test_api_defaults_to_four_jobs(self):
+        # api 方式能并发提交多份，默认沿用原来的 4。
+        self.assertEqual(self.parse("--backend", "api").jobs, 4)
+
+    def test_official_web_defaults_to_one_job(self):
+        self.assertEqual(self.parse().jobs, 1)
+
+    def test_financial_is_only_for_the_api_backend(self):
+        err = io.StringIO()
+        with mock.patch.object(sys, "stderr", err), \
+             self.assertRaises(SystemExit) as ctx:
+            self.parse("--backend", "official-web",
+                       "--source-type", "financial")
+        self.assertEqual(ctx.exception.code, 2)
+        self.assertIn("financial", err.getvalue())
+
+    def test_a_different_model_is_rejected_for_the_web_backend(self):
+        err = io.StringIO()
+        with mock.patch.object(sys, "stderr", err), \
+             self.assertRaises(SystemExit) as ctx:
+            self.parse("--model", "PP-StructureV3")
+        self.assertEqual(ctx.exception.code, 2)
+        self.assertIn(aistudio.DEFAULT_MODEL, err.getvalue())
+
+    def test_the_api_backend_still_accepts_another_model(self):
+        args = self.parse("--backend", "api", "--model", "PP-StructureV3")
+        self.assertEqual(args.model, "PP-StructureV3")
+
+    def test_web_options_are_parsed(self):
+        args = self.parse("--browser-profile", "p",
+                          "--browser-channel", "chrome",
+                          "--web-timeout", "60", "--login-timeout", "30",
+                          "--no-wait-login")
+        self.assertEqual(args.browser_profile, "p")
+        self.assertEqual(args.browser_channel, "chrome")
+        self.assertEqual(args.web_timeout, 60)
+        self.assertEqual(args.login_timeout, 30)
+        self.assertTrue(args.no_wait_login)
+
+    def test_web_timeout_must_be_positive(self):
+        err = io.StringIO()
+        with mock.patch.object(sys, "stderr", err), \
+             self.assertRaises(SystemExit) as ctx:
+            self.parse("--web-timeout", "0")
+        self.assertEqual(ctx.exception.code, 2)
+        self.assertIn("web-timeout", err.getvalue())
 
 
 class TestAlreadyDone(unittest.TestCase):
@@ -3066,6 +3132,141 @@ class TestRun(unittest.TestCase):
         self.assertIn("跳过 a", self.out.getvalue())
 
 
+class TestRunWeb(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.out = io.StringIO()
+        for name in ("stdout", "stderr"):
+            p = mock.patch("sys." + name, self.out)
+            p.start()
+            self.addCleanup(p.stop)
+
+    def args(self, **kw):
+        base = dict(output=self.tmp.name, backend="official-web",
+                    source_type="general", jobs=1, page_jobs=1,
+                    model=aistudio.DEFAULT_MODEL, force=False, debug=False,
+                    browser_profile=None, browser_channel=None,
+                    web_timeout=60, login_timeout=30, no_wait_login=False)
+        base.update(kw)
+        return argparse.Namespace(**base)
+
+    class FakeSession:
+        def __init__(self, **kw):
+            self.kw = kw
+            self.logged_in = False
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def ensure_login(self):
+            self.logged_in = True
+
+        def close(self):
+            pass
+
+    def test_a_failing_file_does_not_stop_the_next_one(self):
+        tasks = [convert.Task("/tmp/a.pdf", "a", "a"),
+                 convert.Task("/tmp/b.pdf", "b", "b")]
+
+        def fake(task, *a, **k):
+            if task.name == "a":
+                raise aistudio_web.TaskFailed("坏了")
+            return convert.Result("b", 1, 0.1, [])
+
+        with mock.patch.object(aistudio_web, "WebSession", self.FakeSession), \
+             mock.patch.object(convert, "convert_one", fake):
+            self.assertEqual(convert.run_web(tasks, self.args()), 1)
+        self.assertIn("\n  a：坏了", self.out.getvalue())
+
+    def test_web_does_not_fetch_the_api_token(self):
+        tasks = [convert.Task("/tmp/a.pdf", "a", "a")]
+        with mock.patch.object(aistudio, "get_token",
+                               side_effect=AssertionError("不该拿 token")), \
+             mock.patch.object(aistudio_web, "WebSession", self.FakeSession), \
+             mock.patch.object(convert, "convert_one",
+                               lambda *a, **k: convert.Result("a", 1, 0.1, [])):
+            self.assertEqual(convert.run_web(tasks, self.args()), 0)
+
+    def test_one_browser_serves_the_whole_batch(self):
+        made = []
+
+        class Counting(self.FakeSession):
+            def __init__(self, **kw):
+                made.append(kw)
+                super().__init__(**kw)
+
+        tasks = [convert.Task("/tmp/a.pdf", "a", "a"),
+                 convert.Task("/tmp/b.pdf", "b", "b")]
+        with mock.patch.object(aistudio_web, "WebSession", Counting), \
+             mock.patch.object(convert, "convert_one",
+                               lambda *a, **k: convert.Result("x", 1, 0.1, [])):
+            self.assertEqual(convert.run_web(tasks, self.args()), 0)
+        self.assertEqual(len(made), 1)
+
+    def test_no_wait_login_reaches_the_session(self):
+        made = []
+
+        class Counting(self.FakeSession):
+            def __init__(self, **kw):
+                made.append(kw)
+                super().__init__(**kw)
+
+        tasks = [convert.Task("/tmp/a.pdf", "a", "a")]
+        with mock.patch.object(aistudio_web, "WebSession", Counting), \
+             mock.patch.object(convert, "convert_one",
+                               lambda *a, **k: convert.Result("a", 1, 0.1, [])):
+            convert.run_web(tasks, self.args(no_wait_login=True))
+        self.assertFalse(made[0]["allow_manual_login"])
+
+
+class TestConvertOneWeb(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.out = os.path.join(self.tmp.name, "out")
+        os.makedirs(self.out)
+
+    def test_the_official_json_is_parsed_and_written(self):
+        task = convert.Task("/tmp/a.pdf", "a", "a")
+        outcome = aistudio_web.WebOutcome(
+            json_text=json.dumps([{
+                "markdown": {"text": "# 正文", "images": {}},
+                "prunedResult": {}}]),
+            task_id="t-1", task_url="https://x/t-1",
+            detail={"result": {"taskStatus": 5}})
+
+        class Session:
+            profile_dir = "p"
+
+            def parse(self, target, name, on_progress, debug_dir):
+                return outcome
+
+            def snapshot(self, debug_dir):
+                pass
+
+        result = convert.convert_one(
+            task, self.out, aistudio.DEFAULT_MODEL, None,
+            backend="official-web", web_session=Session(), debug=True)
+        self.assertEqual(result.pages, 1)
+        md = os.path.join(self.out, "a", "a.md")
+        with open(md, encoding="utf-8") as f:
+            self.assertIn("正文", f.read())
+
+        debug_root = os.path.join(self.out, "a", "debug")
+        run_dir = os.path.join(debug_root, os.listdir(debug_root)[0])
+        self.assertTrue(os.path.isfile(
+            os.path.join(run_dir, "raw", "official.json")))
+        self.assertTrue(os.path.isfile(
+            os.path.join(run_dir, "raw", "task-detail.json")))
+        with open(os.path.join(run_dir, "web", "task.json"),
+                  encoding="utf-8") as f:
+            self.assertIn("t-1", f.read())
+
+
 class TestUtf8WhenRedirected(unittest.TestCase):
     """被重定向时中文按 UTF-8 出去，挂在真控制台上则一个字节都不动。
 
@@ -3146,7 +3347,7 @@ class TestUtf8WhenRedirected(unittest.TestCase):
             f.write("# 已经转过\n")
         proc = subprocess.run(
             [sys.executable, os.path.abspath(convert.__file__),
-             pdf, "--output", out],
+             pdf, "--output", out, "--backend", "api"],
             capture_output=True, env=dict(os.environ, PYTHONIOENCODING="gbk"))
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("跳过", proc.stderr.decode("utf-8"))

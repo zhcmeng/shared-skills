@@ -18,13 +18,18 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 import aistudio
+import aistudio_web
 import markdown as md_utils
 
 REQUIRED = ("requests", "lxml", "tabulate")
 # 财报单页模式要拿 pypdf 把 PDF 切成单页；研报/网页用不上它。
 FINANCIAL_REQUIRED = REQUIRED + ("pypdf",)
+# 官网方式要开浏览器；playwright 只在走官网时才查。
+WEB_REQUIRED = REQUIRED + ("playwright",)
 _INSTALL_HINT = ("uv run --with requests --with lxml --with tabulate "
                  "--with pypdf")
+_WEB_INSTALL_HINT = ("uv run --with requests --with lxml --with tabulate "
+                     "--with playwright")
 
 # 一页重试几次（含第一次）。服务偶尔会把某一页判失败，重试通常就好了；
 # 一直失败就报出页码，不静默缺页。
@@ -37,7 +42,7 @@ def missing_dependencies(names=REQUIRED):
     return [name for name in names if importlib.util.find_spec(name) is None]
 
 
-def check_dependencies(names=REQUIRED):
+def check_dependencies(names=REQUIRED, hint=_INSTALL_HINT):
     """缺依赖就报错退出，报清楚缺哪个、怎么补。
 
     这个检查非做不可：缺 lxml/tabulate 时导入会直接炸（这是好事），
@@ -48,7 +53,7 @@ def check_dependencies(names=REQUIRED):
         raise SystemExit(
             f"缺依赖：{'、'.join(missing)}。\n"
             f"不用改环境，这条命令会把它们临时装好再跑：\n"
-            f"  {_INSTALL_HINT} python <本脚本> …")
+            f"  {hint} python <本脚本> …")
 
 
 @dataclass
@@ -71,13 +76,15 @@ def parse_args(argv=None):
                              f"财报模式固定用 {aistudio.FINANCIAL_MODEL}")
     parser.add_argument("--force", action="store_true",
                         help="已转过的也重转")
-    parser.add_argument("--jobs", type=int, default=4,
-                        help="同时最多几个文件在转，默认 4")
+    parser.add_argument("--jobs", type=int, default=None,
+                        help="同时最多几个文件在转。api 方式默认 4；"
+                             "官网方式一次只能处理一份，默认 1")
     parser.add_argument("--source-type", choices=("general", "financial"),
                         default="general",
                         help="素材类型。financial 表示财报：逐页切分单独提交，"
                              f"避免整本多页解析把宽表降级；模型固定为 "
-                             f"{aistudio.FINANCIAL_MODEL}。默认 general")
+                             f"{aistudio.FINANCIAL_MODEL}。默认 general；"
+                             f"只对 --backend api 有效")
     parser.add_argument("--page-jobs", type=int, default=4,
                         help="财报单页模式下，一份 PDF 里同时最多几页在转，"
                              "默认 4")
@@ -85,19 +92,56 @@ def parse_args(argv=None):
                         help="保留完整过程：服务原始结果、切出来的单页 PDF、"
                              "合并前后的页表、图片对照和失败原因。放在"
                              "输出目录的 debug/ 下，每次运行一个带时间戳的子目录")
+    parser.add_argument("--backend", choices=("official-web", "api"),
+                        default="official-web",
+                        help="解析走哪条路。official-web（默认）在浏览器里"
+                             "上传到 PaddleOCR 官网；api 走 AI Studio 的异步"
+                             "解析接口")
+    parser.add_argument("--browser-profile", default=None,
+                        help="官网方式的浏览器配置目录；里面是登录 cookie。"
+                             "默认放在用户缓存目录下的 pdf-to-md/browser-profile")
+    parser.add_argument("--browser-channel", default=None,
+                        help="官网方式用哪个浏览器。Windows 默认 msedge，"
+                             "其他系统默认 chrome")
+    parser.add_argument("--web-timeout", type=float,
+                        default=aistudio_web.DEFAULT_WEB_TIMEOUT,
+                        help="官网方式等解析完成最多多少秒，默认 3600")
+    parser.add_argument("--login-timeout", type=float,
+                        default=aistudio_web.DEFAULT_LOGIN_TIMEOUT,
+                        help="官网方式等手动登录最多多少秒，默认 600")
+    parser.add_argument("--no-wait-login", action="store_true",
+                        help="官网方式没登录就立刻报错，不等人。体检用")
     args = parser.parse_args(argv)
+
+    # 官网方式只有一个浏览器窗口，一次只能跑一份；api 方式沿用原来的 4。
+    if args.jobs is None:
+        args.jobs = 1 if args.backend == "official-web" else 4
 
     if args.jobs < 1:
         parser.error(f"--jobs 至少是 1，给的是 {args.jobs}")
     if args.page_jobs < 1:
         parser.error(f"--page-jobs 至少是 1，给的是 {args.page_jobs}")
+    if args.web_timeout < 1:
+        parser.error(f"--web-timeout 至少是 1，给的是 {args.web_timeout}")
+    if args.login_timeout < 1:
+        parser.error(f"--login-timeout 至少是 1，给的是 {args.login_timeout}")
 
-    # --model 不给时用接口的默认模型。财报模式再把它钉死到 1.6：
-    # 调用方可能还带着清单里的 PP-StructureV3，静默换掉会让人以为
-    # 跑的是自己指定的那个；直接报错，让调用方改参数。
+    # --model 不给时用接口的默认模型。官网方式只按 1.6 解析；财报模式再把它
+    # 钉死到 1.6：调用方可能还带着清单里的 PP-StructureV3，静默换掉会让人
+    # 以为跑的是自己指定的那个；直接报错，让调用方改参数。
     if args.model is None:
         args.model = aistudio.DEFAULT_MODEL
-    if args.source_type == "financial":
+    if args.backend == "official-web":
+        if args.source_type == "financial":
+            parser.error(
+                "官网方式由服务端整本解析并合并表格，不支持 "
+                "--source-type financial；财报逐页模式请用 --backend api。")
+        if args.model != aistudio.DEFAULT_MODEL:
+            parser.error(
+                f"官网方式目前只按 {aistudio.DEFAULT_MODEL} 解析，"
+                f"--model 给的是 {args.model}。去掉 --model，"
+                f"或者改用 --backend api。")
+    elif args.source_type == "financial":
         if args.model not in (aistudio.DEFAULT_MODEL, aistudio.FINANCIAL_MODEL):
             parser.error(
                 f"财报模式固定用 {aistudio.FINANCIAL_MODEL}，"
@@ -535,11 +579,15 @@ def _finish_document(task, out_root, pages, t0, prefetched=None,
 
 
 def convert_one(task, out_root, model, token, on_pages=None,
-                source_type="general", page_jobs=4, debug=False):
+                source_type="general", page_jobs=4, debug=False,
+                backend="api", web_session=None):
     """一份 PDF 走完全程：提交 → 轮询 → 取结果 → 取图 → 落盘。
 
     开了 debug 时，沿途的原始结果、切页文件、合并前后的页表和最终结果
     都写进 `<输出根>/<任务名>/debug/<时间戳>/`，成功失败都留。
+
+    `backend="api"` 是默认值，直接调这个函数的老代码不受影响；命令行
+    的默认是 `official-web`，那边会把浏览器会话传进来。
     """
     t0 = time.time()
     if source_type == "financial":
@@ -553,6 +601,7 @@ def convert_one(task, out_root, model, token, on_pages=None,
             "target": task.target,
             "name": task.name,
             "model": model,
+            "backend": backend,
             "source_type": source_type,
             "page_jobs": page_jobs,
             "started_at": time.strftime("%Y-%m-%d %H:%M:%S",
@@ -564,7 +613,28 @@ def convert_one(task, out_root, model, token, on_pages=None,
         _debug_json(debug_dir, "task.json", task_meta)
 
     try:
-        if source_type == "financial":
+        if backend == "official-web":
+            if web_session is None:
+                raise aistudio_web.BrowserError(
+                    "官网方式没有浏览器会话——这是调用方接错了，不是环境问题。")
+            outcome = web_session.parse(
+                task.target, name=task.name, on_progress=on_pages,
+                debug_dir=debug_dir)
+            _debug_write(debug_dir, os.path.join("raw", "official.json"),
+                         outcome.json_text)
+            _debug_json(debug_dir, os.path.join("raw", "task-detail.json"),
+                        outcome.detail)
+            _debug_json(debug_dir, os.path.join("web", "task.json"), {
+                "task_id": outcome.task_id,
+                "task_url": outcome.task_url,
+                "backend": backend,
+                "profile": getattr(web_session, "profile_dir", ""),
+            })
+            pages = md_utils.parse_official_json(outcome.json_text)
+            _debug_pages(debug_dir, "pages", pages)
+            result = _finish_document(task, out_root, pages, t0,
+                                      debug_dir=debug_dir)
+        elif source_type == "financial":
             with tempfile.TemporaryDirectory(
                     prefix="pdf-to-md-images-") as image_tmp:
                 pages, fetched, failed = _convert_single_pages(
@@ -592,6 +662,8 @@ def convert_one(task, out_root, model, token, on_pages=None,
             result = _finish_document(task, out_root, pages, t0,
                                       debug_dir=debug_dir)
     except Exception:
+        if backend == "official-web" and web_session is not None:
+            web_session.snapshot(debug_dir)
         _debug_error(debug_dir)
         raise
 
@@ -714,6 +786,7 @@ def run(tasks, args):
     missing = []
 
     source_type = getattr(args, "source_type", "general")
+    backend = getattr(args, "backend", "api")
     page_jobs = getattr(args, "page_jobs", getattr(args, "jobs", 4))
     model = (aistudio.FINANCIAL_MODEL if source_type == "financial"
              else getattr(args, "model", aistudio.DEFAULT_MODEL))
@@ -721,10 +794,11 @@ def run(tasks, args):
     # token 在这里拿，不在工作线程里拿：拿不到时抛的 SystemExit 得冒到 main，
     # 才能变成退出码和一句提示，而不是烂在某个线程里。
     # 全部文件都已转过时不必拿——那一趟根本不用 token。
+    # 官网方式不用 API token，也不该因为没配 token 就报错。
     # 写成 aistudio.get_token() 而不是 from aistudio import get_token：本模块
     # 通篇用的是 aistudio.xxx，而且测试是把 aistudio.get_token 换掉的，
     # 提前绑进来的名字换不掉。
-    token = aistudio.get_token() if todo else None
+    token = aistudio.get_token() if todo and backend == "api" else None
 
     def work(task):
         progress.add(task.name)
@@ -732,7 +806,7 @@ def run(tasks, args):
             task, args.output, model, token,
             on_pages=lambda d, t, n=task.name: progress.pages(n, d, t),
             source_type=source_type, page_jobs=page_jobs,
-            debug=getattr(args, "debug", False))
+            debug=getattr(args, "debug", False), backend=backend)
 
     with ThreadPoolExecutor(max_workers=args.jobs) as pool:
         futures = {pool.submit(work, t): t for t in todo}
@@ -761,6 +835,87 @@ def run(tasks, args):
                 missing.append(result)
 
     progress.close()
+
+    if missing:
+        print("\n有图没取回来（正文照常，只是那几张是坏图）：")
+        for result in missing:
+            print(f"  {result.name}：{'、'.join(result.missing_images)}")
+    if failures:
+        print(f"\n{len(failures)} 份失败：")
+        for origin, exc in failures:
+            print(f"  {origin}：{exc}")
+        return 1
+    return 0
+
+
+def run_web(tasks, args):
+    """官网方式：整个批次共用一个浏览器，按顺序一份一份跑。
+
+    Playwright 的同步 API 不是线程安全的，所以这里不用 ThreadPoolExecutor。
+    解析在服务端，本机只是上传和等结果；顺序跑不会多占多少时间。
+    """
+    progress = Progress(len(tasks))
+    todo = []
+    for task in tasks:
+        if not args.force and already_done(args.output, task.name):
+            progress.skipped += 1
+            progress.note(f"跳过 {task.origin}（已经转过，要重转加 --force）")
+            continue
+        todo.append(task)
+
+    if not todo:
+        progress.close()
+        return 0
+
+    if getattr(args, "jobs", 1) > 1:
+        progress.note("官网方式一次处理一份文件，--jobs 不生效")
+
+    failures = []
+    missing = []
+    session_kwargs = dict(
+        profile_dir=getattr(args, "browser_profile", None),
+        channel=getattr(args, "browser_channel", None),
+        login_timeout=getattr(args, "login_timeout",
+                              aistudio_web.DEFAULT_LOGIN_TIMEOUT),
+        web_timeout=getattr(args, "web_timeout",
+                            aistudio_web.DEFAULT_WEB_TIMEOUT),
+        allow_manual_login=not getattr(args, "no_wait_login", False),
+    )
+    try:
+        with aistudio_web.WebSession(**session_kwargs) as session:
+            session.ensure_login()
+            for task in todo:
+                progress.add(task.name)
+                try:
+                    result = convert_one(
+                        task, args.output, args.model, None,
+                        on_pages=lambda d, t, n=task.name:
+                            progress.pages(n, d, t),
+                        source_type=getattr(args, "source_type", "general"),
+                        page_jobs=getattr(args, "page_jobs", 1),
+                        debug=getattr(args, "debug", False),
+                        backend="official-web", web_session=session)
+                except (aistudio_web.OfficialWebError, EmptyDocument,
+                        md_utils.OfficialJsonError, OSError) as exc:
+                    # 浏览器起不来、登录等不到、下载失败、JSON 形状不对，
+                    # 都只让这一份失败；下一份照跑。
+                    failures.append((task.origin, exc))
+                    with progress.lock:
+                        progress.inflight.pop(task.name, None)
+                        progress.failed += 1
+                    progress.note(f"失败 {task.origin}：{exc}")
+                    continue
+                with progress.lock:
+                    progress.inflight.pop(task.name, None)
+                    progress.done += 1
+                progress.done_line(result)
+                if result.missing_images:
+                    missing.append(result)
+    except aistudio_web.OfficialWebError as exc:
+        # 浏览器本身起不来、或者登录等不到：整批都跑不了，一次说清。
+        failures.append(("浏览器/登录", exc))
+    finally:
+        progress.close()
 
     if missing:
         print("\n有图没取回来（正文照常，只是那几张是坏图）：")
@@ -804,9 +959,15 @@ def main(argv=None):
     prefer_utf8(sys.stderr)
     args = parse_args(argv)
     try:
-        check_dependencies(
-            FINANCIAL_REQUIRED if args.source_type == "financial" else REQUIRED)
+        if args.backend == "official-web":
+            check_dependencies(WEB_REQUIRED, _WEB_INSTALL_HINT)
+        else:
+            check_dependencies(
+                FINANCIAL_REQUIRED if args.source_type == "financial"
+                else REQUIRED)
         tasks = collect_inputs(args.inputs)
+        if args.backend == "official-web":
+            return run_web(tasks, args)
         return run(tasks, args)
     except SystemExit as exc:      # 缺依赖、目录里没有 PDF、缺 token
         if exc.code and not isinstance(exc.code, int):
