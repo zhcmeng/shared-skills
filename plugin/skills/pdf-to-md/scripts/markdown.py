@@ -330,6 +330,9 @@ class Page:
     index: int                 # 按行序、项序摊平后的页码，从 0 起
     text: str                  # 这一页的原始正文
     images: dict[str, str]     # 图片名（形如 imgs/xxx.jpg）→ 完整网址
+    # 版面块 (label, (左, 上, 右, 下))，按服务给的顺序。判断表格是否跨页要用它。
+    blocks: tuple = ()
+    page_size: tuple | None = None   # 这一页的 (宽, 高)；服务没给就是 None
 
 
 _NO_DEFAULT = object()
@@ -352,6 +355,37 @@ def _expect(value, want, what, lineno, empty=_NO_DEFAULT):
             f"结果第 {lineno} 行的 {what} 不是 {want.__name__}，"
             f"是 {type(value).__name__}")
     return value
+
+
+def _page_geometry(pruned):
+    """从 prunedResult 里取版面块与页面尺寸。
+
+    服务没给、或者形状不对的块直接跳过——这里只用来判断表格跨页，
+    少一个块最多是少合一次，不该让整份转换失败。
+    """
+    blocks = []
+    raw_blocks = pruned.get("parsing_res_list")
+    if isinstance(raw_blocks, list):
+        for b in raw_blocks:
+            if not isinstance(b, dict):
+                continue
+            label = b.get("block_label")
+            bbox = b.get("block_bbox")
+            if not isinstance(label, str):
+                continue
+            if not isinstance(bbox, list) or len(bbox) != 4:
+                continue
+            try:
+                box = tuple(float(v) for v in bbox)
+            except (TypeError, ValueError):
+                continue
+            blocks.append((label, box))
+    width = pruned.get("width")
+    height = pruned.get("height")
+    size = None
+    if isinstance(width, (int, float)) and isinstance(height, (int, float)):
+        size = (float(width), float(height))
+    return tuple(blocks), size
 
 
 def parse_jsonl(raw: str) -> list[Page]:
@@ -399,10 +433,15 @@ def parse_jsonl(raw: str) -> list[Page]:
                            f"layoutParsingResults 里第 {n} 项", lineno)
             md = _expect(item.get("markdown"), dict, "markdown", lineno, empty={})
             images = _expect(md.get("images"), dict, "images", lineno, empty={})
+            pruned = _expect(item.get("prunedResult"), dict, "prunedResult",
+                             lineno, empty={})
+            blocks, page_size = _page_geometry(pruned)
             pages.append(Page(
                 index=len(pages),
                 text=_expect(md.get("text"), str, "text", lineno, empty=""),
                 images=dict(images),
+                blocks=blocks,
+                page_size=page_size,
             ))
     return pages
 

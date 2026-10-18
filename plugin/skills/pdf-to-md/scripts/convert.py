@@ -368,7 +368,9 @@ def _convert_single_pages(task, model, token, page_jobs, image_dir,
         for page in chunk:
             pages.append(md_utils.Page(index=len(pages),
                                        text=page.text,
-                                       images=page.images))
+                                       images=page.images,
+                                       blocks=page.blocks,
+                                       page_size=page.page_size))
     return pages, fetched, failed
 
 

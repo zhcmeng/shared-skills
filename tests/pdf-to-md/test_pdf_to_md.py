@@ -345,22 +345,27 @@ class TestRewriteImageRefs(unittest.TestCase):
         self.assertEqual(rewrite_image_refs("正文", None), "正文")
 
 
-def jsonl_line(pages, error_code=0, error_msg="Success", num_pages=None):
+def jsonl_line(pages, error_code=0, error_msg="Success", num_pages=None,
+               pruned=None):
     """造一行 JSONL。pages 是 [(正文, {图片名: 网址}), …]。
 
     num_pages 默认跟着项数走（跟实测结果一样）；显式给一个别的数，
     是为了造出「numPages 跟项数对不上」的行——那正是实现容易信错的坑。
+    pruned 给了就按页把 prunedResult 附上（版面坐标测试用）。
     """
+    results = []
+    for i, (text, images) in enumerate(pages):
+        item = {"markdown": {"text": text, "images": images}}
+        if pruned is not None and i < len(pruned):
+            item["prunedResult"] = pruned[i]
+        results.append(item)
     return json.dumps({
         "errorCode": error_code,
         "errorMsg": error_msg,
         "logId": "x",
         "result": {
             "dataInfo": {"numPages": len(pages) if num_pages is None else num_pages},
-            "layoutParsingResults": [
-                {"markdown": {"text": text, "images": images}}
-                for text, images in pages
-            ],
+            "layoutParsingResults": results,
         },
     }, ensure_ascii=False)
 
@@ -514,6 +519,31 @@ class TestParseJsonl(unittest.TestCase):
             parse_jsonl(raw)
         self.assertIn("第 1 行", str(ctx.exception))
         self.assertIn("第 2 项", str(ctx.exception))
+
+    def test_blocks_and_page_size_are_read(self):
+        pruned = {"width": 1191, "height": 1685, "parsing_res_list": [
+            {"block_label": "header", "block_bbox": [650, 86, 1081, 108]},
+            {"block_label": "table", "block_bbox": [112, 231, 1081, 1520]}]}
+        raw = jsonl_line([("正文", {})], pruned=[pruned])
+        page = parse_jsonl(raw)[0]
+        self.assertEqual(page.page_size, (1191.0, 1685.0))
+        self.assertEqual(page.blocks,
+                         (("header", (650.0, 86.0, 1081.0, 108.0)),
+                          ("table", (112.0, 231.0, 1081.0, 1520.0))))
+
+    def test_no_pruned_result_gives_empty_geometry(self):
+        page = parse_jsonl(jsonl_line([("正文", {})]))[0]
+        self.assertEqual(page.blocks, ())
+        self.assertIsNone(page.page_size)
+
+    def test_malformed_blocks_are_skipped(self):
+        pruned = {"width": 1191, "height": 1685, "parsing_res_list": [
+            {"block_label": "table", "block_bbox": [1, 2, 3]},
+            {"block_label": "table", "block_bbox": "x"},
+            {"block_label": 7, "block_bbox": [1, 2, 3, 4]},
+            {"block_label": "table", "block_bbox": [1, 2, 3, 4]}]}
+        page = parse_jsonl(jsonl_line([("正文", {})], pruned=[pruned]))[0]
+        self.assertEqual(page.blocks, (("table", (1.0, 2.0, 3.0, 4.0)),))
 
 
 class TestAllocateNames(unittest.TestCase):
