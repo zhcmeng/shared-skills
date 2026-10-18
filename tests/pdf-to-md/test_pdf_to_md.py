@@ -1056,6 +1056,70 @@ class TestParseJsonl(unittest.TestCase):
             assemble(without, allocate_names(without)))
 
 
+class TestParseOfficialJson(unittest.TestCase):
+    def item(self, text="正文", images=None, width=None, height=None,
+             blocks=None):
+        pruned = {"parsing_res_list": blocks or []}
+        if width is not None:
+            pruned["width"] = width
+        if height is not None:
+            pruned["height"] = height
+        return {"markdown": {"text": text, "images": images or {}},
+                "prunedResult": pruned}
+
+    def test_a_top_level_list_is_one_page_per_item(self):
+        raw = json.dumps([self.item("a"), self.item("b")])
+        pages = markdown.parse_official_json(raw)
+        self.assertEqual([p.text for p in pages], ["a", "b"])
+        self.assertEqual([p.index for p in pages], [0, 1])
+
+    def test_a_layout_parsing_results_object_is_accepted(self):
+        raw = json.dumps({"layoutParsingResults": [self.item("a")]})
+        pages = markdown.parse_official_json(raw)
+        self.assertEqual(len(pages), 1)
+        self.assertEqual(pages[0].text, "a")
+
+    def test_images_and_geometry_are_collected(self):
+        raw = json.dumps([self.item(
+            images={"imgs/a.jpg": "https://example.com/a.jpg"},
+            width=1191, height=1685,
+            blocks=[{"block_label": "table", "block_bbox": [1, 2, 3, 4],
+                     "block_content": "<table><tr><td>x</td></tr></table>"}])])
+        page = markdown.parse_official_json(raw)[0]
+        self.assertEqual(page.images,
+                         {"imgs/a.jpg": "https://example.com/a.jpg"})
+        self.assertEqual(page.page_size, (1191.0, 1685.0))
+        self.assertEqual(page.blocks, (("table", (1.0, 2.0, 3.0, 4.0)),))
+        self.assertEqual(len(page.tables), 1)
+
+    def test_missing_markdown_and_pruned_result_are_tolerated(self):
+        raw = json.dumps([{}])
+        page = markdown.parse_official_json(raw)[0]
+        self.assertEqual(page.text, "")
+        self.assertEqual(page.images, {})
+        self.assertEqual(page.blocks, ())
+        self.assertIsNone(page.page_size)
+
+    def test_downloaded_items_without_width_and_height_still_parse(self):
+        raw = json.dumps([self.item("a")])
+        self.assertIsNone(markdown.parse_official_json(raw)[0].page_size)
+
+    def test_invalid_json_raises_official_json_error(self):
+        with self.assertRaises(markdown.OfficialJsonError):
+            markdown.parse_official_json("{not json")
+
+    def test_a_non_list_non_object_top_level_raises(self):
+        with self.assertRaises(markdown.OfficialJsonError):
+            markdown.parse_official_json("42")
+
+    def test_a_non_object_item_raises(self):
+        with self.assertRaises(markdown.OfficialJsonError):
+            markdown.parse_official_json(json.dumps([1]))
+
+    def test_an_empty_list_gives_no_pages(self):
+        self.assertEqual(markdown.parse_official_json("[]"), [])
+
+
 class TestAllocateNames(unittest.TestCase):
     def make(self, pages):
         return [Page(index=i, text="", images=imgs) for i, imgs in enumerate(pages)]

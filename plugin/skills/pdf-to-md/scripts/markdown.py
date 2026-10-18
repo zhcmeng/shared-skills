@@ -336,6 +336,15 @@ class JsonlLineError(Exception):
     """结果里的某一行没法用：自带错误码，或者形状不对。"""
 
 
+class OfficialJsonError(Exception):
+    """官网下载的 JSON 没法用：不是合法 JSON，或者结构不对。
+
+    官网的 JSON 是另一套形状（顶层列表，或者带 layoutParsingResults 的
+    对象），和本地 API 的 JSONL 不是一回事，所以单独一个异常类；调用方
+    接住它，只让这一份失败，不要漏成整批的栈回溯。
+    """
+
+
 @dataclass
 class Page:
     index: int                 # 按行序、项序摊平后的页码，从 0 起
@@ -870,6 +879,94 @@ def parse_jsonl(raw: str) -> list[Page]:
                 page_size=page_size,
                 tables=tables,
             ))
+    return pages
+
+
+def _official_items(raw):
+    """把官网 JSON 摊成「每页一项」的列表。
+
+    官网的下载文件顶层是列表；任务详情接口里的 parsingResult 是
+    {"layoutParsingResults": [...]}。两种都收，后面的处理只认列表。
+    """
+    if not isinstance(raw, str):
+        raise OfficialJsonError(
+            f"官网 JSON 不是文本，是 {type(raw).__name__}——这一步该拿到 JSON 正文")
+    try:
+        obj = json.loads(raw)
+    except (json.JSONDecodeError, ValueError, RecursionError) as exc:
+        # ValueError 兜整数位数上限；RecursionError 兜嵌套太深。两者都不是
+        # JSONDecodeError 的子类，漏出去会变成整批的栈回溯。
+        raise OfficialJsonError(f"官网 JSON 读不了：{exc}") from exc
+
+    if isinstance(obj, dict):
+        if obj.get("errorCode"):
+            raise OfficialJsonError(
+                f"官网 JSON 里带着错误：{obj.get('errorMsg') or obj['errorCode']}")
+        items = obj.get("layoutParsingResults")
+        if not isinstance(items, list):
+            raise OfficialJsonError(
+                "官网 JSON 里没有 layoutParsingResults 列表——"
+                "这不像官网的解析结果")
+    elif isinstance(obj, list):
+        items = obj
+    else:
+        raise OfficialJsonError(
+            f"官网 JSON 顶层不是列表或对象，是 {type(obj).__name__}")
+
+    for n, item in enumerate(items, start=1):
+        if not isinstance(item, dict):
+            raise OfficialJsonError(
+                f"官网 JSON 第 {n} 项不是对象，是 {type(item).__name__}")
+    return items
+
+
+def parse_official_json(raw: str) -> list[Page]:
+    """把官网下载的 JSON 摊成一份文档的页表。
+
+    官网结果已经由服务端合并过跨页表格，这里只做适配：页序按项序，
+    正文取 markdown.text，图片取 markdown.images，版面信息取
+    prunedResult。页面上没有 width / height 的项（下载文件就是这样）
+    一样能出页，只是 page_size 为 None；官网结果不需要它再判断跨页。
+
+    形状不对抛 OfficialJsonError；缺字段按空处理——「没给」和「给了个
+    不是那个形状的」是两回事。
+    """
+    pages = []
+    for item in _official_items(raw):
+        n = len(pages) + 1
+        md = item.get("markdown")
+        if md is None:
+            md = {}
+        if not isinstance(md, dict):
+            raise OfficialJsonError(
+                f"官网 JSON 第 {n} 项的 markdown 不是对象，"
+                f"是 {type(md).__name__}")
+        text = md.get("text")
+        if text is None:
+            text = ""
+        if not isinstance(text, str):
+            raise OfficialJsonError(
+                f"官网 JSON 第 {n} 项的 markdown.text 不是字符串，"
+                f"是 {type(text).__name__}")
+        images = md.get("images")
+        if images is None:
+            images = {}
+        if not isinstance(images, dict):
+            raise OfficialJsonError(
+                f"官网 JSON 第 {n} 项的 markdown.images 不是对象，"
+                f"是 {type(images).__name__}")
+
+        pruned = item.get("prunedResult")
+        blocks, page_size, tables = _page_geometry(
+            pruned if isinstance(pruned, dict) else {})
+        pages.append(Page(
+            index=len(pages),
+            text=text,
+            images=dict(images),
+            blocks=blocks,
+            page_size=page_size,
+            tables=tables,
+        ))
     return pages
 
 
