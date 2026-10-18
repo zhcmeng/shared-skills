@@ -183,9 +183,12 @@ def poll_task(fetch_detail, task_url, timeout, interval=POLL_INTERVAL,
 
 
 def official_json_from_detail(detail):
-    """从任务详情里取 parsingResult。下载菜单取不到时用它兜底。"""
-    result = detail.get("result") if isinstance(detail, dict) else None
-    raw = result.get("parsingResult") if isinstance(result, dict) else None
+    """从任务详情里取 parsingResult。下载菜单取不到时用它兜底。
+
+    `detail` 是 `poll_task` 返回的那个 result 对象（`_fetch_detail` 外层
+    body 里的 `result`），parsingResult 就在它下面。
+    """
+    raw = detail.get("parsingResult") if isinstance(detail, dict) else None
     if not isinstance(raw, str) or not raw.strip():
         raise DownloadFailed(
             "官网任务完成了，但下载菜单没取到 JSON，"

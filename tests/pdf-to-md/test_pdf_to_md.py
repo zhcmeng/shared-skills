@@ -1242,13 +1242,15 @@ class TestPollTask(unittest.TestCase):
 
 class TestOfficialJsonFromDetail(unittest.TestCase):
     def test_parsing_result_is_returned_verbatim(self):
-        detail = {"result": {"parsingResult": '{"layoutParsingResults": []}'}}
+        # poll_task 返回的是外层 body 里的 result，parsingResult 就在它下面
+        detail = {"taskStatus": 5,
+                  "parsingResult": '{"layoutParsingResults": []}'}
         self.assertEqual(aistudio_web.official_json_from_detail(detail),
                          '{"layoutParsingResults": []}')
 
     def test_a_missing_result_raises(self):
         with self.assertRaises(aistudio_web.DownloadFailed):
-            aistudio_web.official_json_from_detail({"result": {}})
+            aistudio_web.official_json_from_detail({"taskStatus": 5})
 
 
 class TestDownloadJsonFallback(unittest.TestCase):
@@ -1268,7 +1270,8 @@ class TestDownloadJsonFallback(unittest.TestCase):
                                side_effect=aistudio_web.DownloadFailed("菜单改版了")), \
              mock.patch("sys.stderr", err):
             raw = session._download_json(
-                {"result": {"parsingResult": '{"layoutParsingResults": []}'}},
+                {"taskStatus": 5,
+                 "parsingResult": '{"layoutParsingResults": []}'},
                 "https://example.com/task")
         self.assertEqual(raw, '{"layoutParsingResults": []}')
         self.assertIn("改用任务详情", err.getvalue())
@@ -1279,7 +1282,8 @@ class TestDownloadJsonFallback(unittest.TestCase):
                                side_effect=aistudio_web.DownloadFailed("菜单改版了")), \
              mock.patch("sys.stderr", io.StringIO()), \
              self.assertRaises(aistudio_web.DownloadFailed) as ctx:
-            session._download_json({"result": {}}, "https://example.com/task")
+            session._download_json({"taskStatus": 5},
+                                   "https://example.com/task")
         self.assertIn("parsingResult", str(ctx.exception))
 
 
