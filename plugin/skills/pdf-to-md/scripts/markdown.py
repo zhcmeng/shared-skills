@@ -405,22 +405,42 @@ def _content_blocks(page, ignore_labels):
     return [(label, box) for label, box in page.blocks if label not in ignored]
 
 
-def _bottom_anchor(blocks):
-    """上一页表格下方的参照：页码的顶边；没有页码就用页脚的顶边。
+def _bottom_anchor(blocks, table_bottom):
+    """上一页表格下方的参照：页码的顶边；没有页码就用页脚区的上沿。
 
-    有多个时取最靠上的那条顶边——阈值更低，判断更严，宁可漏合。
+    只认确实在表格下方的块——页码在页眉区时，不筛位置会让「表底边贴着
+    页码」恒成立。有多个页码时取最靠下的那个：那才是页底页码，阈值也
+    最高，判断最严。
     """
-    for labels in ({"number"}, _FOOTER_LABELS):
-        tops = [box[1] for label, box in blocks if label in labels]
-        if tops:
-            return min(tops)
-    return None
+    numbers = [box[1] for label, box in blocks
+               if label == "number" and box[1] > table_bottom]
+    if numbers:
+        return max(numbers)
+    footers = [box[1] for label, box in blocks
+               if label in _FOOTER_LABELS and box[1] > table_bottom]
+    return min(footers) if footers else None
 
 
-def _top_anchor(blocks):
-    """下一页表格上方的参照：页眉的底边；多个时取最靠下的，判断更严。"""
-    bottoms = [box[3] for label, box in blocks if label in _HEADER_LABELS]
+def _top_anchor(blocks, table_top):
+    """下一页表格上方的参照：页眉的底边，只认确实在表格上方的块。
+
+    多个页眉时取最靠下的那个，也就是离表格最近的那个。
+    """
+    bottoms = [box[3] for label, box in blocks
+               if label in _HEADER_LABELS and box[3] < table_top]
     return max(bottoms) if bottoms else None
+
+
+def _table_has_image(raw_html):
+    """表里有图片引用——HTML 的 <img> 或 Markdown 的 ![](...) 都算。
+
+    图片是按页分配、按页改写的；把行搬到别页会让引用留在原来那页的映射里，
+    合并后就成了坏图。
+    """
+    if _MD_IMG_RE.search(raw_html):
+        return True
+    table = _table_element(raw_html)
+    return bool(table is not None and table.xpath(".//img"))
 
 
 def _same_size(a, b):
@@ -485,11 +505,6 @@ def _looks_like_data(tr):
                                                   for cell in cells)
 
 
-def _table_has_image(raw_html):
-    table = _table_element(raw_html)
-    return bool(table is not None and table.xpath(".//img"))
-
-
 def _rows_to_html(rows):
     """把 <tr> 列表拼回一张表；后面还会整体渲染成 Markdown。"""
     return "<table>" + "".join(
@@ -533,13 +548,13 @@ def _cross_page_table_pair(prev_page, next_page, ignore_labels):
     if next_page.text[:next_span[0]].strip():
         return None
 
-    anchor = _bottom_anchor(prev_page.blocks)
-    header = _top_anchor(next_page.blocks)
+    prev_box = prev_blocks[-1][1]
+    next_box = next_blocks[0][1]
+    anchor = _bottom_anchor(prev_page.blocks, prev_box[3])
+    header = _top_anchor(next_page.blocks, next_box[1])
     if anchor is None or header is None:
         return None
 
-    prev_box = prev_blocks[-1][1]
-    next_box = next_blocks[0][1]
     height = prev_page.page_size[1]
     if prev_box[3] < anchor - _EDGE_TOLERANCE_RATIO * height:
         return None
@@ -680,9 +695,11 @@ def parse_jsonl(raw: str) -> list[Page]:
                            f"layoutParsingResults 里第 {n} 项", lineno)
             md = _expect(item.get("markdown"), dict, "markdown", lineno, empty={})
             images = _expect(md.get("images"), dict, "images", lineno, empty={})
-            pruned = _expect(item.get("prunedResult"), dict, "prunedResult",
-                             lineno, empty={})
-            blocks, page_size = _page_geometry(pruned)
+            # 版面坐标只用来判断跨页表格，形状不对就当没给：一份本来能转的
+            # 文档不该因为辅助字段坏了而失败。
+            pruned = item.get("prunedResult")
+            blocks, page_size = _page_geometry(
+                pruned if isinstance(pruned, dict) else {})
             pages.append(Page(
                 index=len(pages),
                 text=_expect(md.get("text"), str, "text", lineno, empty=""),

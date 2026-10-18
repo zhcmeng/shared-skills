@@ -441,6 +441,26 @@ class TestCrossPageTablePair(unittest.TestCase):
                   ("footer", (400, 1580, 800, 1600)))
         self.assertIsNotNone(self.pair(prev_blocks=footer))
 
+    def test_a_page_number_above_the_table_does_not_count(self):
+        # 页码在页眉区时，「表底边 >= 页码顶边」会恒成立，页中的表不能被接走
+        blocks = (("number", (57, 86, 80, 108)),
+                  ("header", (650, 86, 1081, 108)),
+                  ("table", (112, 231, 1081, 1200)))
+        self.assertIsNone(self.pair(prev_blocks=blocks))
+
+    def test_multiple_page_numbers_use_the_one_below_the_table(self):
+        blocks = (("header", (650, 86, 1081, 108)),
+                  ("table", (112, 231, 1081, 1400)),
+                  ("number", (1057, 1200, 1081, 1220)),
+                  ("number", (1057, 1566, 1081, 1586)))
+        self.assertIsNone(self.pair(prev_blocks=blocks))
+
+    def test_a_header_below_the_table_does_not_count(self):
+        blocks = (("table", (110, 143, 1082, 1500)),
+                  ("header", (650, 1520, 1082, 1540)),
+                  ("number", (1057, 1566, 1081, 1586)))
+        self.assertIsNone(self.pair(next_blocks=blocks))
+
     def test_different_column_counts_block_the_merge(self):
         two_cols = ("<table><tr><td>流动负债：</td><td></td></tr>"
                     "<tr><td>负债合计</td><td>3</td></tr></table>")
@@ -584,6 +604,38 @@ class TestMergeCrossPageTables(unittest.TestCase):
         for row in ("| 第一页数据", "| 第二页数据", "| 第三页数据"):
             self.assertIn(row, md)
 
+    def test_a_later_page_still_drops_the_root_header(self):
+        # 第二页没有重复表头、第三页又重复了原始表头：跟根表比才删得掉
+        mid_blocks = (("header", (650, 86, 1081, 108)),
+                      ("table", (112, 143, 1081, 1520)),
+                      ("number", (1057, 1566, 1081, 1586)))
+        p1 = make_page(
+            self.table(HEADER_3COL,
+                       "<tr><td>第一页数据</td><td>1</td><td>2</td></tr>"),
+            BOTTOM_BLOCKS, index=0)
+        p2 = make_page(
+            self.table("<tr><td>第二页数据</td><td>3</td><td>4</td></tr>"),
+            mid_blocks, index=1)
+        p3 = make_page(
+            self.table(HEADER_3COL,
+                       "<tr><td>第三页数据</td><td>5</td><td>6</td></tr>"),
+            TOP_BLOCKS, index=2)
+        md = clean_markdown(self.merge([p1, p2, p3])[0].text, None)
+        self.assertEqual(md.count("| 项目"), 1)
+        for row in ("| 第一页数据", "| 第二页数据", "| 第三页数据"):
+            self.assertIn(row, md)
+
+    def test_at_most_five_header_rows_are_dropped(self):
+        rows = tuple(f"<tr><th>列{i}</th><th>期末{i}</th><th>期初{i}</th></tr>"
+                     for i in range(1, 7))
+        prev, nxt = self.pages(
+            rows + ("<tr><td>资产总计</td><td>1</td><td>2</td></tr>",),
+            rows + ("<tr><td>流动负债：</td><td></td><td></td></tr>",))
+        md = clean_markdown(self.merge([prev, nxt])[0].text, None)
+        self.assertEqual(md.count("| 列5"), 1)
+        self.assertEqual(md.count("| 列6"), 2)
+        self.assertIn("| 流动负债：", md)
+
     def test_two_chains_on_one_page_do_not_cross(self):
         a_header = "<tr><th>项目</th><th>余额</th><th>占比</th></tr>"
         b_header = "<tr><th>项目</th><th>数量</th><th>金额</th></tr>"
@@ -622,6 +674,16 @@ class TestMergeCrossPageTables(unittest.TestCase):
             (HEADER_3COL, "<tr><td>资产总计</td><td>1</td><td>2</td></tr>"),
             ('<tr><td>流动负债：<img src="imgs/x.jpg"/></td>'
              "<td></td><td></td></tr>",),
+            "\n\n法定代表人：江南春")
+        merged = self.merge([prev, nxt])
+        self.assertNotIn("流动负债", clean_markdown(merged[0].text, None))
+        self.assertTrue(
+            clean_markdown(merged[1].text, None).lstrip().startswith("|"))
+
+    def test_a_table_with_a_markdown_image_is_not_merged(self):
+        prev, nxt = self.pages(
+            (HEADER_3COL, "<tr><td>资产总计</td><td>1</td><td>2</td></tr>"),
+            ("<tr><td>流动负债：![](imgs/x.jpg)</td><td></td><td></td></tr>",),
             "\n\n法定代表人：江南春")
         merged = self.merge([prev, nxt])
         self.assertNotIn("流动负债", clean_markdown(merged[0].text, None))
@@ -821,6 +883,25 @@ class TestParseJsonl(unittest.TestCase):
             {"block_label": "table", "block_bbox": [1, 2, 3, 4]}]}
         page = parse_jsonl(jsonl_line([("正文", {})], pruned=[pruned]))[0]
         self.assertEqual(page.blocks, (("table", (1.0, 2.0, 3.0, 4.0)),))
+
+    def test_a_non_dict_pruned_result_is_treated_as_no_geometry(self):
+        # 版面坐标只用来判断跨页表格；服务给坏了不该让一份本来能转的文档失败
+        raw = json.dumps({"errorCode": 0, "result": {"layoutParsingResults": [
+            {"markdown": {"text": "正文"}, "prunedResult": []}]}})
+        page = parse_jsonl(raw)[0]
+        self.assertEqual(page.text, "正文")
+        self.assertEqual(page.blocks, ())
+        self.assertIsNone(page.page_size)
+
+    def test_geometry_does_not_change_the_assembled_output(self):
+        text = "<table><tr><td>项目</td><td>金额</td></tr></table>"
+        with_geometry = parse_jsonl(jsonl_line(
+            [(text, {})], pruned=[{"width": 1191, "height": 1685,
+                                   "parsing_res_list": []}]))
+        without = parse_jsonl(jsonl_line([(text, {})]))
+        self.assertEqual(
+            assemble(with_geometry, allocate_names(with_geometry)),
+            assemble(without, allocate_names(without)))
 
 
 class TestAllocateNames(unittest.TestCase):
