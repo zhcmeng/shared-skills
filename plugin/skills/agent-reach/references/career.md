@@ -53,7 +53,7 @@ curl -s "https://r.jina.ai/https://linkedin.com/in/username"
 > 1. 拉起专用 Chrome 后，第一步必须**暂停并让用户肉眼确认**窗口内是已登录
 >    状态（右上角有头像），确认后才允许执行搜索；
 > 2. doctor 的 boss 行会直接探测浏览器内有无 wt2 cookie，以它为准；
-> 3. **`AUTH_EXPIRED` 是 ground truth**：搜索报它就直接走登录 runbook
+> 3. **`AUTH_EXPIRED` 是确切证据**：搜索报它就直接走登录步骤
 >    （用户在专用窗口登录 → `login --cdp`），禁止再往「安全校验」方向解释；
 >    `_security_check` 页面只在 `AUTH_EXPIRED` 不存在时才按滑块处理。
 > 4. 不要为了「清理旧凭据」删除 session.enc；要刷新它就跑 `login --cdp`。
@@ -67,7 +67,7 @@ curl -s "https://r.jina.ai/https://linkedin.com/in/username"
 体检（无副作用，不搜索）：
 
 ```bash
-agent-reach doctor          # boss 行：off = 未装或 CDP 不通；warn = 链路就绪，
+agent-reach doctor          # boss 行：off = 未装或 CDP 不通；warn = 连接通路已就绪，
                             # message 会注明浏览器内有无 wt2 登录 cookie（以浏览器为准）
 ```
 
@@ -112,7 +112,7 @@ PY
 
 ### 环境体检与恢复（抓取前必查）
 
-搜索前若 `agent-reach doctor` 报 boss 为 `off` 或 `warn`，按下面 runbook 排查，不要读源码瞎猜：
+搜索前若 `agent-reach doctor` 报 boss 为 `off` 或 `warn`，按下面的排查步骤走，不要读源码瞎猜：
 
 1. **CDP 端口通不通**：
    ```bash
@@ -162,7 +162,7 @@ PY
    ```
 
 5. **错误码处置**（搜索/取 JD 时）：
-   - `AUTH_EXPIRED`（用户未登录）→ **ground truth**：CDP 浏览器未登录（不管
+   - `AUTH_EXPIRED`（用户未登录）→ **确切证据**：CDP 浏览器未登录（不管
      `boss status` 说什么），直接走第 3 步登录流程 + `login --cdp`，禁止往
      「安全校验」方向解释；
    - code 36（ACCOUNT_RISK）→ 立即停，手动到 BOSS 页面处理，不可自动重试；

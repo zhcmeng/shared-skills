@@ -53,10 +53,10 @@ yt-dlp --dump-json "ytsearch5:query"
 
 成功标准是实际得到非空字幕/转录内容，不是命令退出码或 `doctor` 的版本探测结果。
 
-### 无字幕兜底：Whisper 音频转写
+### 没有字幕时的备用做法：Whisper 音频转写
 
 ```bash
-# 视频没有字幕时的兜底：下载音频并用 Whisper 转写（Groq 免费 key 即可）
+# 视频没有字幕时的备用做法：下载音频并用 Whisper 转写（Groq 免费 key 即可）
 agent-reach transcribe "https://www.youtube.com/watch?v=VIDEO_ID"
 agent-reach transcribe ./local_audio.mp3 -o /tmp/transcript.txt
 ```
@@ -100,7 +100,7 @@ opencli bilibili search "query" -f yaml
 opencli bilibili video BVxxx -f yaml
 ```
 
-### 零配置兜底：搜索 API 直连
+### 零配置的备用做法：搜索 API 直连
 
 ```bash
 UA="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"

@@ -24,7 +24,7 @@ agent-reach install --env=auto
 
 ## 3. 缺的交给用户定
 
-把上一步报出来的缺失项原样列给用户，问要不要装、装哪些渠道；用户点头后再跑：
+把上一步报出来的缺失项原样列给用户，问要不要装、装哪些渠道；用户同意后再跑：
 
 ```bash
 agent-reach install --env=auto --system --channels=<用户要的渠道>

@@ -10,7 +10,7 @@
 skills/download-md-images/
 ├── README.md    你正在读的这份（Claude 不读）
 ├── SKILL.md     主流程
-└── scripts/     两个脚本：认引用、下图
+└── scripts/     两个脚本：识别图片引用、下载图片
 ```
 
 两个脚本的测试不在这里，在开发这个技能的仓库的 `tests/download-md-images/` 下。

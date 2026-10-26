@@ -45,7 +45,7 @@ scripts/export.ps1 <路径> -Out D:\out\手册.pdf
 
 ## 渲染口径
 
-导出结果对齐 Markdown Preview Enhanced 的默认行为，这样产出与编辑器里「导出 → Chrome (Puppeteer)」一致：
+导出结果与 Markdown Preview Enhanced 的默认行为一致，这样产出与编辑器里「导出 → Chrome (Puppeteer)」一致：
 
 | 项 | 取值 | 说明 |
 |:---|:---|:---|
@@ -71,7 +71,7 @@ scripts/export.ps1 <路径> -Out D:\out\手册.pdf
 
 ```
 SKILL.md
-scripts/export.ps1              编排：参数 → 组装 HTML → 浏览器打印
+scripts/export.ps1              主流程：参数 → 组装 HTML → 浏览器打印
 assets/vendor/                  渲染器与公式库（随 skill 携带）
 assets/themes/                  18 个预览主题
 assets/THIRD-PARTY-NOTICES.md   第三方组件来源与许可证

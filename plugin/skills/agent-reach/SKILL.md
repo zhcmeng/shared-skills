@@ -39,7 +39,7 @@ metadata:
    `agent-reach doctor --json`。`active_backend` 有值时按它选命令组；`active_backend: null`
    表示 Doctor 为避免触发浏览器 Cookie 读取或远端写入而没有做实时验证，不代表后端不存在。
    Doctor 结果是「某一时刻的快照」，通道/登录态可能已变化；执行只读命令前若怀疑失效，
-   按对应 reference 的「体检与恢复」runbook 重新确认（如 career.md 的 Boss直聘 CDP 排查）。
+   按对应参考文件里的「体检与恢复」步骤重新确认（如 career.md 的 Boss直聘 CDP 排查）。
 2. **声明你在用什么**：开始干活前说一句「使用 agent-reach 的 X 平台 / Y 后端」。
 3. **失败按 references 里的重试链处理**，不要瞎猜命令。
 4. **全网调研类任务**：组合多平台（Exa 搜索 + Twitter/Reddit 看讨论 + 小红书/B站看中文场景），并行收集再汇总。
@@ -92,7 +92,7 @@ Shell。直接运行 `twitter` 前，必须在子进程环境中显式提供
 
 小红书注意：Agent Reach 不替用户登录，也不读取浏览器 Cookie。OpenCLI 只用
 用户已有且明确控制的 Chrome 会话；没有现成会话时不要自动登录，改用
-Cookie-Editor 手工导出后配置 xiaohongshu-mcp / 存量工具。
+Cookie-Editor 手工导出后配置 xiaohongshu-mcp / 已有的工具。
 
 Boss直聘配置触发：当用户说“帮我配 Boss直聘”时，先读取 `references/career.md`
 的 Boss 章节，然后在获得安装授权后运行
@@ -109,7 +109,7 @@ Boss直聘配置触发：当用户说“帮我配 Boss直聘”时，先读取 `
 `security-check` / `zhipin-security` / `_security_check` 安全校验页是 Boss 反爬挑战，
 与登录无关——已登录也会出现（带 CDP 调试端口的 Chrome 几乎必现）。看到它不要
 当成“未登录”，先跑 `agent-reach doctor` 看浏览器 cookie，再决定是否需要用户登录。
-搜索报 `AUTH_EXPIRED` 即浏览器未登录的 ground truth：直接走登录流程 + `login --cdp`，
+搜索报 `AUTH_EXPIRED` 就是浏览器未登录的确切证据：直接走登录流程 + `login --cdp`，
 不要往安全校验方向解释。
 
 执行搜索时必须使用
@@ -122,7 +122,7 @@ twitter search "query" -n 10
 
 # Reddit（无零配置路径：OpenCLI 或 rdt-cli，必须登录态）
 opencli reddit search "query" -f yaml   # 桌面
-rdt search "query" --limit 10            # 存量/服务器
+rdt search "query" --limit 10            # 已有的工具/服务器
 
 # 小红书（桌面首选 OpenCLI）
 opencli xiaohongshu search "query" -f yaml

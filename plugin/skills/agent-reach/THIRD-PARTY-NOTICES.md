@@ -12,10 +12,11 @@
 
 ## 本地改动
 
-上游的 7 个 reference 文件逐字未动。另外**新增**了 `references/install.md`，`SKILL.md` 改了两处：
+上游的 7 个 reference 文件与 `SKILL.md` 都在措辞上改过，另**新增**了 `references/install.md`。改动如下：
 
 1. **新增**「命令行工具没装时」一节，指向 `references/install.md`。上游假定命令行工具已经装好，这节补上装法：只装本体，再跑一次只读体检，把还缺的工具列出来交给用户决定装不装。安装步骤放在单独文件里，SKILL.md 里不写「开工前先检查」这类动作——命令在不在由失败本身暴露，正常路径下不必空跑一次检查。
 2. **改写**上游「环境检查」一节。原文说的是上游作者本机的约定（「本机 Python 环境默认是 conda `dl`」），换台机器读会误导；改成不带这层假设的「体检」一节，其中的 `agent-reach doctor --json` 命令保留。
+3. **统一用词**（2026-10-26）：`ground truth` 改成「确切证据」，`runbook` 改成「步骤」或「排查步骤」，「存量工具」改成「已有的工具」，「兜底」改成「备用做法」，「点头」改成「同意」，「链路就绪」改成「连接通路已就绪」。涉及 `SKILL.md`、`career.md`、`social.md`、`video.md`、`install.md`；只改措辞，命令、参数与触发条件不变。
 
 ## 与上游更新提示的关系
 
@@ -33,4 +34,4 @@ for f in career dev finance search social video web; do
 done
 ```
 
-复制完做两件事：把上面「同步版本」的 commit 和日期换成新的；重做「本地改动」里那两处——`SKILL.md` 会被整份覆盖，「命令行工具没装时」那节和删掉的 conda 说明都得再补一遍。（`references/install.md` 是本地新增的文件，复制不会动它。）
+复制完做两件事：把上面「同步版本」的 commit 和日期换成新的；重做「本地改动」里那三项——`SKILL.md` 与 7 个 reference 文件都会被整份覆盖，「命令行工具没装时」那节、删掉的 conda 说明、统一用词都得再补一遍。（`references/install.md` 是本地新增的文件，复制不会动它。）

@@ -52,7 +52,7 @@ mcporter call xiaohongshu.get_feed_detail feed_id="..." xsec_token="..." --timeo
 > 该显式命令会保存/导入用户提供的 xiaohongshu.com 同域 Cookie 集，用户应
 > 确认范围；非 xiaohongshu.com 域 Cookie 会被忽略。
 
-### 后端 C：xhs-cli（存量备选，上游 2026-03 起停更）
+### 后端 C：xhs-cli（已有的备选，上游 2026-03 起停更）
 
 ```bash
 xhs search "query"          # 搜索
@@ -68,7 +68,7 @@ xhs feed                    # 推荐
 
 > **认证边界**: Agent Reach 不得替用户执行小红书登录，也不得读取浏览器
 > Cookie。OpenCLI 只能使用用户已有且明确控制的 Chrome 会话；
-> xiaohongshu-mcp / 存量工具使用 Cookie-Editor 手工导出。
+> xiaohongshu-mcp / 已有的工具使用 Cookie-Editor 手工导出。
 >
 > **xsec_token 限制**: 小红书强制 xsec_token 机制，**不能直接用裸 note_id 去读**。正确流程：先搜索/feed 拿结果，再用结果中的完整 URL/ID 去读。三个后端都一样。
 >
@@ -153,7 +153,7 @@ bili video BVxxx
 opencli bilibili subtitle BVxxx
 ```
 
-> 详细命令（音频转写、API 直连兜底）见 [references/video.md](video.md)。
+> 详细命令（音频转写、API 直连的备用做法）见 [references/video.md](video.md)。
 
 ## V2EX (公开 API)
 
@@ -240,7 +240,7 @@ opencli reddit subreddit-info LocalLLaMA -f yaml
 
 > 要求 Chrome 打开且浏览器里登录过 reddit.com。
 
-### 后端 B：rdt-cli（存量/服务器备选，上游 2026-03 起停更）
+### 后端 B：rdt-cli（已有的工具/服务器备选，上游 2026-03 起停更）
 
 ```bash
 rdt search "query" --limit 10   # 搜索帖子

@@ -1,6 +1,6 @@
 # pdf-to-md
 
-把 PDF 转成 Markdown 落到磁盘——正文引用的图片一并下载到本地并改成相对路径。支持单个文件、目录批量，以及 PDF 的公网网址。
+把 PDF 转成 Markdown 写到磁盘——正文引用的图片一并下载到本地并改成相对路径。支持单个文件、目录批量，以及 PDF 的公网网址。
 
 这份 README 是给人看的：Claude 跑这个技能时不读它，读的是 [SKILL.md](./SKILL.md)。技能怎么用、要什么输入，那里写着；这里只写**改它的时候要看什么**。
 
@@ -14,7 +14,7 @@ skills/pdf-to-md/
 │   ├── markdown.py    纯文本处理，不联网
 │   ├── aistudio.py    网络：提交、轮询、取结果、下图（--backend api）
 │   ├── aistudio_web.py 浏览器：登录、上传官网、等任务、下载官网 JSON
-│   ├── convert.py     编排：认任务、调上面三个、落盘
+│   ├── convert.py     主流程：认任务、调上面三个、写文件
 │   └── doctor.py      体检：回答「这台机器现在能不能转」
 └── assets/
     ├── doctor-sample.html   体检样例（源）
@@ -33,7 +33,7 @@ uv run --with requests --with lxml --with tabulate --with pypdf python tests/pdf
 
 全部测试都不发真实请求，网络那一段用假响应喂进去。接口和返回结构的实测结论记在 `docs/superpowers/specs/2026-09-20-pdf-to-md-design.md` 的「验过什么、还没验什么」一节。
 
-三条容易踩的：
+三条容易出错的：
 
 - **`doctor.py` 只用标准库，别让它 import 另外四个。** 那四个缺依赖时它得能跑起来——体检的意义正是在依赖没装好时告诉你差什么。测试里有一条在 `python -S`（不加载第三方包）下真跑它。官网方式的路径与凭据校验是照抄 `aistudio_web.py` 的一份，测试里直接比对两边，抄错会红。
 - **`pypdf` 只有财报单页模式用，导入要留在 `split_pdf_pages` 里面。** 挪到文件开头的话，没装 pypdf 的机器连普通模式都跑不起来。测试里有几条会真的切 PDF，所以跑测试时也要带 `--with pypdf`。
