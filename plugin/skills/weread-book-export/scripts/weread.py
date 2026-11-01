@@ -5,7 +5,9 @@
 验证靠探路脚本实跑（见实施计划 Task 7 Step 4）。
 """
 
+import random
 import time
+from pathlib import Path
 from urllib.parse import quote, urljoin
 
 WEREAD_HOME = "https://weread.qq.com/"
@@ -390,3 +392,118 @@ def capture_glyphs(page):
             )
         )
     return glyphs
+
+
+# 章末的「下一章」按钮。标题在 title 属性里，正文也可能写着「下一章」，两种都认。
+NEXT_BUTTON = '.readerFooter_button[title="下一章"], .readerFooter_button:has-text("下一章")'
+
+# 每次滚多少屏、滚几段：分段滚，像人在读，不一次跳到底
+SCROLL_STEPS = (8, 15)
+SCROLL_RANGE = (0.6, 1.0)
+
+# 下图之间的间隔（秒）
+IMAGE_PAUSE = (0.1, 0.3)
+IMAGE_TIMEOUT = 60000
+CONTENT_TYPE_EXT = {
+    "image/jpeg": ".jpg",
+    "image/jpg": ".jpg",
+    "image/png": ".png",
+    "image/gif": ".gif",
+    "image/webp": ".webp",
+}
+
+
+def scroll_through_chapter(browser):
+    """把这一章从头滚到底，像人在读。
+
+    除了造节奏，滚到底还有一个用处：把章末的「下一章」按钮滚进视野。
+    """
+    page = browser.page
+    size = page.viewport_size
+    if not size:
+        size = page.evaluate("() => ({width: innerWidth, height: innerHeight})")
+    viewport = size["height"] or 800
+
+    for _ in range(random.randint(*SCROLL_STEPS)):
+        browser.wheel(viewport * random.uniform(*SCROLL_RANGE))
+        browser.human_pause()
+
+
+def go_next_chapter(browser, attempts=3, timeout=10.0):
+    """点「下一章」，返回 ``"moved"`` / ``"last"`` / ``"stuck"``。
+
+    没有「下一章」按钮就是最后一章。**只能走真实鼠标点击**：实测在页面里直接调
+    ``.click()`` 不会跳转。点完看 ``document.title`` 变没变，没变重试最多 3 次。
+    """
+    page = browser.page
+    for _ in range(attempts):
+        button = page.locator(NEXT_BUTTON)
+        if button.count() == 0:
+            return "last"
+
+        before = page.title()
+        try:
+            browser.click_locator(button.first)
+            page.wait_for_function(
+                "prev => document.title !== prev", arg=before, timeout=timeout * 1000
+            )
+        except Exception:
+            continue
+        return "moved"
+    return "stuck"
+
+
+def collect_images(page):
+    """取本章插图，返回 ``[{"src": str, "y": float, "alt": str}, ...]``，按 src 去重。
+
+    ``y`` 是图片相对主画布顶端的偏移：图和画布在同一个滚动容器里，
+    滚不滚动这个差值都一样，正好和字形记录的坐标系对齐。
+    """
+    data = page.evaluate(
+        """() => {
+          const canvas = document.querySelector('.wr_canvasContainer canvas');
+          const top = canvas ? canvas.getBoundingClientRect().top : 0;
+          return [...document.querySelectorAll('.renderTargetContainer img')]
+            .filter(img => img.src && img.src.indexOf('res.weread.qq.com') >= 0)
+            .map(img => ({
+              src: img.src,
+              alt: img.alt || '',
+              y: img.getBoundingClientRect().top - top,
+            }));
+        }"""
+    )
+
+    seen = set()
+    images = []
+    for item in data:
+        if item["src"] in seen:
+            continue
+        seen.add(item["src"])
+        images.append(item)
+    return images
+
+
+def download_images(browser, images, out_dir, prefix):
+    """逐张下载，返回 ``[{"src": ..., "file_name": ...}]``。
+
+    走 ``context.request``：它自带同一个浏览器的 Cookie，也默认跟随跳转，不用另装
+    requests。**必须带 Referer**——不带会被 302 到空响应。扩展名按响应头定，
+    CDN 地址的后缀不可靠。
+    """
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    saved = []
+    for index, image in enumerate(images, start=1):
+        response = browser.context.request.get(
+            image["src"], headers={"Referer": WEREAD_HOME}, timeout=IMAGE_TIMEOUT
+        )
+        if not response.ok:
+            continue
+        content_type = (response.headers.get("content-type") or "").split(";")[0].strip().lower()
+        extension = CONTENT_TYPE_EXT.get(content_type, ".jpg")
+        file_name = "%s-%03d%s" % (prefix, index, extension)
+        (out_dir / file_name).write_bytes(response.body())
+        saved.append({"src": image["src"], "file_name": file_name})
+        time.sleep(random.uniform(*IMAGE_PAUSE))
+    return saved
