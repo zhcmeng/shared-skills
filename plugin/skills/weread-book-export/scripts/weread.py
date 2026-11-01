@@ -91,8 +91,11 @@ def search_books(page, title):
 
 
 def _parse_title(title):
-    """从 ``书名 - 章节名 - 作者 - 微信读书`` 里拆出书名与作者。
+    """从 ``document.title`` 里拆出书名与作者。
 
+    实测两种形状：
+    ``书名 - 章名 - 作者 - 微信读书``（进了某一章），
+    ``书名 - 作者 - 微信读书``（还没进章）。去掉尾巴后按段数分。
     段数不够就只用第一段当书名，作者留空——宁可少一项，不能张冠李戴。
     """
     parts = [part.strip() for part in (title or "").split(" - ")]
@@ -100,6 +103,8 @@ def _parse_title(title):
         parts = parts[:-1]
     if len(parts) >= 3:
         return parts[0], parts[2]
+    if len(parts) == 2:
+        return parts[0], parts[1]
     return (parts[0] if parts else ""), ""
 
 
@@ -118,3 +123,179 @@ def wait_for_reader(page, timeout=READER_TIMEOUT):
     book_id = tail.split("?", 1)[0].split("#", 1)[0].strip("/").split("/")[0]
     book_title, author = _parse_title(page.title())
     return {"book_id": book_id, "book_title": book_title, "author": author}
+
+
+# 画布高过这个数就是滚动模式：翻页模式下只有一屏高（实测 1180），
+# 滚动模式下整章一次铺开（实测 7944）
+SCROLL_MIN_HEIGHT = 3000
+
+# 模式按钮是**切换**用的，类名跟着当前状态变：滚动态叫 isNormalReader，
+# 翻页态叫 isHorizontalReader。两个都要匹配，否则换个状态就找不到按钮。
+MODE_BUTTON = ".readerControls_item.isHorizontalReader, .readerControls_item.isNormalReader"
+CATALOG_BUTTON = ".readerControls_item.catalog"
+CATALOG_ITEM = ".readerCatalog li"
+
+_CANVAS_HEIGHTS_JS = """() => [...document.querySelectorAll('.wr_canvasContainer canvas')]
+    .map(c => c.height)"""
+
+_CATALOG_JS = """() => [...document.querySelectorAll('.readerCatalog li')].map(li => {
+  const lines = (li.innerText || '').split('\\n').map(s => s.trim()).filter(Boolean);
+  const fromClass = String(li.className).match(/readerCatalog_list_item_level_(\\d+)/);
+  let depth = 0;
+  let node = li;
+  while (node.parentElement && node.parentElement.closest('li')) {
+    depth += 1;
+    node = node.parentElement.closest('li');
+  }
+  return {
+    title: lines[0] || '',
+    level: Math.max(fromClass ? parseInt(fromClass[1], 10) : 1, depth + 1),
+  };
+})"""
+
+_CATALOG_TITLES_JS = """() => [...document.querySelectorAll('.readerCatalog li')]
+    .map(li => (((li.innerText || '').split('\\n').map(s => s.trim()).filter(Boolean))[0] || ''))"""
+
+_CATALOG_OPEN_JS = """() => { const el = document.querySelector('.readerCatalog');
+    return !!el && getComputedStyle(el).display !== 'none'; }"""
+
+
+def _canvas_height(page, timeout=30000):
+    """主画布的高度。滚动模式下整章铺开，翻页模式下只有一屏高。"""
+    try:
+        page.wait_for_function(
+            """() => document.querySelectorAll('.wr_canvasContainer canvas').length > 0""",
+            timeout=timeout,
+        )
+    except Exception:
+        return 0
+    heights = page.evaluate(_CANVAS_HEIGHTS_JS)
+    return max(heights) if heights else 0
+
+
+def is_scroll_mode(page):
+    """画布高过一屏就是滚动模式。
+
+    看画布尺寸而不是工具栏按钮的选中样式：按钮类名跟着状态变（实测两种都出现过），
+    画布尺寸不会骗人。
+    """
+    return _canvas_height(page) > SCROLL_MIN_HEIGHT
+
+
+def switch_to_scroll_mode(browser, timeout=10.0):
+    """切到滚动模式，返回整章画布高度；已经是滚动模式就直接返回当前高度；切不过去返回 None。"""
+    page = browser.page
+    height = _canvas_height(page)
+    if height > SCROLL_MIN_HEIGHT:
+        return height
+
+    button = page.locator(MODE_BUTTON)
+    if button.count() == 0:
+        return None
+    browser.click_locator(button.first)
+
+    try:
+        page.wait_for_function(
+            "min => Math.max(0, ...[...document.querySelectorAll('.wr_canvasContainer canvas')]"
+            ".map(c => c.height)) > min",
+            arg=SCROLL_MIN_HEIGHT,
+            timeout=timeout * 1000,
+        )
+    except Exception:
+        return None
+    return _canvas_height(page)
+
+
+def read_catalog(page):
+    """读目录，按页面上的顺序返回 ``[{"title": str, "level": int}, ...]``。
+
+    目录面板默认 ``display: none``，但条目已经在 DOM 里，不用点开就能读——
+    读取不碰界面，少一次会被看见的操作。层级优先取类名里的
+    ``readerCatalog_list_item_level_N``；平铺的书没有这个类，用 DOM 嵌套深度算。
+    """
+    try:
+        page.wait_for_function(
+            """() => document.querySelectorAll('.readerCatalog li').length > 0""",
+            timeout=30000,
+        )
+    except Exception:
+        return []
+    return page.evaluate(_CATALOG_JS)
+
+
+def _catalog_open(page):
+    try:
+        return bool(page.evaluate(_CATALOG_OPEN_JS))
+    except Exception:
+        return False
+
+
+def _click_catalog_button(browser, tries=3):
+    """点目录按钮。工具栏会重新渲染，偶尔点到已经脱离 DOM 的旧节点，所以要重试。"""
+    page = browser.page
+    for _ in range(tries):
+        try:
+            browser.click_locator(page.locator(CATALOG_BUTTON).first)
+            return True
+        except Exception:
+            continue
+    return False
+
+
+def _open_catalog(browser, tries=3):
+    page = browser.page
+    for _ in range(tries):
+        if _catalog_open(page):
+            return True
+        if not _click_catalog_button(browser):
+            continue
+        try:
+            page.wait_for_function(_CATALOG_OPEN_JS, timeout=5000)
+            return True
+        except Exception:
+            continue
+    return False
+
+
+def _close_catalog(browser):
+    """目录面板留着会挡住后面的点击，用完就关。
+
+    关法是再点一次目录按钮（按钮是开关）。实测点空白处和按 Esc 都关不掉，
+    点遮罩也不行。
+    """
+    if _catalog_open(browser.page):
+        _click_catalog_button(browser)
+
+
+def jump_to_chapter(browser, title, attempts=3, timeout=10.0):
+    """在目录里找到标题**完全相等**的那一条，点进去。
+
+    实测目录项偶尔点了不跳转，所以整套动作要重试；面板不管成没成都关掉。
+    """
+    page = browser.page
+    for _ in range(attempts):
+        if not _open_catalog(browser):
+            continue
+
+        try:
+            titles = page.evaluate(_CATALOG_TITLES_JS)
+        except Exception:
+            continue
+        if title not in titles:
+            _close_catalog(browser)
+            return False
+
+        item = page.locator(CATALOG_ITEM).nth(titles.index(title))
+        try:
+            browser.click_locator(item)
+            page.wait_for_function(
+                "t => document.title.indexOf(t) >= 0", arg=title, timeout=timeout * 1000
+            )
+        except Exception:
+            continue
+
+        _close_catalog(browser)
+        return True
+
+    _close_catalog(browser)
+    return False
