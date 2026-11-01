@@ -14,7 +14,12 @@ sys.path.insert(
     0,
     str(HERE.parent.parent / "plugin" / "skills" / "weread-book-export" / "scripts"),
 )
-from layout import group_lines  # noqa: E402
+from layout import (  # noqa: E402
+    extract_chapter,
+    group_lines,
+    strip_noise_lines,
+    to_paragraphs,
+)
 
 
 def g(t, x, y, px=16):
@@ -55,6 +60,85 @@ def main():
 
     line = group_lines([{"t": "春", "x": 100, "y": 500, "font": "bold 20px/1.5 sans-serif"}])[0]
     eq("font 带前缀也能取到字号", line["font_size"], 20)
+
+    def line(text, x=100, y=500, px=16):
+        return {"x": x, "y": y, "text": text, "font_size": px}
+
+    kept = strip_noise_lines(
+        [line("abcdefghijklmnopqrstuvwxyz0123456789", y=480), line("正文", y=500)],
+        "某书", "第一章",
+    )
+    eq("开头那串测量字体的字母数字被剔除", [l["text"] for l in kept], ["正文"])
+
+    kept = strip_noise_lines(
+        [line("第一章 打造企业的护城河", y=460),
+         line("第一章 打造企业的护城河是本书的核心", y=500)],
+        "某书", "第一章 打造企业的护城河",
+    )
+    eq("章首的章名被剔除，正文里同名的句子保留",
+       [l["text"] for l in kept], ["第一章 打造企业的护城河是本书的核心"])
+
+    kept = strip_noise_lines(
+        [line("抢占心智"), line("正文一"), line("抢占心智"), line("正文二"), line("抢占心智")],
+        "抢占心智", "第一章",
+    )
+    eq("书名在章内重复三次以上才当页眉剔除",
+       [l["text"] for l in kept], ["正文一", "正文二"])
+
+    kept = strip_noise_lines(
+        [line("正文一"), line("抢占心智"), line("正文二")], "抢占心智", "第一章"
+    )
+    eq("只出现一次的书名不动",
+       [l["text"] for l in kept], ["正文一", "抢占心智", "正文二"])
+
+    eq(
+        "首行缩进断开新段落",
+        [p["text"] for p in to_paragraphs([
+            line("第一段第一行", y=500),
+            line("第一段第二行", y=540),
+            line("第二段第一行", x=132, y=580),
+        ])],
+        ["第一段第一行第一段第二行", "第二段第一行"],
+    )
+
+    eq(
+        "行距超过一个半行高断开新段落",
+        [p["text"] for p in to_paragraphs([line("甲", y=500), line("乙", y=540), line("丙", y=620)])],
+        ["甲乙", "丙"],
+    )
+
+    eq(
+        "上一行没写满就断开新段落",
+        [p["text"] for p in to_paragraphs([
+            line("短"),
+            line("这一行写得满满的占了整行宽度", y=540),
+            line("下一段", y=580),
+        ])],
+        ["短", "这一行写得满满的占了整行宽度下一段"],
+    )
+
+    eq(
+        "字号大的行成为标题，级别按字号从大到小排",
+        to_paragraphs([
+            line("第一章", y=460, px=24),
+            line("第一节", y=500, px=20),
+            line("正文从这里开始", y=540),
+        ]),
+        [
+            {"kind": "heading", "level": 1, "text": "第一章", "y": 460},
+            {"kind": "heading", "level": 2, "text": "第一节", "y": 500},
+            {"kind": "text", "level": 0, "text": "正文从这里开始", "y": 540},
+        ],
+    )
+
+    eq(
+        "extract_chapter 把三步串起来",
+        extract_chapter(
+            [g("abcdefghijklmnopqrstuvwxyz0123", 100, 460), g("正文", 100, 500)],
+            "某书", "第一章",
+        ),
+        [{"kind": "text", "level": 0, "text": "正文", "y": 500}],
+    )
 
     print()
     if bad:
