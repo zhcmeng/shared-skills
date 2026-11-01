@@ -5,6 +5,7 @@
 验证靠探路脚本实跑（见实施计划 Task 7 Step 4）。
 """
 
+import time
 from urllib.parse import quote, urljoin
 
 WEREAD_HOME = "https://weread.qq.com/"
@@ -139,8 +140,10 @@ _CANVAS_HEIGHTS_JS = """() => [...document.querySelectorAll('.wr_canvasContainer
     .map(c => c.height)"""
 
 _CATALOG_JS = """() => [...document.querySelectorAll('.readerCatalog li')].map(li => {
+  const titleEl = li.querySelector('.readerCatalog_list_item_title_text');
   const lines = (li.innerText || '').split('\\n').map(s => s.trim()).filter(Boolean);
-  const fromClass = String(li.className).match(/readerCatalog_list_item_level_(\\d+)/);
+  const levelEl = li.querySelector('[class*="readerCatalog_list_item_level_"]');
+  const fromClass = levelEl && String(levelEl.className).match(/readerCatalog_list_item_level_(\\d+)/);
   let depth = 0;
   let node = li;
   while (node.parentElement && node.parentElement.closest('li')) {
@@ -148,16 +151,28 @@ _CATALOG_JS = """() => [...document.querySelectorAll('.readerCatalog li')].map(l
     node = node.parentElement.closest('li');
   }
   return {
-    title: lines[0] || '',
+    title: (titleEl ? titleEl.innerText : lines[0] || '').trim(),
     level: Math.max(fromClass ? parseInt(fromClass[1], 10) : 1, depth + 1),
   };
 })"""
 
-_CATALOG_TITLES_JS = """() => [...document.querySelectorAll('.readerCatalog li')]
-    .map(li => (((li.innerText || '').split('\\n').map(s => s.trim()).filter(Boolean))[0] || ''))"""
+# 目录项的标题要取里面的 .readerCatalog_list_item_title_text：
+# li 的 innerText 还会混进「当前读到 3%+书签」这类角标，拿它比对章节名会对不上
+_CATALOG_TITLES_JS = """() => [...document.querySelectorAll('.readerCatalog li')].map(li => {
+  const titleEl = li.querySelector('.readerCatalog_list_item_title_text');
+  if (titleEl) return titleEl.innerText.trim();
+  return ((li.innerText || '').split('\\n').map(s => s.trim()).filter(Boolean))[0] || '';
+})"""
 
 _CATALOG_OPEN_JS = """() => { const el = document.querySelector('.readerCatalog');
     return !!el && getComputedStyle(el).display !== 'none'; }"""
+
+
+def _canvas_heights(page):
+    try:
+        return page.evaluate(_CANVAS_HEIGHTS_JS)
+    except Exception:
+        return []
 
 
 def _canvas_height(page, timeout=30000):
@@ -169,7 +184,7 @@ def _canvas_height(page, timeout=30000):
         )
     except Exception:
         return 0
-    heights = page.evaluate(_CANVAS_HEIGHTS_JS)
+    heights = _canvas_heights(page)
     return max(heights) if heights else 0
 
 
@@ -182,28 +197,33 @@ def is_scroll_mode(page):
     return _canvas_height(page) > SCROLL_MIN_HEIGHT
 
 
-def switch_to_scroll_mode(browser, timeout=10.0):
-    """切到滚动模式，返回整章画布高度；已经是滚动模式就直接返回当前高度；切不过去返回 None。"""
+def switch_to_scroll_mode(browser, timeout=15.0):
+    """切到滚动模式，返回整章画布高度；已经是滚动模式就直接返回当前高度；切不过去返回 None。
+
+    切换时画布会**先清空再重建**，而模式按钮点下去偶尔被吞掉，所以要边看画布边补点；
+    画布列表为空的空窗里绝不能补点——那一下会把刚切过去的又切回来。
+    """
     page = browser.page
     height = _canvas_height(page)
     if height > SCROLL_MIN_HEIGHT:
         return height
 
-    button = page.locator(MODE_BUTTON)
-    if button.count() == 0:
-        return None
-    browser.click_locator(button.first)
-
-    try:
-        page.wait_for_function(
-            "min => Math.max(0, ...[...document.querySelectorAll('.wr_canvasContainer canvas')]"
-            ".map(c => c.height)) > min",
-            arg=SCROLL_MIN_HEIGHT,
-            timeout=timeout * 1000,
-        )
-    except Exception:
-        return None
-    return _canvas_height(page)
+    deadline = time.monotonic() + timeout
+    last_click = 0.0
+    while time.monotonic() < deadline:
+        heights = _canvas_heights(page)
+        if heights and max(heights) > SCROLL_MIN_HEIGHT:
+            return max(heights)
+        if heights and time.monotonic() - last_click > 2.0:
+            button = page.locator(MODE_BUTTON)
+            if button.count():
+                try:
+                    browser.click_locator(button.first)
+                    last_click = time.monotonic()
+                except Exception:
+                    pass
+        time.sleep(0.5)
+    return None
 
 
 def read_catalog(page):
@@ -299,3 +319,74 @@ def jump_to_chapter(browser, title, attempts=3, timeout=10.0):
 
     _close_catalog(browser)
     return False
+
+
+# 挂在 CanvasRenderingContext2D.prototype.fillText 外面，把每次绘字记下来。
+# 正文是画在 canvas 里的，DOM 里一个字都没有，这是拿原文的唯一口子。
+GLYPH_HOOK = """(() => {
+  const P = CanvasRenderingContext2D.prototype;
+  if (P.__wereadHooked) return;
+  P.__wereadHooked = true;
+  const original = P.fillText;
+  P.fillText = function (t, x, y, ...rest) {
+    try {
+      if (t && String(t).trim()) {
+        (window.__wereadCap ||= []).push({ t: String(t), x, y, font: this.font });
+      }
+    } catch {}
+    return original.call(this, t, x, y, ...rest);
+  };
+})();"""
+
+# 一次取多少条记录。一章两三千条，整份一次取序列化后几百 KB，容易超时
+CAPTURE_CHUNK = 2000
+
+
+def install_glyph_hook(browser):
+    """装上绘字钩子，并让当前这一章带着钩子重画一遍。
+
+    钩子必须挂在 context 上，不能只 evaluate 一次：已经渲染好的章节滚动不会重绘，
+    脚本装晚了就一个字都截不到。``context.add_init_script`` 的触发条件是「新建页面
+    或任何一次导航」，执行时机是「document 已建、页面自己的脚本还没跑」。
+
+    **代价**：末尾的 reload 会把阅读位置退回本章开头，所以必须在进书之后调用；
+    调用完要重新确认还在阅读器里、还在滚动模式下。
+    """
+    browser.context.add_init_script(script=GLYPH_HOOK)
+    browser.page.reload(wait_until="domcontentloaded")
+
+
+def clear_capture(page):
+    """清空已经截到的字形，准备截下一章。"""
+    page.evaluate("() => { window.__wereadCap = []; }")
+
+
+def wait_canvas_ready(page, timeout=30.0):
+    """等这一章画完：画布高度连续两次一样，且已经截到字。"""
+    deadline = time.monotonic() + timeout
+    previous = -1
+    while time.monotonic() < deadline:
+        height = _canvas_height(page, timeout=1000)
+        captured = page.evaluate("() => (window.__wereadCap || []).length")
+        if captured > 0 and height > 0 and height == previous:
+            return True
+        previous = height
+        time.sleep(0.5)
+    return False
+
+
+def capture_glyphs(page):
+    """把钩子记下的字形分片取回来。
+
+    分片取、不整份取：一章两三千条记录序列化后几百 KB，单次 evaluate 容易超时。
+    """
+    total = page.evaluate("() => (window.__wereadCap || []).length")
+    glyphs = []
+    for start in range(0, total, CAPTURE_CHUNK):
+        glyphs.extend(
+            page.evaluate(
+                "([from, count]) => (window.__wereadCap || []).slice(from, from + count)",
+                [start, CAPTURE_CHUNK],
+            )
+        )
+    return glyphs

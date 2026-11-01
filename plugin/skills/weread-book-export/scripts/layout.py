@@ -60,11 +60,15 @@ MEASUREMENT_MIN_LEN = 20
 # 字号达到正文的这么多倍，认作标题
 HEADING_RATIO = 1.2
 
-# 断段阈值：与上一行 y 差超过这么多倍行高；x 比左边界右移超过这么多倍字号；
-# 上一行右边界比本章最宽行短这么多倍字号
-LINE_GAP_RATIO = 1.5
+# 断段阈值：
+# - 与上一行 y 差超过行高的 LINE_GAP_RATIO 倍。实测正文行距 41px、段间 62px，
+#   1.5 倍（61.5）只差 0.5px 就判错，所以放到 1.3（53.3），两头都留出余量
+# - x 比左边界右移超过字号的 INDENT_RATIO 倍
+# - 上一行右边界不足本章最宽行的 SHORT_TAIL_RATIO 倍。中文按标点断行，
+#   满行之间能差好几个字（实测 588～693px），按"差两个字"判会把每行都当段尾
+LINE_GAP_RATIO = 1.3
 INDENT_RATIO = 1.5
-SHORT_TAIL_RATIO = 2.0
+SHORT_TAIL_RATIO = 0.8
 
 
 def _is_measurement_line(text):
@@ -170,7 +174,7 @@ def to_paragraphs(lines):
             or prev is None
             or (line["y"] - prev["y"]) > LINE_GAP_RATIO * line_height
             or (line["x"] - left) >= INDENT_RATIO * base
-            or prev_right < max_right - SHORT_TAIL_RATIO * base
+            or prev_right < max_right * SHORT_TAIL_RATIO
         )
         if starts_new:
             if current is not None:
