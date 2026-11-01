@@ -10,6 +10,8 @@ import time
 from pathlib import Path
 from urllib.parse import quote, urljoin
 
+from layout import last_render
+
 WEREAD_HOME = "https://weread.qq.com/"
 SEARCH_URL = "https://weread.qq.com/web/search/books?keyword=%s"
 READER_MARK = "/web/reader/"
@@ -128,10 +130,6 @@ def wait_for_reader(page, timeout=READER_TIMEOUT):
     return {"book_id": book_id, "book_title": book_title, "author": author}
 
 
-# 画布高过这个数就是滚动模式：翻页模式下只有一屏高（实测 1180），
-# 滚动模式下整章一次铺开（实测 7944）
-SCROLL_MIN_HEIGHT = 3000
-
 # 模式按钮是**切换**用的，类名跟着当前状态变：滚动态叫 isNormalReader，
 # 翻页态叫 isHorizontalReader。两个都要匹配，否则换个状态就找不到按钮。
 MODE_BUTTON = ".readerControls_item.isHorizontalReader, .readerControls_item.isNormalReader"
@@ -177,7 +175,7 @@ def _canvas_heights(page):
         return []
 
 
-def _canvas_height(page, timeout=30000):
+def canvas_height(page, timeout=30000):
     """主画布的高度。滚动模式下整章铺开，翻页模式下只有一屏高。"""
     try:
         page.wait_for_function(
@@ -190,40 +188,50 @@ def _canvas_height(page, timeout=30000):
     return max(heights) if heights else 0
 
 
-def is_scroll_mode(page):
-    """画布高过一屏就是滚动模式。
+def reader_mode(page):
+    """当前阅读模式：``"scroll"``（整章铺开）/ ``"horizontal"``（翻页）/ ``None``（认不出）。
 
-    看画布尺寸而不是工具栏按钮的选中样式：按钮类名跟着状态变（实测两种都出现过），
-    画布尺寸不会骗人。
+    判据只能是模式按钮的类名，**不能拿画布高度当模式**：短章（实测附录整章只有
+    476px）在滚动模式下也没多高，按高度判会被当成翻页态，于是反复点按钮切换。
     """
-    return _canvas_height(page) > SCROLL_MIN_HEIGHT
+    button = page.locator(MODE_BUTTON)
+    if button.count() == 0:
+        return None
+    klass = button.first.get_attribute("class") or ""
+    if "isHorizontalReader" in klass:
+        return "horizontal"
+    if "isNormalReader" in klass:
+        return "scroll"
+    return None
 
 
-def switch_to_scroll_mode(browser, timeout=15.0):
-    """切到滚动模式，返回整章画布高度；已经是滚动模式就直接返回当前高度；切不过去返回 None。
+def is_scroll_mode(page):
+    """是不是滚动模式。"""
+    return reader_mode(page) == "scroll"
 
-    切换时画布会**先清空再重建**，而模式按钮点下去偶尔被吞掉，所以要边看画布边补点；
-    画布列表为空的空窗里绝不能补点——那一下会把刚切过去的又切回来。
+
+def switch_to_scroll_mode(browser, timeout=20.0):
+    """切到滚动模式，返回当前画布高度；切不过去返回 None。
+
+    按钮是开关、点了偶尔被吞掉，所以边看类名边补点。已经处于滚动模式时**绝不补点**
+    ——那一下会切到翻页态。切过去之后还要等画布真正建出来（刷新后有一两秒是空的），
+    短章的画布本来就矮，所以「有了」就算成，不按高度卡。
     """
     page = browser.page
-    height = _canvas_height(page)
-    if height > SCROLL_MIN_HEIGHT:
-        return height
-
     deadline = time.monotonic() + timeout
     last_click = 0.0
     while time.monotonic() < deadline:
-        heights = _canvas_heights(page)
-        if heights and max(heights) > SCROLL_MIN_HEIGHT:
-            return max(heights)
-        if heights and time.monotonic() - last_click > 2.0:
-            button = page.locator(MODE_BUTTON)
-            if button.count():
-                try:
-                    browser.click_locator(button.first)
-                    last_click = time.monotonic()
-                except Exception:
-                    pass
+        mode = reader_mode(page)
+        if mode == "scroll":
+            height = canvas_height(page, timeout=3000)
+            if height > 0:
+                return height
+        elif mode == "horizontal" and time.monotonic() - last_click > 2.0:
+            try:
+                browser.click_locator(page.locator(MODE_BUTTON).first)
+                last_click = time.monotonic()
+            except Exception:
+                pass
         time.sleep(0.5)
     return None
 
@@ -368,7 +376,7 @@ def wait_canvas_ready(page, timeout=30.0):
     deadline = time.monotonic() + timeout
     previous = -1
     while time.monotonic() < deadline:
-        height = _canvas_height(page, timeout=1000)
+        height = canvas_height(page, timeout=1000)
         captured = page.evaluate("() => (window.__wereadCap || []).length")
         if captured > 0 and height > 0 and height == previous:
             return True
@@ -378,9 +386,11 @@ def wait_canvas_ready(page, timeout=30.0):
 
 
 def capture_glyphs(page):
-    """把钩子记下的字形分片取回来。
+    """把钩子记下的字形分片取回来，只留**最后一轮绘制**。
 
     分片取、不整份取：一章两三千条记录序列化后几百 KB，单次 evaluate 容易超时。
+    翻章时阅读器会先把上一屏重画一遍再画目标那一章，两轮都记在这里，交给
+    ``last_render`` 切掉前面那一轮（见 layout.last_render）。
     """
     total = page.evaluate("() => (window.__wereadCap || []).length")
     glyphs = []
@@ -391,7 +401,7 @@ def capture_glyphs(page):
                 [start, CAPTURE_CHUNK],
             )
         )
-    return glyphs
+    return last_render(glyphs)
 
 
 # 章末的「下一章」按钮。标题在 title 属性里，正文也可能写着「下一章」，两种都认。

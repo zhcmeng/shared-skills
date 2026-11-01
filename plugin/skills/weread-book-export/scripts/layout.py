@@ -101,6 +101,35 @@ def strip_noise_lines(lines, book_title, chapter_title):
     ]
 
 
+# 一段绘制少于这么多个字，就不当成完整的一轮（多半是收尾的一笔重绘）
+MIN_RENDER_GLYPHS = 50
+
+
+def last_render(glyphs, min_glyphs=MIN_RENDER_GLYPHS):
+    """只留最后一轮绘制。
+
+    翻章时阅读器会**先把上一屏重画一遍再画目标那一章**，两轮都记进同一个抓取里
+    （实测某章抓到的 5576 个字里，前 3442 个属于上一屏，两次都从画布顶端 y=20 开始）。
+    按 y 归行会把两轮并排拼成一句句乱码，所以先按**绘制顺序**切开：y 往回跳就是
+    新的一轮开始。屏幕上留下的是最后一轮，就取它。
+
+    末尾如果只有零星几笔重绘（比如一根下划线），够不上 ``min_glyphs``，跳过它、
+    用前面那一轮；整章都短到够不上，那就还是用最后这一段。
+    """
+    segments = []
+    start = 0
+    for i in range(len(glyphs) - 1):
+        if glyphs[i + 1]["y"] < glyphs[i]["y"] - 1:
+            segments.append(glyphs[start : i + 1])
+            start = i + 1
+    segments.append(glyphs[start:])
+
+    for segment in reversed(segments):
+        if len(segment) >= min_glyphs:
+            return segment
+    return segments[-1]
+
+
 def _body_font_size(lines):
     """正文字号：按字（不是按行）统计出现最多的字号，并列取大的。
 

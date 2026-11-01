@@ -17,6 +17,7 @@ sys.path.insert(
 from layout import (  # noqa: E402
     extract_chapter,
     group_lines,
+    last_render,
     strip_noise_lines,
     to_paragraphs,
 )
@@ -139,6 +140,17 @@ def main():
         ),
         [{"kind": "text", "level": 0, "text": "正文", "y": 500}],
     )
+
+    def run(text, start_y, count=6):
+        return [g(text, 0, start_y + 40 * i) for i in range(count)]
+
+    one = run("上一章", 20)
+    two = run("这一章", 20)
+    eq("一段画到底原样返回", last_render(one, min_glyphs=1), one)
+    eq("y 往回跳就是重画了一轮，只留最后一轮", last_render(one + two, min_glyphs=1), two)
+
+    tail = [g("重画的一笔", 0, 20), g("又一笔", 0, 60)]
+    eq("末尾那一小截不算一轮，跳过它", last_render(one + two + tail, min_glyphs=5), two)
 
     print()
     if bad:
