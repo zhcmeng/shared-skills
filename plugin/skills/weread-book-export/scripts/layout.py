@@ -218,6 +218,37 @@ def to_paragraphs(lines):
     return paragraphs
 
 
+# 认章只看屏幕头几行；章名总在第一行，多看几行是给前置页留余量
+IDENTIFY_LINES = 6
+
+
+def _squeeze(text):
+    """去掉所有空白。目录里写「推荐序 我们向…」，画到画布上可能没有那个空格。"""
+    return re.sub(r"\s+", "", text or "")
+
+
+def identify_chapter(lines, titles, expected=None):
+    """在屏幕头几行里认出这是哪一章，返回 ``titles`` 的下标；认不出返回 ``None``。
+
+    每章渲染出来的第一行就是它的章名——这是唯一在所有页面类型上都成立的信号：
+    ``document.title`` 对版权信息、扉页这类前置页不带章名；画布高度对短章不可靠；
+    「抓到的字变多了」在点目录里当前所在的那一章时不成立，因为根本不会重画。
+
+    同名章（如「附录」出现两次）优先认 ``expected`` 那一条，认不到再按顺序找。
+    """
+    head = {_squeeze(line["text"]) for line in lines[:IDENTIFY_LINES]}
+
+    if expected is not None and 0 <= expected < len(titles):
+        if _squeeze(titles[expected]) in head:
+            return expected
+
+    for index, title in enumerate(titles):
+        key = _squeeze(title)
+        if key and key in head:
+            return index
+    return None
+
+
 def extract_chapter(glyphs, book_title, chapter_title):
     """逐字记录 → 段落列表：还原成行、剔噪声、拼段。"""
     lines = group_lines(glyphs)

@@ -17,6 +17,7 @@ sys.path.insert(
 from layout import (  # noqa: E402
     extract_chapter,
     group_lines,
+    identify_chapter,
     last_render,
     strip_noise_lines,
     to_paragraphs,
@@ -151,6 +152,33 @@ def main():
 
     tail = [g("重画的一笔", 0, 20), g("又一笔", 0, 60)]
     eq("末尾那一小截不算一轮，跳过它", last_render(one + two + tail, min_glyphs=5), two)
+
+    eq(
+        "屏幕第一行就是章名，认得出来",
+        identify_chapter([line("版权信息", y=20), line("书名：抢占心智", y=60)], ["版权信息", "推荐序"]),
+        0,
+    )
+
+    eq(
+        "目录里带空格、画布上不带，也要认得出",
+        identify_chapter(
+            [line("推荐序我们向江南春学什么", y=20)],
+            ["版权信息", "推荐序 我们向江南春学什么"],
+        ),
+        1,
+    )
+
+    eq(
+        "头几行一个都对不上就返回 None",
+        identify_chapter([line("书名：抢占心智", y=20)], ["版权信息", "推荐序"]),
+        None,
+    )
+
+    eq(
+        "同名章优先认调用方期望的那一条",
+        identify_chapter([line("附录", y=20)], ["附录", "正文", "附录"], expected=2),
+        2,
+    )
 
     print()
     if bad:
