@@ -18,7 +18,9 @@ from layout import (  # noqa: E402
     extract_chapter,
     group_lines,
     identify_chapter,
+    is_clipped,
     last_render,
+    split_renders,
     strip_noise_lines,
     to_paragraphs,
 )
@@ -71,6 +73,23 @@ def main():
         "某书", "第一章",
     )
     eq("开头那串测量字体的字母数字被剔除", [l["text"] for l in kept], ["正文"])
+
+    kept = strip_noise_lines(
+        [line("abcdefghijklmnopqrstuvwxyz0123456789`~!@#$%^&*()_+[]{}|;:',<.>/?", y=480),
+         line("正文", y=500)],
+        "某书", "第一章",
+    )
+    eq("带标点的测量字符串也剔除", [l["text"] for l in kept], ["正文"])
+
+    kept = strip_noise_lines(
+        [line("推荐序我们向江南春学什么", y=460), line("正文", y=500)],
+        "抢占心智", "推荐序 我们向江南春学什么",
+    )
+    eq(
+        "目录标题带空格、画布上不带，也认得出是同一条并剔除",
+        [l["text"] for l in kept],
+        ["正文"],
+    )
 
     kept = strip_noise_lines(
         [line("第一章 打造企业的护城河", y=460),
@@ -152,6 +171,37 @@ def main():
 
     tail = [g("重画的一笔", 0, 20), g("又一笔", 0, 60)]
     eq("末尾那一小截不算一轮，跳过它", last_render(one + two + tail, min_glyphs=5), two)
+
+    eq("按绘制顺序把每一轮都切出来", split_renders(one + two), [one, two])
+    eq("末尾那一小截也单独成一段，去留交给调用方", split_renders(one + two + tail), [one, two, tail])
+
+    body_60 = run("正文", 20, count=60)
+    noise = [
+        g(ch, 0, 20)
+        for ch in "abcdefghijklmnopqrstuvwxyz0123456789`~!@#$%^&*()_+[]{}|;:',<.>/?`"
+    ]
+    eq(
+        "末尾只剩测量字体那一行时，跳过它取前面那一屏",
+        last_render(body_60 + noise, min_glyphs=50),
+        body_60,
+    )
+
+    eq(
+        "最后一块画布画满了、末行贴到底边，就是被截断了",
+        is_clipped([line("上一行", y=7930), line("末行", y=7976)], [3993, 3976]),
+        True,
+    )
+    eq(
+        "最后一块画布没画满，不算截断",
+        is_clipped([line("上一行", y=6750), line("末行", y=6800)], [3976, 2843]),
+        False,
+    )
+    eq(
+        "短页只有一块矮画布，末行贴底也不算截断",
+        is_clipped([line("上一行", y=360), line("末行", y=380)], [394]),
+        False,
+    )
+    eq("一行都没画时不判截断", is_clipped([], [3993, 3976]), False)
 
     eq(
         "屏幕第一行就是章名，认得出来",

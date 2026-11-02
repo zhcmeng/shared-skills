@@ -16,7 +16,7 @@ sys.path.insert(
     0,
     str(HERE.parent.parent / "plugin" / "skills" / "weread-book-export" / "scripts"),
 )
-from markdown import render_chapter, render_readme  # noqa: E402
+from markdown import render_book_chapter, render_chapter, render_readme  # noqa: E402
 
 
 def t(text, y):
@@ -75,6 +75,55 @@ def main():
              {"y": 200, "file_name": "05-002.jpg", "alt": ""}],
         ),
         "# 图版一\n\n![](images/05-001.jpg)\n\n![](images/05-002.jpg)\n",
+    )
+
+    eq(
+        "章里的节写成二级标题，正文接着排",
+        render_book_chapter(
+            "第2章 抢占消费者心智",
+            [
+                {"title": "第2章 抢占消费者心智",
+                 "paragraphs": [t("章首的一段。", 100)], "images": []},
+                {"title": "人心比流量重要",
+                 "paragraphs": [t("第一段。", 100), t("第二段。", 200)], "images": []},
+                {"title": "封杀品类", "paragraphs": [], "images": []},
+            ],
+        ),
+        "# 第2章 抢占消费者心智\n\n章首的一段。\n\n## 人心比流量重要\n\n第一段。\n\n第二段。\n\n## 封杀品类\n",
+    )
+
+    eq(
+        "章条目只画出章名时，不留下空的一节",
+        render_book_chapter(
+            "第2章",
+            [
+                {"title": "第2章", "paragraphs": [], "images": []},
+                {"title": "人心比流量重要", "paragraphs": [t("正文。", 100)], "images": []},
+            ],
+        ),
+        "# 第2章\n\n## 人心比流量重要\n\n正文。\n",
+    )
+
+    eq(
+        "图按各节自己的 y 排放",
+        render_book_chapter(
+            "第2章",
+            [
+                {"title": "第2章", "paragraphs": [], "images": []},
+                {"title": "人心比流量重要", "paragraphs": [t("第一段。", 500)], "images": []},
+                {"title": "封杀品类", "paragraphs": [t("第二段。", 500)],
+                 "images": [{"y": 100, "file_name": "02-001.jpg", "alt": "示意图"}]},
+            ],
+        ),
+        "# 第2章\n\n## 人心比流量重要\n\n第一段。\n\n## 封杀品类\n\n![示意图](images/02-001.jpg)\n\n第二段。\n",
+    )
+
+    eq(
+        "没有节的章与单章渲染一致",
+        render_book_chapter(
+            "版权信息", [{"title": "版权信息", "paragraphs": [t("正文。", 100)], "images": []}]
+        ),
+        render_chapter("版权信息", [t("正文。", 100)], []),
     )
 
     md = render_readme(

@@ -23,16 +23,12 @@ def _render_image(image):
     return "![%s](images/%s)" % (image["alt"], image["file_name"])
 
 
-def render_chapter(title, paragraphs, images):
-    """一章一个 Markdown 文档。
+def _render_body(paragraphs, images):
+    """段落与图片排成块：图归到「最后一个 ``y`` 不大于图本身 ``y`` 的段落」之后。
 
-    章名作一级标题；章内标题按 ``level`` 降一级，``level`` 1 是二级标题。
-    每张图归到「最后一个 ``y`` 不大于图本身 ``y`` 的段落」之后；
-    这样的段落一个都没有，就排在标题之后、所有段落之前。
-    块与块之间空一行，文档以单个换行结尾。
+    这样的段落一个都没有，就排在最前面。每节都是从画布顶端重新画起的，
+    ``y`` 各算各的，所以一节调用一次。
     """
-    blocks = ["# %s" % title]
-
     # 下标 i 的位置表示「第 i 段之后」，0 表示所有段落之前
     slots = [[] for _ in range(len(paragraphs) + 1)]
     for image in sorted(images, key=lambda img: img["y"]):
@@ -42,11 +38,38 @@ def render_chapter(title, paragraphs, images):
                 slot = i + 1
         slots[slot].append(_render_image(image))
 
+    blocks = []
     for i, paragraph in enumerate(paragraphs):
         blocks.extend(slots[i])
         blocks.append(_render_paragraph(paragraph))
     blocks.extend(slots[-1])
+    return blocks
 
+
+def render_chapter(title, paragraphs, images):
+    """一章一个 Markdown 文档。
+
+    章名作一级标题；章内标题按 ``level`` 降一级，``level`` 1 是二级标题。
+    块与块之间空一行，文档以单个换行结尾。
+    """
+    blocks = ["# %s" % title]
+    blocks.extend(_render_body(paragraphs, images))
+    return "\n\n".join(blocks) + "\n"
+
+
+def render_book_chapter(title, parts):
+    """一章一个文档，章里的节写成二级标题。
+
+    ``parts``：``[{"title": str, "paragraphs": [...], "images": [...]}, ...]``
+    第一项是章本身（目录里点这一章时画出来的那一屏），标题已经在文档开头，
+    不再重复；后面各项是章里的节，标题写成 ``##``，正文与图照排。
+    节自身的标题行已由 ``extract_chapter`` 从段落里剔掉。
+    """
+    blocks = ["# %s" % title]
+    for i, part in enumerate(parts):
+        if i > 0:
+            blocks.append("## %s" % part["title"])
+        blocks.extend(_render_body(part["paragraphs"], part["images"]))
     return "\n\n".join(blocks) + "\n"
 
 

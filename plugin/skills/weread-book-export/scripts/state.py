@@ -4,8 +4,8 @@
 状态文件不放产出目录里，免得跟着书一起进版本库；默认落在
 ``%LOCALAPPDATA%\\weread-book-export\\state\\<slug>.json``。
 
-``done`` 里存的是目录里的**原始下标**（``Leaf["index"]``），不是「第几个叶子」。
-目录里带「部/篇」时叶子下标是不连续的，存原始下标才能回查回这一章。
+``done`` 里存的是目录里的**原始下标**（``Chapter["index"]``），不是「第几章」。
+目录里带「部/篇」或章下有节时，章的原始下标是不连续的，存原始下标才能回查回这一章。
 """
 
 import json
@@ -51,13 +51,13 @@ def mark_done(state, index):
     return new_state
 
 
-def first_pending(leaves, state):
-    """按目录顺序找第一个没做完的叶子，返回它的 ``index``；全做完返回 -1。
+def first_pending(chapters, state):
+    """按目录顺序找第一个没做完的章，返回它的 ``index``；全做完返回 -1。
 
-    只认目录里真实存在的叶子，状态文件里越界的章号（目录变短了）自然被忽略。
+    只认目录里真实存在的章，状态文件里越界的章号（目录变短了）自然被忽略。
     """
     done = set(state.get("done") or [])
-    for leaf in leaves:
-        if leaf["index"] not in done:
-            return leaf["index"]
+    for chapter in chapters:
+        if chapter["index"] not in done:
+            return chapter["index"]
     return -1

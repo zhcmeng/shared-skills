@@ -6,7 +6,8 @@
 1. **看得见**：``headless`` 默认给 ``False``。Playwright 自己的默认值是
    ``True``，不写就会起一个看不见的窗口，用户既没法扫码登录，也没法选书。
 2. **像人**：点击先滚到视野里、光标分几步滑过去、按下与抬起之间留点时间；
-   滚动前光标先停在页面中间；动作之间停 2～6 秒的随机长。
+   滚动前光标先停在页面中间；动作之间停一段随机的时长（默认 2～6 秒，
+   逐章循环里用 1～2.5 秒）。
 """
 
 import os
@@ -156,20 +157,3 @@ class Browser:
         self.page.mouse.move(x, y, steps=random.randint(*MOVE_STEPS))
         time.sleep(random.uniform(0.08, 0.25))
         self.page.mouse.click(x, y, delay=random.randint(*CLICK_DELAY_MS))
-
-    def wheel(self, delta_y):
-        """把光标放到视口中间滚一段。
-
-        ``mouse.wheel`` 不等滚动结束就返回（文档原文 "does not wait for the
-        scrolling to finish before returning"），所以滚完要自己停一下再滚下一段，
-        否则几段滚轮会叠在一起。
-        """
-        size = self.page.viewport_size
-        if not size:
-            size = self.page.evaluate(
-                "() => ({width: window.innerWidth, height: window.innerHeight})"
-            )
-        self.page.mouse.move(
-            size["width"] / 2, size["height"] / 2, steps=random.randint(*MOVE_STEPS)
-        )
-        self.page.mouse.wheel(0, delta_y)

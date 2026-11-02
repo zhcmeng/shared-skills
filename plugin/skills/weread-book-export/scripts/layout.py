@@ -54,8 +54,9 @@ def group_lines(glyphs):
     return lines
 
 
-# 测量字体的串：整行只有 ASCII 字母数字，长度达到这个数才当噪声
+# 测量字体的串：一整行 ASCII 字母数字，或长串里带了这一套标点，才当噪声
 MEASUREMENT_MIN_LEN = 20
+MEASUREMENT_SYMBOLS = "`~!@#$%^&*()_+[]{}|;:',<.>/?"
 
 # 字号达到正文的这么多倍，认作标题
 HEADING_RATIO = 1.2
@@ -71,8 +72,22 @@ INDENT_RATIO = 1.5
 SHORT_TAIL_RATIO = 0.8
 
 
+def _squeeze(text):
+    """去掉所有空白。目录里写「推荐序 我们向…」，画到画布上可能没有那个空格。"""
+    return re.sub(r"\s+", "", text or "")
+
+
 def _is_measurement_line(text):
-    return len(text) >= MEASUREMENT_MIN_LEN and text.isascii() and text.isalnum()
+    """是不是测量字体用的那一长串。
+
+    实测有两种：纯字母数字的，和把符号也排进去的
+    （``abc…XYZ`~1!2@3#…/?``）。判据只认 ASCII 的长行，中文行不会误伤。
+    """
+    if len(text) < MEASUREMENT_MIN_LEN or not text.isascii():
+        return False
+    if text.isalnum():
+        return True
+    return sum(1 for char in text if char in MEASUREMENT_SYMBOLS) >= 6
 
 
 def strip_noise_lines(lines, book_title, chapter_title):
@@ -80,24 +95,24 @@ def strip_noise_lines(lines, book_title, chapter_title):
 
     判据都从严，宁可留下也不误删正文：
 
-    - 测量字体用的字母数字串：整行只有 ASCII 字母数字且长度 >= 20
-    - 章首的书名/章名：只看第一行，且必须整行完全相等
+    - 测量字体用的字母数字串（含带标点的那一种）
+    - 章首的书名/章名：只看第一行，且整行完全相等（去掉空白后比）
     - 页眉页脚：整行等于书名或章名，且在本章出现 >= 3 次。
       只出现一两次的保留——那可能是正文里真的提到了书名
     """
-    titles = {t.strip() for t in (book_title, chapter_title) if t and t.strip()}
+    titles = {_squeeze(t) for t in (book_title, chapter_title) if t and t.strip()}
 
     kept = [line for line in lines if not _is_measurement_line(line["text"])]
     # 先数次数再删首行，免得首行本身被删掉后页眉行就差一次数
-    counts = collections.Counter(line["text"].strip() for line in kept)
+    counts = collections.Counter(_squeeze(line["text"]) for line in kept)
 
-    if kept and kept[0]["text"].strip() in titles:
+    if kept and _squeeze(kept[0]["text"]) in titles:
         kept = kept[1:]
 
     return [
         line
         for line in kept
-        if not (line["text"].strip() in titles and counts[line["text"].strip()] >= 3)
+        if not (_squeeze(line["text"]) in titles and counts[_squeeze(line["text"])] >= 3)
     ]
 
 
@@ -105,16 +120,14 @@ def strip_noise_lines(lines, book_title, chapter_title):
 MIN_RENDER_GLYPHS = 50
 
 
-def last_render(glyphs, min_glyphs=MIN_RENDER_GLYPHS):
-    """只留最后一轮绘制。
+def split_renders(glyphs):
+    """按**绘制顺序**把逐字记录切成一轮一轮。
 
     翻章时阅读器会**先把上一屏重画一遍再画目标那一章**，两轮都记进同一个抓取里
     （实测某章抓到的 5576 个字里，前 3442 个属于上一屏，两次都从画布顶端 y=20 开始）。
-    按 y 归行会把两轮并排拼成一句句乱码，所以先按**绘制顺序**切开：y 往回跳就是
-    新的一轮开始。屏幕上留下的是最后一轮，就取它。
+    y 往回跳就是新的一轮开始。
 
-    末尾如果只有零星几笔重绘（比如一根下划线），够不上 ``min_glyphs``，跳过它、
-    用前面那一轮；整章都短到够不上，那就还是用最后这一段。
+    翻页模式下同样是这个规律：先画左栏、再画右栏，两栏都从顶端开始。
     """
     segments = []
     start = 0
@@ -123,11 +136,56 @@ def last_render(glyphs, min_glyphs=MIN_RENDER_GLYPHS):
             segments.append(glyphs[start : i + 1])
             start = i + 1
     segments.append(glyphs[start:])
+    return segments
 
+
+def _has_body(segment):
+    """这一段里有没有正文——排除只有测量字体那一行的收尾重画。"""
+    return any(not _is_measurement_line(line["text"]) for line in group_lines(segment))
+
+
+def last_render(glyphs, min_glyphs=MIN_RENDER_GLYPHS):
+    """只留最后一轮绘制。
+
+    屏幕上留下的是最后一轮，就取它。末尾如果只有零星几笔重绘（比如一根下划线），
+    够不上 ``min_glyphs``，跳过它、用前面那一轮。还有一种收尾重画：只把测量字体
+    那一行长串又画一遍（实测有好几十个字，够得上 ``min_glyphs``），这种也跳过。
+    """
+    segments = split_renders(glyphs)
     for segment in reversed(segments):
-        if len(segment) >= min_glyphs:
+        if len(segment) >= min_glyphs and _has_body(segment):
+            return segment
+    for segment in reversed(segments):
+        if _has_body(segment):
             return segment
     return segments[-1]
+
+
+# 阅读器一块画布最多画到约 4000 CSS 像素。最后一块达到这个高度，说明是画满被截断的；
+# 只有一块矮画布的短单元（版权信息、扉页）不会撞上它
+FULL_CANVAS_HEIGHT = 3900
+
+# 末行离画布底边不到这么多倍行高，就算贴底
+BOTTOM_LINE_RATIO = 2.0
+
+
+def is_clipped(lines, canvas_heights):
+    """这一屏是不是画到画布底边被截断了。
+
+    滚动模式下一个阅读单元最多画两块画布（实测约 7970 CSS 像素，与窗口高度无关），
+    超出的正文不会补画。判据两条同时成立：最后一块画布画满了（接近单块上限），
+    且末行贴着底边。只有一块矮画布的短单元不会误判。
+    ``canvas_heights`` 是各块画布的 CSS 高度，按页面顺序。
+    """
+    if not lines or not canvas_heights:
+        return False
+    if canvas_heights[-1] < FULL_CANVAS_HEIGHT:
+        return False
+    if len(lines) >= 2:
+        line_height = max(lines[-1]["y"] - lines[-2]["y"], 1.0)
+    else:
+        line_height = lines[-1]["font_size"] * 1.5 or 40.0
+    return lines[-1]["y"] >= sum(canvas_heights) - BOTTOM_LINE_RATIO * line_height
 
 
 def _body_font_size(lines):
@@ -220,11 +278,6 @@ def to_paragraphs(lines):
 
 # 认章只看屏幕头几行；章名总在第一行，多看几行是给前置页留余量
 IDENTIFY_LINES = 6
-
-
-def _squeeze(text):
-    """去掉所有空白。目录里写「推荐序 我们向…」，画到画布上可能没有那个空格。"""
-    return re.sub(r"\s+", "", text or "")
 
 
 def identify_chapter(lines, titles, expected=None):
