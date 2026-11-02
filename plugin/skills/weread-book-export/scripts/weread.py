@@ -377,9 +377,87 @@ GLYPH_HOOK = """(() => {
 # 一次取多少条记录。一章两三千条，整份一次取序列化后几百 KB，容易超时
 CAPTURE_CHUNK = 2000
 
+# 阅读器画正文之前，会先把整章解密后的 HTML 塞进一个隐藏的预渲染容器；
+# 画完容器就从 DOM 里删掉。截住这次 innerHTML 赋值，就能拿到完整的一章，
+# 不受「滚动模式只画两块画布」的限制。只在赋值那一刻存在，所以同样挂在
+# context 上，在页面脚本之前装好。
+PRE_RENDER_HOOK = """(() => {
+  const desc = Object.getOwnPropertyDescriptor(Element.prototype, 'innerHTML');
+  if (!desc || !desc.set) return;
+  if (window.__wereadPreHooked) return;
+  window.__wereadPreHooked = true;
+  window.__wereadPre = [];
+  Object.defineProperty(Element.prototype, 'innerHTML', {
+    configurable: true,
+    enumerable: desc.enumerable,
+    get: desc.get,
+    set: function (value) {
+      try {
+        const cls = typeof this.className === 'string' ? this.className : '';
+        if (this.id === 'preRenderContent' || this.id === 'preRenderContents'
+            || cls.indexOf('preRenderContent') >= 0) {
+          window.__wereadPre.push(value || '');
+          if (window.__wereadPre.length > 4) window.__wereadPre.shift();
+        }
+      } catch (err) {}
+      return desc.set.call(this, value);
+    }
+  });
+})();"""
 
-def install_glyph_hook(browser):
-    """装上绘字钩子，并让当前这一章带着钩子重画一遍。
+# 把截到的那份 HTML 按文档顺序走一遍，产出 text / heading / image 三种块。
+# 块里带 tag 名，层级折算留给 Python（content.blocks_to_part）。
+PRE_RENDER_PARSE_JS = r"""() => {
+  const arr = window.__wereadPre || [];
+  if (!arr.length) return {found: false};
+  const root = document.createElement('div');
+  root.innerHTML = arr[arr.length - 1];
+  const blocks = [];
+  const seen = new Set();
+  const BLOCK = new Set(['P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'LI', 'BLOCKQUOTE']);
+
+  function textOf(el) {
+    const clone = el.cloneNode(true);
+    clone.querySelectorAll('br').forEach(br => br.replaceWith(' '));
+    return (clone.textContent || '').replace(/\s+/g, ' ').trim();
+  }
+
+  function addImage(img) {
+    const src = img.getAttribute('data-src') || img.getAttribute('src') || '';
+    if (src && src.indexOf('data:') !== 0 && !seen.has(src)) {
+      seen.add(src);
+      blocks.push({kind: 'image', src: src, alt: img.getAttribute('alt') || ''});
+    }
+  }
+
+  function walk(el) {
+    if (el.nodeType !== 1) return;
+    const tag = el.tagName;
+    if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'NOSCRIPT') return;
+    if (tag === 'IMG') { addImage(el); return; }
+    if (BLOCK.has(tag)) {
+      const t = textOf(el);
+      if (t) blocks.push({kind: tag[0] === 'H' ? 'heading' : 'text',
+                          level: tag[0] === 'H' ? +tag[1] : 0, text: t});
+      el.querySelectorAll('img').forEach(addImage);
+      return;
+    }
+    if (!el.querySelector('p,h1,h2,h3,h4,h5,h6,li,blockquote')) {
+      const t = textOf(el);
+      if (t) blocks.push({kind: 'text', level: 0, text: t});
+      el.querySelectorAll('img').forEach(addImage);
+      return;
+    }
+    for (const child of el.children) walk(child);
+  }
+
+  walk(root);
+  return {found: true, blocks: blocks};
+}"""
+
+
+def install_capture_hooks(browser):
+    """装上两个截取钩子，并让当前这一章带着钩子重画一遍。
 
     钩子必须挂在 context 上，不能只 evaluate 一次：已经渲染好的章节滚动不会重绘，
     脚本装晚了就一个字都截不到。``context.add_init_script`` 的触发条件是「新建页面
@@ -389,12 +467,26 @@ def install_glyph_hook(browser):
     调用完要重新确认还在阅读器里、还在滚动模式下。
     """
     browser.context.add_init_script(script=GLYPH_HOOK)
+    browser.context.add_init_script(script=PRE_RENDER_HOOK)
     browser.page.reload(wait_until="domcontentloaded")
 
 
 def clear_capture(page):
-    """清空已经截到的字形，准备截下一章。"""
-    page.evaluate("() => { window.__wereadCap = []; }")
+    """清空已经截到的字形与预渲染 HTML，准备截下一章。"""
+    page.evaluate("() => { window.__wereadCap = []; window.__wereadPre = []; }")
+
+
+def pre_render_blocks(page):
+    """取最近一次预渲染的整章 HTML，拆成块；没截到返回 None。
+
+    能截到就说明这一章是 EPUB 正文，阅读器手里有完整的一章，与画布画了多少无关。
+    截不到（没有预渲染步骤的格式，PDF、导入书可能是这类，尚未实测）返回 None，
+    调用方退回截字形。
+    """
+    result = page.evaluate(PRE_RENDER_PARSE_JS)
+    if not result or not result.get("found"):
+        return None
+    return result["blocks"]
 
 
 def wait_canvas_ready(page, timeout=30.0):
@@ -446,6 +538,11 @@ def capture_segments(page):
 def turn_page(browser):
     """在翻页模式里翻到下一屏。用方向键，和真人翻页一样。"""
     browser.page.keyboard.press("ArrowRight")
+
+
+def turn_back_page(browser):
+    """在翻页模式里翻回上一屏。"""
+    browser.page.keyboard.press("ArrowLeft")
 
 
 def canvas_css_heights(page):

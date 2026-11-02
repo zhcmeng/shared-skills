@@ -15,6 +15,7 @@ from pathlib import Path
 
 from browser import Browser, BrowserError, default_base_dir
 from catalog import chapter_file_name, flatten_to_chapters
+from content import blocks_to_part, matches_screen
 from layout import group_lines, identify_chapter, is_clipped, strip_noise_lines, to_paragraphs
 from markdown import render_book_chapter, render_readme
 from state import first_pending, load_state, mark_done, save_state
@@ -28,14 +29,16 @@ from weread import (
     clear_capture,
     collect_images,
     download_images,
-    install_glyph_hook,
+    install_capture_hooks,
     is_logged_out,
     jump_to_chapter,
     open_weread,
+    pre_render_blocks,
     read_catalog,
     search_books,
     switch_to_paged_mode,
     switch_to_scroll_mode,
+    turn_back_page,
     turn_page,
     wait_for_reader,
 )
@@ -52,11 +55,15 @@ CHAPTER_PAUSE = (1.0, 2.5)
 # 滚动模式取整节用的窗口。窗口越宽，一行装的字越多，撞上画布上限的节越少
 SCROLL_VIEWPORT = {"width": 1500, "height": 1000}
 
-# 翻页模式用窄窗口：宽窗口会排成两栏，一栏一栏分开取很麻烦，窄窗口是单栏
-PAGED_VIEWPORT = {"width": 800, "height": 1000}
+# 翻页模式用窄窗口：宽窗口会排成两栏，一栏一栏分开取很麻烦，窄窗口是单栏。
+# 窗口调高，一屏能多装几倍的字，长节要翻的屏数跟着少几倍
+PAGED_VIEWPORT = {"width": 800, "height": 3000}
 
 # 翻页模式下每翻一屏的停顿
 PAGE_PAUSE = (1.0, 2.0)
+
+# 翻页模式下整页都是图、一个字都没有的屏，安静这么久就收下
+PAGE_EMPTY_SETTLE = 2.5
 
 # 一节最多翻这么多屏。正常一节 3～15 屏，翻过头说明没认出结尾
 MAX_PAGES = 200
@@ -244,15 +251,47 @@ def _squeeze(text):
 
 
 def _wait_page(page, timeout=PAGE_TIMEOUT):
-    """等新的一屏画出来：字形数非零，且与上一采样相同。"""
+    """等新的一屏画稳。
+
+    有字的屏等字形数不再增加；整页都是图的屏一个字都没有，安静一会儿就收下
+    ——摄影书里这样的屏很常见，不能当成「没有新内容」。
+    """
     deadline = time.monotonic() + timeout
     previous = -1
+    zero_since = None
     while time.monotonic() < deadline:
         captured = page.evaluate("() => (window.__wereadCap || []).length")
         if captured > 0 and captured == previous:
             return True
+        if captured == 0:
+            if zero_since is None:
+                zero_since = time.monotonic()
+            elif time.monotonic() - zero_since >= PAGE_EMPTY_SETTLE:
+                return True
+        else:
+            zero_since = None
         previous = captured
         time.sleep(PAGE_SAMPLE_INTERVAL)
+    return False
+
+
+def _wait_url(page, url, timeout=CHAPTER_SWITCH_TIMEOUT):
+    """等地址变成指定的那一个。"""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if page.url == url:
+            return True
+        time.sleep(0.3)
+    return False
+
+
+def _wait_url_change(page, before, timeout=CHAPTER_SWITCH_TIMEOUT):
+    """等地址从 ``before`` 换走。"""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if page.url != before:
+            return True
+        time.sleep(0.3)
     return False
 
 
@@ -266,14 +305,23 @@ def _starts_other_unit(lines, titles, unit_title):
     return any(head == _squeeze(title) for title in titles)
 
 
-def _capture_scroll(browser, book_title, titles, unit):
+def _capture_scroll(browser, book_title, titles, unit, nested=False):
     """滚动模式下取一个阅读单元（章或节），返回 (段落, 图, 是否被画布截断)。
 
-    屏幕上本来就是这一条时直接用它；不是才清空抓取、从目录跳过去。
-    清空会让「已经在目标上」的那一屏消失（点当前条目不会重画），所以不能先清再判。
+    优先用阅读器预渲染的整章 HTML：它就是完整的一章，不受「滚动模式只画两块
+    画布」的限制。截不到（没有预渲染步骤的格式，PDF、导入书可能是这类，尚未
+    实测）才退回截字形，
+    那一套要判断画布有没有被截断。
+
+    屏幕上本来就是这一条时不能直接取：预渲染里可能还是上一页的 HTML。reload
+    会停在当前这一节并整节重画，截到的就是这一节。
     """
     page = browser.page
     if _identify(page, titles, unit["index"]) == unit["index"]:
+        clear_capture(page)
+        page.reload(wait_until="domcontentloaded")
+        wait_for_reader(page)
+        switch_to_scroll_mode(browser)
         _wait_drawn(page)
     else:
         clear_capture(page)
@@ -282,7 +330,33 @@ def _capture_scroll(browser, book_title, titles, unit):
     if _paywall(page):
         fail("从《%s》开始拿不到正文：页面要求购买或订阅。到此为止。" % unit["title"], 3)
 
+    # 预渲染的 HTML 在画字之前就赋值好了；跳到目标、等它画稳之后，截到的一定是这一节。
+    # 仍拿屏幕上画出的几行核一次：万一阅读器顺手把下一节也预渲染了，截到的是后一份
     lines = group_lines(capture_glyphs(page))
+    blocks = pre_render_blocks(page)
+    if blocks and matches_screen(
+        blocks, [line["text"] for line in lines], unit["title"], book_title
+    ):
+        paragraphs, images = blocks_to_part(blocks, unit["title"], nested=nested)
+        if paragraphs or images:
+            return paragraphs, images, False
+    # 点目录里当前这一条不会重画，_goto_chapter 会借道目录第 1 条再跳回来，
+    # 那一页的字可能混进抓取（整页版权信息重复出现在正文里）。看到桥接页的
+    # 标题就重画一遍再取——reload 会停在当前这一节并整节重画。
+    bridge = _bridge_index(unit["index"], len(titles))
+    if bridge is not None:
+        bridge_key = _squeeze(titles[bridge])
+        if (
+            bridge_key
+            and bridge_key != _squeeze(unit["title"])
+            and any(_squeeze(line["text"]) == bridge_key for line in lines)
+        ):
+            page.reload(wait_until="domcontentloaded")
+            wait_for_reader(page)
+            switch_to_scroll_mode(browser)
+            _wait_drawn(page)
+            lines = group_lines(capture_glyphs(page))
+
     clipped = is_clipped(lines, canvas_css_heights(page))
     paragraphs = to_paragraphs(strip_noise_lines(lines, book_title, unit["title"]))
     return paragraphs, collect_images(page), clipped
@@ -291,9 +365,14 @@ def _capture_scroll(browser, book_title, titles, unit):
 def _capture_paged(browser, book_title, titles, unit):
     """翻页模式下一屏一屏取完整个单元，返回 (段落, 图)。
 
-    窄窗口下翻页模式是单栏一屏，翻一屏读一次抓取；翻到下一单元的第一屏
-    （首行是别的目录标题）就停。同一屏偶尔会被重画一遍，按整屏文字去重。
-    每一屏的 y 坐标加一个基数，各屏的段落与图不会混到一起。
+    窄窗口下翻页模式是单栏一屏，翻一屏读一次抓取。这一节的屏不会画目录标题
+    （首行就是正文），所以不能按「首行是别的标题」认结尾——按**地址**认：
+    翻到下一节时阅读器会把地址换成那一节的 id。地址没变就继续翻；连翻两屏
+    既没有新字也没有新图，说明翻到头了。
+
+    整页都是图的屏一个字都没有，照样收图。同一张图别的节可能已经预加载进
+    页面，按 ``src`` 去重，只收本屏范围里的。各行、各图的 y 坐标加一个基数，
+    各屏的内容不会混到一起。
     """
     page = browser.page
     page.set_viewport_size(PAGED_VIEWPORT)
@@ -306,18 +385,67 @@ def _capture_paged(browser, book_title, titles, unit):
     if _paywall(page):
         fail("从《%s》开始拿不到正文：页面要求购买或订阅。到此为止。" % unit["title"], 3)
 
+    # 翻页模式会停在这本书上次读到的位置，可能已经是本节的末尾。先跳到第 1 条目录
+    # 再跳回来，阅读器才会把位置重置到本节第一屏（实测这样做才从节首开始）。
+    # 跳回来之前清空抓取，留下的就都是本节第一屏的字。
+    unit_url = page.url
+    bridge = _bridge_index(unit["index"], len(titles))
+    if bridge is not None:
+        before = page.url
+        if not jump_to_chapter(browser, titles[bridge], bridge):
+            fail(
+                "跳不到《%s》，没法把《%s》翻回节首。停下。"
+                % (titles[bridge], unit["title"]),
+                3,
+            )
+        if not _wait_url_change(page, before):
+            fail(
+                "点了《%s》地址没变，没法把《%s》翻回节首。停下。"
+                % (titles[bridge], unit["title"]),
+                3,
+            )
+        clear_capture(page)
+        if not jump_to_chapter(browser, titles[unit["index"]], unit["index"]):
+            fail("没能跳回《%s》。停下。" % unit["title"], 3)
+        if not _wait_url(page, unit_url):
+            fail("跳回《%s》后地址没换回来。停下。" % unit["title"], 3)
+
+    # 确认真的在第一节：向右翻一屏再翻回来，回来的就是本节第一屏。
+    # 一翻就出了本节，说明停在了末尾，宁可停下也不把后半段当成全部。
+    clear_capture(page)
+    turn_page(browser)
+    browser.human_pause(*PAGE_PAUSE)
+    if not _wait_page(page):
+        fail("翻页后没有新内容，没法确认《%s》的节首。停下。" % unit["title"], 3)
+    if page.url != unit_url:
+        fail("《%s》一翻就出了本节，没能回到节首。停下。" % unit["title"], 3)
+    clear_capture(page)
+    turn_back_page(browser)
+    browser.human_pause(*PAGE_PAUSE)
+
     paragraphs = []
     images = []
     seen = set()
+    seen_images = set()
     y_base = 0
+    unchanged = 0
 
     for page_no in range(MAX_PAGES):
         if not _wait_page(page):
             print("翻页后没有新内容，按本单元结束处理。", flush=True)
             break
+        # 地址换成下一节了，这一节已经翻完；这一屏属于下一节，不收
+        if page.url != unit_url:
+            break
         # 第一屏只取最后一轮：跳转时前面可能还留着上一屏的重画
         segments = [capture_glyphs(page)] if page_no == 0 else capture_segments(page)
         page_height = max(canvas_css_heights(page) or [0])
+        page_images = [
+            image
+            for image in collect_images(page)
+            if 0 <= image["y"] <= page_height and image["src"] not in seen_images
+        ]
+
         added = False
         for segment in segments:
             lines = group_lines(segment)
@@ -333,20 +461,25 @@ def _capture_paged(browser, book_title, titles, unit):
                 paragraph = dict(paragraph)
                 paragraph["y"] += y_base
                 paragraphs.append(paragraph)
-            for image in collect_images(page):
-                if 0 <= image["y"] <= page_height:
-                    images.append(dict(image, y=image["y"] + y_base))
-            y_base += PAGE_Y_BASE
             added = True
 
-        if not added and page_no > 0:
-            return paragraphs, images
+        for image in page_images:
+            images.append(dict(image, y=image["y"] + y_base))
+            seen_images.add(image["src"])
+            added = True
+
+        if added:
+            y_base += PAGE_Y_BASE
+            unchanged = 0
+        else:
+            unchanged += 1
+            if unchanged >= 2:
+                return paragraphs, images
 
         clear_capture(page)
         turn_page(browser)
         browser.human_pause(*PAGE_PAUSE)
-
-    if page_no + 1 >= MAX_PAGES:
+    else:
         fail("翻到 %d 屏还没取完《%s》。停下。" % (MAX_PAGES, unit["title"]), 3)
     return paragraphs, images
 
@@ -412,7 +545,7 @@ def main(argv=None):
 
         # 3. 装钩子。这一步会 reload，阅读位置会退回本章开头
         page.set_viewport_size(SCROLL_VIEWPORT)
-        install_glyph_hook(browser)
+        install_capture_hooks(browser)
         browser.human_pause()
         if "/web/reader/" not in page.url:
             book = wait_for_reader(page)
@@ -475,7 +608,7 @@ def main(argv=None):
             for unit in units or [chapter]:
                 browser.human_pause(*CHAPTER_PAUSE)
                 paragraphs, images, clipped = _capture_scroll(
-                    browser, book_title, titles, unit
+                    browser, book_title, titles, unit, nested=bool(units)
                 )
                 if clipped:
                     print(
