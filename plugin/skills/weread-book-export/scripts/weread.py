@@ -297,13 +297,16 @@ def _close_catalog(browser):
         _click_catalog_button(browser)
 
 
-def jump_to_chapter(browser, title, attempts=3, timeout=10.0):
-    """在目录里找到标题**完全相等**的那一条，点进去。
+def jump_to_chapter(browser, title):
+    """在目录里找到标题**完全相等**的那一条，点一下。点到返回 True。
 
-    实测目录项偶尔点了不跳转，所以整套动作要重试；面板不管成没成都关掉。
+    **这里不判断跳没跳成**：跳没跳成由调用方按屏幕上的字认（见
+    ``layout.identify_chapter``）。拿标题判断不行——版权信息、扉页这类前置页的
+    ``document.title`` 里没有章名；拿「抓到的字变多了」判断也不行——点目录里
+    当前所在的那一章根本不会重画。
     """
     page = browser.page
-    for _ in range(attempts):
+    for _ in range(3):
         if not _open_catalog(browser):
             continue
 
@@ -318,9 +321,6 @@ def jump_to_chapter(browser, title, attempts=3, timeout=10.0):
         item = page.locator(CATALOG_ITEM).nth(titles.index(title))
         try:
             browser.click_locator(item)
-            page.wait_for_function(
-                "t => document.title.indexOf(t) >= 0", arg=title, timeout=timeout * 1000
-            )
         except Exception:
             continue
 
@@ -385,6 +385,20 @@ def wait_canvas_ready(page, timeout=30.0):
     return False
 
 
+def force_render(browser, timeout=30.0):
+    """让页面带着钩子把当前这一章重画一遍，返回画好了没有。
+
+    ``reload`` 之后阅读器停在同一章、整章重画一遍（实测：翻到第 4 章后 reload，
+    仍在第 4 章、重画完成）。点目录里当前所在的那一章**不会**触发重画，这种时候
+    靠它把画面弄出来。
+    """
+    page = browser.page
+    page.reload(wait_until="domcontentloaded")
+    if switch_to_scroll_mode(browser) is None:
+        return False
+    return wait_canvas_ready(page, timeout=timeout)
+
+
 def capture_glyphs(page):
     """把钩子记下的字形分片取回来，只留**最后一轮绘制**。
 
@@ -439,28 +453,26 @@ def scroll_through_chapter(browser):
         browser.human_pause()
 
 
-def go_next_chapter(browser, attempts=3, timeout=10.0):
-    """点「下一章」，返回 ``"moved"`` / ``"last"`` / ``"stuck"``。
+def go_next_chapter(browser):
+    """点「下一章」，返回 ``"clicked"`` 或 ``"last"``。
 
     没有「下一章」按钮就是最后一章。**只能走真实鼠标点击**：实测在页面里直接调
-    ``.click()`` 不会跳转。点完看 ``document.title`` 变没变，没变重试最多 3 次。
+    ``.click()`` 不会跳转。
+
+    和 ``jump_to_chapter`` 一样，**这里不判断跳没跳成**——点完由调用方按屏幕上的
+    字认到了哪一章。点失败（按钮脱离 DOM 之类）重试几次。
     """
     page = browser.page
-    for _ in range(attempts):
+    for _ in range(3):
         button = page.locator(NEXT_BUTTON)
         if button.count() == 0:
             return "last"
-
-        before = page.title()
         try:
             browser.click_locator(button.first)
-            page.wait_for_function(
-                "prev => document.title !== prev", arg=before, timeout=timeout * 1000
-            )
+            return "clicked"
         except Exception:
             continue
-        return "moved"
-    return "stuck"
+    return "clicked"
 
 
 def collect_images(page):

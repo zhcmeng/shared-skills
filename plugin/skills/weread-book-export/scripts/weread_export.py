@@ -14,7 +14,7 @@ from pathlib import Path
 
 from browser import Browser, BrowserError, default_base_dir
 from catalog import chapter_file_name, flatten_to_leaves
-from layout import extract_chapter
+from layout import extract_chapter, group_lines, identify_chapter
 from markdown import render_chapter, render_readme
 from state import first_pending, load_state, mark_done, save_state
 from weread import (
@@ -25,6 +25,7 @@ from weread import (
     clear_capture,
     collect_images,
     download_images,
+    force_render,
     go_next_chapter,
     install_glyph_hook,
     is_logged_out,
@@ -34,7 +35,6 @@ from weread import (
     scroll_through_chapter,
     search_books,
     switch_to_scroll_mode,
-    wait_canvas_ready,
     wait_for_reader,
 )
 
@@ -77,34 +77,28 @@ def _paywall(page):
     return any(mark in text for mark in PAYWALL_MARKS)
 
 
-def _current_pos(page, leaves):
-    """按 document.title 认当前停在哪一章；认不出返回 None。"""
-    title = page.title()
-    best = None
-    for i, leaf in enumerate(leaves):
-        if leaf["title"] and leaf["title"] in title:
-            if best is None or len(leaf["title"]) > len(leaves[best]["title"]):
-                best = i
-    return best
+def _identify(page, leaves, expected=None):
+    """屏幕上画的是哪一章；认不出返回 None。"""
+    return identify_chapter(
+        group_lines(capture_glyphs(page)), [leaf["title"] for leaf in leaves], expected
+    )
 
 
-def _reload_rendered(browser):
-    """让页面带着钩子重画一遍，并重新回到滚动模式。"""
-    browser.page.reload(wait_until="domcontentloaded")
-    if switch_to_scroll_mode(browser) is None:
-        return False
-    return wait_canvas_ready(browser.page, timeout=30.0)
+def _settle_chapter(browser, leaves, expected):
+    """让页面停在 ``leaves[expected]`` 上，返回它的下标；做不到返回 None。
 
-
-def _ensure_captured(browser):
-    """等这一章画完并截到字；截不到就让页面带着钩子重画一遍。
-
-    刚点进一章时偶尔一个字都截不到——已经渲染好的章节滚动不会重绘，
-    重画一次就有了。
+    先认屏幕上画的是哪一章；不是就在目录里点一次；点完还不对就重画一遍再认
+    ——点目录里当前所在的那一章不会重画，这一步专门兜它。
     """
-    if wait_canvas_ready(browser.page, timeout=8.0):
-        return True
-    return _reload_rendered(browser)
+    page = browser.page
+    if _identify(page, leaves, expected) == expected:
+        return expected
+    if jump_to_chapter(browser, leaves[expected]["title"]):
+        if _identify(page, leaves, expected) == expected:
+            return expected
+    if force_render(browser):
+        return _identify(page, leaves, expected)
+    return None
 
 
 def _write_readme(out_dir, book_title, author, source_url, export_date, chapters):
@@ -197,13 +191,8 @@ def main(argv=None):
 
         pos = pos_by_index[pending]
         print("共 %d 章，从第 %d 章《%s》开始。" % (len(leaves), pos + 1, leaves[pos]["title"]))
-        clear_capture(page)
-        if not jump_to_chapter(browser, leaves[pos]["title"]):
-            fallback = _current_pos(page, leaves)
-            if fallback is None:
-                fail("跳不到《%s》，也认不出当前是哪一章。停下。" % leaves[pos]["title"], 3)
-            print("跳转没成功，改成从当前这一章《%s》往后走。" % leaves[fallback]["title"])
-            pos = fallback
+        if _settle_chapter(browser, leaves, pos) != pos:
+            fail("停不到《%s》，也认不出屏幕上是哪一章。停下。" % leaves[pos]["title"], 3)
 
         # 5. 逐章取
         written = 0
@@ -216,8 +205,8 @@ def main(argv=None):
             prefix = file_name.split("-", 1)[0]
 
             browser.human_pause()
-            if not _ensure_captured(browser):
-                fail("《%s》这一章没画完，停下。" % chapter["title"], 3)
+            if _identify(page, leaves, pos) != pos and _settle_chapter(browser, leaves, pos) != pos:
+                fail("屏幕上认不出《%s》。停下。" % chapter["title"], 3)
 
             if _paywall(page):
                 fail("从《%s》开始拿不到正文：页面要求购买或订阅。到此为止。" % chapter["title"], 3)
@@ -266,16 +255,10 @@ def main(argv=None):
             browser.human_pause()
             scroll_through_chapter(browser)
             clear_capture(page)
-            status = go_next_chapter(browser)
-            if status == "last":
+            if go_next_chapter(browser) == "last":
                 break
-            if status == "stuck":
-                fail("点了「下一章」没反应，停在《%s》。" % chapter["title"], 3)
 
             pos += 1
-            if pos < len(leaves) and leaves[pos]["title"] not in page.title():
-                if not jump_to_chapter(browser, leaves[pos]["title"]):
-                    fail("下一章应该是《%s》，但没跳过去。" % leaves[pos]["title"], 3)
 
         print("完成 %d 章、%d 张图，写在 %s" % (written, total_images, out_dir))
         return 0
