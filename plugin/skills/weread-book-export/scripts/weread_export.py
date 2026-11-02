@@ -10,6 +10,7 @@
 import argparse
 import datetime
 import sys
+import time
 from pathlib import Path
 
 from browser import Browser, BrowserError, default_base_dir
@@ -25,8 +26,6 @@ from weread import (
     clear_capture,
     collect_images,
     download_images,
-    force_render,
-    go_next_chapter,
     install_glyph_hook,
     is_logged_out,
     jump_to_chapter,
@@ -35,6 +34,7 @@ from weread import (
     scroll_through_chapter,
     search_books,
     switch_to_scroll_mode,
+    wait_canvas_ready,
     wait_for_reader,
 )
 
@@ -84,21 +84,51 @@ def _identify(page, leaves, expected=None):
     )
 
 
-def _settle_chapter(browser, leaves, expected):
-    """让页面停在 ``leaves[expected]`` 上，返回它的下标；做不到返回 None。
+# 点完目录后多久没见到目标章名，就认为这一下没跳成
+CHAPTER_SWITCH_TIMEOUT = 15.0
 
-    先认屏幕上画的是哪一章；不是就在目录里点一次；点完还不对就重画一遍再认
-    ——点目录里当前所在的那一章不会重画，这一步专门兜它。
+
+def _wait_for_chapter(page, leaves, expected, timeout=CHAPTER_SWITCH_TIMEOUT):
+    """等目标章画出来并画稳：章名出现在屏幕第一行，画布高度也不再变。"""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if _identify(page, leaves, expected) == expected:
+            return wait_canvas_ready(page, timeout=10.0)
+        time.sleep(0.3)
+    return False
+
+
+def _bridge_index(expected, total):
+    """跳板用第 1 章；目标就是第 1 章时改用第 2 章，免得跳板原地不动。"""
+    if total <= 1:
+        return None
+    return 1 if expected == 0 else 0
+
+
+def _goto_chapter(browser, leaves, expected):
+    """从目录直接跳到目标章，确认画出来的是它。
+
+    如果页面本来就停在目标章，点目录里那一条不会重画——这时先跳到第 1 章
+    （目标就是第 1 章则用第 2 章）再跳回来，用两次真实跳转逼出重画。
+    全程不判断「现在停在哪一章」。
     """
     page = browser.page
+    title = leaves[expected]["title"]
+    index = leaves[expected]["index"]
     if _identify(page, leaves, expected) == expected:
-        return expected
-    if jump_to_chapter(browser, leaves[expected]["title"]):
-        if _identify(page, leaves, expected) == expected:
-            return expected
-    if force_render(browser):
-        return _identify(page, leaves, expected)
-    return None
+        return True
+
+    bridge = _bridge_index(expected, len(leaves))
+    for _ in range(2):
+        if jump_to_chapter(browser, title, index) and _wait_for_chapter(page, leaves, expected):
+            return True
+        if bridge is None:
+            break
+        jump_to_chapter(browser, leaves[bridge]["title"], leaves[bridge]["index"])
+        _wait_for_chapter(page, leaves, bridge, timeout=5.0)
+        if jump_to_chapter(browser, title, index) and _wait_for_chapter(page, leaves, expected):
+            return True
+    return False
 
 
 def _write_readme(out_dir, book_title, author, source_url, export_date, chapters):
@@ -191,8 +221,9 @@ def main(argv=None):
 
         pos = pos_by_index[pending]
         print("共 %d 章，从第 %d 章《%s》开始。" % (len(leaves), pos + 1, leaves[pos]["title"]))
-        if _settle_chapter(browser, leaves, pos) != pos:
-            fail("停不到《%s》，也认不出屏幕上是哪一章。停下。" % leaves[pos]["title"], 3)
+        browser.human_pause()
+        if not _goto_chapter(browser, leaves, pos):
+            fail("没能跳到《%s》。停下。" % leaves[pos]["title"], 3)
 
         # 5. 逐章取
         written = 0
@@ -205,8 +236,9 @@ def main(argv=None):
             prefix = file_name.split("-", 1)[0]
 
             browser.human_pause()
-            if _identify(page, leaves, pos) != pos and _settle_chapter(browser, leaves, pos) != pos:
-                fail("屏幕上认不出《%s》。停下。" % chapter["title"], 3)
+            clear_capture(page)
+            if not _goto_chapter(browser, leaves, pos):
+                fail("没能跳到《%s》。停下。" % chapter["title"], 3)
 
             if _paywall(page):
                 fail("从《%s》开始拿不到正文：页面要求购买或订阅。到此为止。" % chapter["title"], 3)
@@ -220,6 +252,10 @@ def main(argv=None):
                 )
 
             paragraphs = extract_chapter(capture_glyphs(page), book_title, chapter["title"])
+
+            # 截完字再滚一遍本章：一是像人在读，二是让一开始没进视野的插图也加载出来
+            browser.human_pause()
+            scroll_through_chapter(browser)
             images = collect_images(page)
             saved = download_images(browser, images, out_dir / "images", prefix)
             name_by_src = {item["src"]: item["file_name"] for item in saved}
@@ -249,14 +285,6 @@ def main(argv=None):
             print(
                 "写完 %s（%d 段，%d 张图）" % (file_name, len(paragraphs), len(placed)), flush=True
             )
-
-            # 分段滚到章末：像人在读，也把「下一章」按钮滚进视野。
-            # 清空放在滚动之后、翻页之前：滚动若触发重绘，那些字形要一起丢掉
-            browser.human_pause()
-            scroll_through_chapter(browser)
-            clear_capture(page)
-            if go_next_chapter(browser) == "last":
-                break
 
             pos += 1
 

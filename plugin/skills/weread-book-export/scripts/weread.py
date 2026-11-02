@@ -297,8 +297,11 @@ def _close_catalog(browser):
         _click_catalog_button(browser)
 
 
-def jump_to_chapter(browser, title):
+def jump_to_chapter(browser, title, index=None):
     """在目录里找到标题**完全相等**的那一条，点一下。点到返回 True。
+
+    给了 ``index`` 就按目录位置点：同名章（如「附录」出现两次）只按标题找会
+    一路点到第一条。位置对不上标题时退回按标题找。
 
     **这里不判断跳没跳成**：跳没跳成由调用方按屏幕上的字认（见
     ``layout.identify_chapter``）。拿标题判断不行——版权信息、扉页这类前置页的
@@ -314,11 +317,19 @@ def jump_to_chapter(browser, title):
             titles = page.evaluate(_CATALOG_TITLES_JS)
         except Exception:
             continue
-        if title not in titles:
-            _close_catalog(browser)
-            return False
 
-        item = page.locator(CATALOG_ITEM).nth(titles.index(title))
+        if index is not None and (not 0 <= index < len(titles) or titles[index] != title):
+            index = None
+            continue
+        if index is None:
+            if title not in titles:
+                _close_catalog(browser)
+                return False
+            position = titles.index(title)
+        else:
+            position = index
+
+        item = page.locator(CATALOG_ITEM).nth(position)
         try:
             browser.click_locator(item)
         except Exception:
@@ -385,20 +396,6 @@ def wait_canvas_ready(page, timeout=30.0):
     return False
 
 
-def force_render(browser, timeout=30.0):
-    """让页面带着钩子把当前这一章重画一遍，返回画好了没有。
-
-    ``reload`` 之后阅读器停在同一章、整章重画一遍（实测：翻到第 4 章后 reload，
-    仍在第 4 章、重画完成）。点目录里当前所在的那一章**不会**触发重画，这种时候
-    靠它把画面弄出来。
-    """
-    page = browser.page
-    page.reload(wait_until="domcontentloaded")
-    if switch_to_scroll_mode(browser) is None:
-        return False
-    return wait_canvas_ready(page, timeout=timeout)
-
-
 def capture_glyphs(page):
     """把钩子记下的字形分片取回来，只留**最后一轮绘制**。
 
@@ -417,9 +414,6 @@ def capture_glyphs(page):
         )
     return last_render(glyphs)
 
-
-# 章末的「下一章」按钮。标题在 title 属性里，正文也可能写着「下一章」，两种都认。
-NEXT_BUTTON = '.readerFooter_button[title="下一章"], .readerFooter_button:has-text("下一章")'
 
 # 每次滚多少屏、滚几段：分段滚，像人在读，不一次跳到底
 SCROLL_STEPS = (8, 15)
@@ -440,7 +434,7 @@ CONTENT_TYPE_EXT = {
 def scroll_through_chapter(browser):
     """把这一章从头滚到底，像人在读。
 
-    除了造节奏，滚到底还有一个用处：把章末的「下一章」按钮滚进视野。
+    滚一遍还有一个用处：让画布下方、一开始没进视野的插图也加载出来。
     """
     page = browser.page
     size = page.viewport_size
@@ -451,28 +445,6 @@ def scroll_through_chapter(browser):
     for _ in range(random.randint(*SCROLL_STEPS)):
         browser.wheel(viewport * random.uniform(*SCROLL_RANGE))
         browser.human_pause()
-
-
-def go_next_chapter(browser):
-    """点「下一章」，返回 ``"clicked"`` 或 ``"last"``。
-
-    没有「下一章」按钮就是最后一章。**只能走真实鼠标点击**：实测在页面里直接调
-    ``.click()`` 不会跳转。
-
-    和 ``jump_to_chapter`` 一样，**这里不判断跳没跳成**——点完由调用方按屏幕上的
-    字认到了哪一章。点失败（按钮脱离 DOM 之类）重试几次。
-    """
-    page = browser.page
-    for _ in range(3):
-        button = page.locator(NEXT_BUTTON)
-        if button.count() == 0:
-            return "last"
-        try:
-            browser.click_locator(button.first)
-            return "clicked"
-        except Exception:
-            continue
-    return "clicked"
 
 
 def collect_images(page):
