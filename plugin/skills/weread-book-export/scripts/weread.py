@@ -10,7 +10,7 @@ import time
 from pathlib import Path
 from urllib.parse import quote, urljoin
 
-from layout import last_render
+from layout import last_render, split_renders
 
 WEREAD_HOME = "https://weread.qq.com/"
 SEARCH_URL = "https://weread.qq.com/web/search/books?keyword=%s"
@@ -139,6 +139,9 @@ CATALOG_ITEM = ".readerCatalog li"
 _CANVAS_HEIGHTS_JS = """() => [...document.querySelectorAll('.wr_canvasContainer canvas')]
     .map(c => c.height)"""
 
+_CANVAS_CSS_HEIGHTS_JS = """() => [...document.querySelectorAll('.wr_canvasContainer canvas')]
+    .map(c => c.getBoundingClientRect().height)"""
+
 _CATALOG_JS = """() => [...document.querySelectorAll('.readerCatalog li')].map(li => {
   const titleEl = li.querySelector('.readerCatalog_list_item_title_text');
   const lines = (li.innerText || '').split('\\n').map(s => s.trim()).filter(Boolean);
@@ -210,30 +213,42 @@ def is_scroll_mode(page):
     return reader_mode(page) == "scroll"
 
 
-def switch_to_scroll_mode(browser, timeout=20.0):
-    """切到滚动模式，返回当前画布高度；切不过去返回 None。
+def switch_mode(browser, want, timeout=20.0):
+    """切到 ``want`` 模式（``"scroll"`` 或 ``"horizontal"``），切过去返回 True。
 
-    按钮是开关、点了偶尔被吞掉，所以边看类名边补点。已经处于滚动模式时**绝不补点**
-    ——那一下会切到翻页态。切过去之后还要等画布真正建出来（刷新后有一两秒是空的），
+    按钮是开关、点了偶尔被吞掉，所以边看类名边补点。已经处于目标模式时**绝不补点**
+    ——那一下会切到另一种模式。切过去之后还要等画布真正建出来（刷新后有一两秒是空的），
     短章的画布本来就矮，所以「有了」就算成，不按高度卡。
     """
     page = browser.page
+    other = "horizontal" if want == "scroll" else "scroll"
     deadline = time.monotonic() + timeout
     last_click = 0.0
     while time.monotonic() < deadline:
         mode = reader_mode(page)
-        if mode == "scroll":
-            height = canvas_height(page, timeout=3000)
-            if height > 0:
-                return height
-        elif mode == "horizontal" and time.monotonic() - last_click > 2.0:
+        if mode == want:
+            if canvas_height(page, timeout=3000) > 0:
+                return True
+        elif mode == other and time.monotonic() - last_click > 2.0:
             try:
                 browser.click_locator(page.locator(MODE_BUTTON).first)
                 last_click = time.monotonic()
             except Exception:
                 pass
         time.sleep(0.5)
-    return None
+    return False
+
+
+def switch_to_scroll_mode(browser, timeout=20.0):
+    """切到滚动模式，返回当前画布高度；切不过去返回 None。"""
+    if not switch_mode(browser, "scroll", timeout):
+        return None
+    return canvas_height(browser.page)
+
+
+def switch_to_paged_mode(browser, timeout=20.0):
+    """切到翻页模式（一屏一屏翻，单栏），返回是否切成功。"""
+    return switch_mode(browser, "horizontal", timeout)
 
 
 def read_catalog(page):
@@ -396,13 +411,8 @@ def wait_canvas_ready(page, timeout=30.0):
     return False
 
 
-def capture_glyphs(page):
-    """把钩子记下的字形分片取回来，只留**最后一轮绘制**。
-
-    分片取、不整份取：一章两三千条记录序列化后几百 KB，单次 evaluate 容易超时。
-    翻章时阅读器会先把上一屏重画一遍再画目标那一章，两轮都记在这里，交给
-    ``last_render`` 切掉前面那一轮（见 layout.last_render）。
-    """
+def _raw_capture(page):
+    """把钩子记下的字形原样取回来（分片取，不切轮次）。"""
     total = page.evaluate("() => (window.__wereadCap || []).length")
     glyphs = []
     for start in range(0, total, CAPTURE_CHUNK):
@@ -412,12 +422,39 @@ def capture_glyphs(page):
                 [start, CAPTURE_CHUNK],
             )
         )
-    return last_render(glyphs)
+    return glyphs
 
 
-# 每次滚多少屏、滚几段：分段滚，像人在读，不一次跳到底
-SCROLL_STEPS = (8, 15)
-SCROLL_RANGE = (0.6, 1.0)
+def capture_glyphs(page):
+    """把钩子记下的字形分片取回来，只留**最后一轮绘制**。
+
+    翻章时阅读器会先把上一屏重画一遍再画目标那一章，两轮都记在这里，交给
+    ``last_render`` 切掉前面那一轮（见 layout.last_render）。
+    """
+    return last_render(_raw_capture(page))
+
+
+def capture_segments(page):
+    """取回字形，按绘制顺序切成一轮一轮，不过滤。
+
+    翻页模式下用：一屏里左栏、右栏各是一轮；开头偶尔还会把上一屏重画一遍，
+    由调用方按内容去重。
+    """
+    return split_renders(_raw_capture(page))
+
+
+def turn_page(browser):
+    """在翻页模式里翻到下一屏。用方向键，和真人翻页一样。"""
+    browser.page.keyboard.press("ArrowRight")
+
+
+def canvas_css_heights(page):
+    """各块画布在页面上的高度（CSS 像素），按页面顺序。"""
+    try:
+        return page.evaluate(_CANVAS_CSS_HEIGHTS_JS)
+    except Exception:
+        return []
+
 
 # 下图之间的间隔（秒）
 IMAGE_PAUSE = (0.1, 0.3)
@@ -429,22 +466,6 @@ CONTENT_TYPE_EXT = {
     "image/gif": ".gif",
     "image/webp": ".webp",
 }
-
-
-def scroll_through_chapter(browser):
-    """把这一章从头滚到底，像人在读。
-
-    滚一遍还有一个用处：让画布下方、一开始没进视野的插图也加载出来。
-    """
-    page = browser.page
-    size = page.viewport_size
-    if not size:
-        size = page.evaluate("() => ({width: innerWidth, height: innerHeight})")
-    viewport = size["height"] or 800
-
-    for _ in range(random.randint(*SCROLL_STEPS)):
-        browser.wheel(viewport * random.uniform(*SCROLL_RANGE))
-        browser.human_pause()
 
 
 def collect_images(page):
@@ -501,3 +522,21 @@ def download_images(browser, images, out_dir, prefix):
         saved.append({"src": image["src"], "file_name": file_name})
         time.sleep(random.uniform(*IMAGE_PAUSE))
     return saved
+
+
+def attach_downloads(parts, saved):
+    """把下载结果按 ``src`` 写回各节的 ``images``，返回放好的图数。
+
+    渲染只认 ``images`` 里的 ``file_name``，所以下载完必须写回这一份；
+    没下下来的图不在 ``saved`` 里，从正文里去掉，不留空引用。
+    """
+    name_by_src = {item["src"]: item["file_name"] for item in saved}
+    placed = 0
+    for part in parts:
+        part["images"] = [
+            {"y": image["y"], "alt": image["alt"], "file_name": name_by_src[image["src"]]}
+            for image in part["images"]
+            if image["src"] in name_by_src
+        ]
+        placed += len(part["images"])
+    return placed
