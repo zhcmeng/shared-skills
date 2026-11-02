@@ -14,7 +14,7 @@ sys.path.insert(
     0,
     str(HERE.parent.parent / "plugin" / "skills" / "weread-book-export" / "scripts"),
 )
-from catalog import chapter_file_name, chapter_level, flatten_to_chapters  # noqa: E402
+from catalog import chapter_file_name, flatten_to_chapters  # noqa: E402
 
 
 def main():
@@ -31,93 +31,31 @@ def main():
             print("[通过] %s" % name)
 
     eq(
-        "标题带第X章的那一层就是章",
-        chapter_level(
-            [
-                {"title": "版权信息", "level": 1},
-                {"title": "第1章 定位", "level": 1},
-                {"title": "人心比流量重要", "level": 2},
-            ]
-        ),
-        1,
-    )
-
-    eq(
-        "带部/篇的书，章在第二层",
-        chapter_level(
-            [{"title": "上篇 认知", "level": 1}, {"title": "第一章 定位", "level": 2}]
-        ),
-        2,
-    )
-
-    eq(
-        "一层都没有第X章时按最深的一层拆",
-        chapter_level([{"title": "上篇", "level": 1}, {"title": "一、小节", "level": 2}]),
-        2,
-    )
-
-    eq(
-        "章下面的小节归到该章，不再单独成章",
+        "最上层条目各成一章，与标题怎么命名无关",
         [
             (c["title"], [p["title"] for p in c["parts"]])
             for c in flatten_to_chapters(
                 [
-                    {"title": "版权信息", "level": 1},
-                    {"title": "第1章 定位", "level": 1},
-                    {"title": "第2章 抢占消费者心智", "level": 1},
-                    {"title": "人心比流量重要", "level": 2},
-                    {"title": "封杀品类", "level": 2},
-                    {"title": "第3章 渠道", "level": 1},
-                    {"title": "三云合一", "level": 2},
+                    {"title": "文前", "level": 1},
+                    {"title": "第一级阶梯", "level": 1},
+                    {"title": "可可西里", "level": 2},
+                    {"title": "阿里", "level": 2},
+                    {"title": "第二级阶梯", "level": 1},
+                    {"title": "伊犁", "level": 2},
                 ]
             )
         ],
         [
-            ("版权信息", []),
-            ("第1章 定位", []),
-            ("第2章 抢占消费者心智", ["人心比流量重要", "封杀品类"]),
-            ("第3章 渠道", ["三云合一"]),
+            ("文前", []),
+            ("第一级阶梯", ["可可西里", "阿里"]),
+            ("第二级阶梯", ["伊犁"]),
         ],
     )
 
     eq(
-        "章的 index 就是它在完整目录里的位置",
+        "书里没有第X章这种编号，也按最上层拆，不往最深层钻",
         [
-            c["index"]
-            for c in flatten_to_chapters(
-                [
-                    {"title": "版权信息", "level": 1},
-                    {"title": "第1章", "level": 1},
-                    {"title": "小节", "level": 2},
-                    {"title": "第2章", "level": 1},
-                ]
-            )
-        ],
-        [0, 1, 3],
-    )
-
-    eq(
-        "部/篇记在父级里，章下的小节照收",
-        [
-            (c["title"], c["parents"], [p["title"] for p in c["parts"]])
-            for c in flatten_to_chapters(
-                [
-                    {"title": "上篇", "level": 1},
-                    {"title": "第1章", "level": 2},
-                    {"title": "第1节", "level": 3},
-                    {"title": "第2章", "level": 2},
-                    {"title": "下篇", "level": 1},
-                    {"title": "第3章", "level": 2},
-                ]
-            )
-        ],
-        [("第1章", ["上篇"], ["第1节"]), ("第2章", ["上篇"], []), ("第3章", ["下篇"], [])],
-    )
-
-    eq(
-        "没有第X章时按最深一层拆，父级仍从外到内",
-        [
-            (c["title"], c["parents"])
+            (c["title"], [p["title"] for p in c["parts"]])
             for c in flatten_to_chapters(
                 [
                     {"title": "上篇", "level": 1},
@@ -126,8 +64,66 @@ def main():
                 ]
             )
         ],
-        [("一、小节", ["上篇", "第一节"])],
+        [("上篇", ["第一节", "一、小节"])],
     )
+
+    eq(
+        "目录都在同一层时每条各成一章",
+        [
+            c["title"]
+            for c in flatten_to_chapters(
+                [{"title": "其一", "level": 1}, {"title": "其二", "level": 1}]
+            )
+        ],
+        ["其一", "其二"],
+    )
+
+    eq(
+        "章的 index 就是它在完整目录里的位置",
+        [
+            c["index"]
+            for c in flatten_to_chapters(
+                [
+                    {"title": "文前", "level": 1},
+                    {"title": "第一级阶梯", "level": 1},
+                    {"title": "可可西里", "level": 2},
+                    {"title": "第二级阶梯", "level": 1},
+                ]
+            )
+        ],
+        [0, 1, 3],
+    )
+
+    eq(
+        "深层的节按目录顺序收进所属章，碰到下一个上层条目就断开",
+        [
+            [p["title"] for p in c["parts"]]
+            for c in flatten_to_chapters(
+                [
+                    {"title": "上篇", "level": 1},
+                    {"title": "第一章", "level": 2},
+                    {"title": "第一节", "level": 3},
+                    {"title": "第二章", "level": 2},
+                    {"title": "下篇", "level": 1},
+                    {"title": "第三章", "level": 2},
+                ]
+            )
+        ],
+        [["第一章", "第一节", "第二章"], ["第三章"]],
+    )
+
+    eq(
+        "最上层条目没有父级",
+        [
+            c["parents"]
+            for c in flatten_to_chapters(
+                [{"title": "上篇", "level": 1}, {"title": "第一章", "level": 2}]
+            )
+        ],
+        [[]],
+    )
+
+    eq("空目录返回空表", flatten_to_chapters([]), [])
 
     eq("同名章节生成的文件名不撞",
        chapter_file_name(0, 10, "译后记") != chapter_file_name(1, 10, "译后记"), True)
