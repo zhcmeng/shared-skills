@@ -102,6 +102,12 @@ def _identify(page, titles, expected=None):
 # 点完目录后多久没见到目标章名，就认为这一下没跳成
 CHAPTER_SWITCH_TIMEOUT = 15.0
 
+# 地址已经变了、标题却还没出现时，再给标题这么多秒
+TITLELESS_GRACE = 1.5
+
+# 不画目录标题的前置页（如「文前」）等画稳的时长
+TITLELESS_TIMEOUT = 6.0
+
 
 # 抓到的字形数要连续这么多次采样都不再增加，才算这一章画完了
 RENDER_STABLE_SAMPLES = 3
@@ -131,14 +137,61 @@ def _wait_drawn(page, timeout=15.0):
     return False
 
 
-def _wait_for_chapter(page, titles, expected, timeout=CHAPTER_SWITCH_TIMEOUT):
-    """等目标条目画出来并画完：标题出现在屏幕第一行，字形也不再增加。"""
+def _wait_titleless_page(page, timeout=TITLELESS_TIMEOUT):
+    """等一张不画目录标题的页画稳。
+
+    这类页多半是整页图（实测《这里是中国》的「文前」只画了「-特别鸣谢-」
+    几个字，另配几张图）。先按整章的标准等字画完；一个字都没有时，再等
+    画布尺寸连续两次采样相同。
+    """
+    if _wait_drawn(page, timeout=timeout):
+        return True
+    deadline = time.monotonic() + 2.0
+    previous = None
+    while time.monotonic() < deadline:
+        heights = canvas_css_heights(page)
+        if not heights:
+            return False
+        if heights == previous:
+            return True
+        previous = heights
+        time.sleep(0.4)
+    return False
+
+
+def _wait_for_chapter(
+    page, titles, expected, timeout=CHAPTER_SWITCH_TIMEOUT, before_url=None
+):
+    """等目标画出来并画完：标题出现在屏幕第一行，字形也不再增加。
+
+    给了 ``before_url`` 时，地址变了、标题又一直不出现，说明这是一张不画
+    目录标题的前置页，按「已经翻到新的一页」处理。
+    """
     deadline = time.monotonic() + timeout
+    changed_at = None
     while time.monotonic() < deadline:
         if _identify(page, titles, expected) == expected:
             return _wait_drawn(page)
+        if before_url is not None and page.url != before_url:
+            if changed_at is None:
+                changed_at = time.monotonic()
+            elif time.monotonic() - changed_at >= TITLELESS_GRACE:
+                return _wait_titleless_page(page)
         time.sleep(0.3)
     return False
+
+
+def _jump_and_confirm(browser, titles, expected):
+    """点目录里的目标条，确认落到了新的一页。
+
+    「标题在第一行」是最可靠的确认。有的前置页不画目录标题，这时地址变了
+    就说明确实翻到了另一章，等这一页画稳即收。
+    """
+    page = browser.page
+    before = page.url
+    if not jump_to_chapter(browser, titles[expected], expected):
+        return False
+    return _wait_for_chapter(page, titles, expected, before_url=before)
 
 
 def _bridge_index(expected, total):
@@ -156,19 +209,18 @@ def _goto_chapter(browser, titles, expected):
     全程不判断「现在停在哪一条」。
     """
     page = browser.page
-    title = titles[expected]
     if _identify(page, titles, expected) == expected:
         return True
 
     bridge = _bridge_index(expected, len(titles))
     for _ in range(2):
-        if jump_to_chapter(browser, title, expected) and _wait_for_chapter(page, titles, expected):
+        if _jump_and_confirm(browser, titles, expected):
             return True
         if bridge is None:
             break
         jump_to_chapter(browser, titles[bridge], bridge)
         _wait_for_chapter(page, titles, bridge, timeout=5.0)
-        if jump_to_chapter(browser, title, expected) and _wait_for_chapter(page, titles, expected):
+        if _jump_and_confirm(browser, titles, expected):
             return True
     return False
 
