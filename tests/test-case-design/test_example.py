@@ -64,8 +64,9 @@ VENDOR_GONE = ("writing-evals.md", "cli-reference.md")
 # 装 `/skill-upper` 那一句。配置字段与命令参数在它那儿，写第七份之前要确认装着——
 # 这一句没了，没装的人只能照着印象编。
 DEP_MARK = "skill-upper"
-# 钉住的那一个 commit。这两份是照上游写的，不钉住就不知道对着哪一版核。
-VENDOR_PIN = "7f1ff9b8e2d7c654728de526867f2f7e7b78ea51"
+# 钉住的版本行。这两份是照上游写的，不钉住就不知道对着哪一版核；使用者手上没有仓库，
+# 只能拿 `skill-up --version` 跟这个号对——所以钉发布版，不钉 commit。
+VENDOR_PIN = "v0.14.0"
 # 钩子被禁掉之后，常驻上下文那条替代道。上游只讲到「钩子一律不生效」为止，这条是
 # Claude Code 自己的行为。它是这一支里最容易被顺手删掉的一句：删掉之后文档照样读得
 # 通，写第七份的人却只能把通用稿里的钩子注入标成「待确认」。
@@ -344,7 +345,7 @@ def check_vendored():
                    "、".join(present) or "（空）", "、".join(VENDOR_FILES))]
     readme = (VENDOR_DIR / "README.md").read_text(encoding="utf-8")
     if VENDOR_PIN not in readme:
-        return ["那目录的 README.md 里没钉住上游的 commit（%s）——上游改版之后，"
+        return ["那目录的 README.md 里没钉住对着的版本（%s）——上游改版之后，"
                 "读的人只能靠这一行看出它旧了" % VENDOR_PIN]
     problems = []
     for name in VENDOR_FILES:
@@ -397,16 +398,17 @@ def check_hook_alt_route():
 # 读得通，只是写第七份的人会照着印象编——而编出来的东西看不出是编的。
 #
 # 每一条都是实跑量出来的：缺了它，落成那一步就在那一处走岔，且不报错。
-# 记号挑的是源码符号或定死的措辞，不挑整句——整句一改措辞就误报。
+# 记号挑的是定死的措辞，不挑整句——整句一改措辞就误报；也不挑源码符号——使用者
+# 看不到源码，写了也核不了。
 USAGE_FACTS = [
     ("## 一、一次运行里，被测那边是怎么起的",
-     "buildClaudePrintCmd",
+     "没有传额外参数的口子",
      "命令行是拼死的，没有传额外参数的口子——写第七份的人会去试 --append-system-prompt"),
     ("## 一、一次运行里，被测那边是怎么起的",
      "不进当轮消息",
      "常驻上下文只剩 `CLAUDE.md` 一条道——不点明这一条，会把「接在用户消息前面」当成等价摆法"),
     ("## 二、工作区",
-     "UploadDir",
+     "逐字节写",
      "铺夹具是逐字节写、连源文件的权限位一起带——这是只读样本能带进工作区的依据"),
     ("## 二、工作区",
      "git 不存权限位",
@@ -418,7 +420,7 @@ USAGE_FACTS = [
      "夹具里就不许放同名的",
      "夹具排在 `setup_steps` 之后，放一份同名的 `CLAUDE.md` 会把注入冲掉"),
     ("## 七、路径怎么算、消息怎么拼",
-     "FindSkillDir",
+     "最多 10 层",
      "相对路径的基准会退让到 `eval.yaml` 的上一层——不按实际退让的那一层算，路径全错"),
     ("## 七、路径怎么算、消息怎么拼",
      'role must be "user"',

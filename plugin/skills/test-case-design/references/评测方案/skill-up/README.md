@@ -7,12 +7,8 @@
 | `usage-notes.md` | 用这套方案要注意的几处：实际跑起来是什么样、做不到什么、哪里要挑——写第七份的「跑不了原样的那几条」时用它 |
 | `README.md` | 你正在读的这份 |
 
-**配置字段怎么填、命令怎么用，不在这里。**那在 `/skill-upper` 技能里（`~/.claude/skills/skill-upper/SKILL.md` 与它 `references/` 下那几份）。写第七份之前先确认它装着，没装就让用户装。
+**配置字段怎么填、命令怎么用，不在这里。**那在 `/skill-upper` 技能里（`~/.claude/skills/skill-upper/` 的 `SKILL.md` 与它 `references/` 下那几份）。写第七份之前先找这个目录；找不到再看 `skill-up` 命令能不能用（`--help`／`validate` 核字段名）；都没有，就问用户要不要帮忙安装——默认装全局 `~/.claude/skills/skill-upper/`，不进项目目录。不要退回公网文档，也不要去找本机的 skill-up 克隆。
 
-**上游那两份给人看的手册不在本技能里**（上游 `docs/zh/guide/` 下的 `writing-evals.md` 与 `cli-reference.md`，是文档站的内容）——配置与命令那两块 `/skill-upper` 的参考文档覆盖得住，写第七份的人照着那一份就够。**它没写到的收在 `usage-notes.md` 里**：第五到七节是查漏补上的，第一到三节照上游源码读出来、第四节出自上游文档站的 `windows.md`、第一节里那条 `CLAUDE.md` 出自 Claude Code 自己的行为——这几类也都不在 `/skill-upper` 那儿。
-
-**出处**：<https://github.com/zhcmeng/skill-up>，钉住的版本是 `main @ 7f1ff9b8e2d7c654728de526867f2f7e7b78ea51`（2026-09-29）。上游没有发布 tag，所以按 commit 钉。上面两份都对着这一个版本；另外发布版是 `v0.12.0`（2026-09-18），`usage-notes.md` 里哪几条是在那一份上当场核过的，文末列着——两个号会各走各的，见那一份文末。
-
-**怎么更新**：`usage-notes.md` 的第一到三节、第六节与第七节是照上游**源码**读出来的结论，每条注了出处（源码文件与行号）；第四节照上游文档站的 `docs/zh/guide/windows.md`、第五节照同站那两份 guide 写的，没从源码核；第一节里那条 `CLAUDE.md` 是 Claude Code 自己的行为，照它那边的文档核。**都要照原处重核一遍再改**——上游改了实现或改了那几页，它不会自己报警，只会说错话。改完把钉的 commit 换成新那一个，两处都要换：这一节这一行、`usage-notes.md` 顶上。
+**锁定版本：`v0.14.0`（2026-10-20）。** 字段细节以 `/skill-upper` 的 `references/` 为准。读 `usage-notes.md` 前先跑一次 `skill-up --version`；与这个版本不一致时，把 `usage-notes.md` 当历史版本用，产出里涉及运行时行为的结论标「待确认」。
 
 **许可**：这一目录里没有上游原文，因此不附上游许可。插件整体的许可见插件仓库的根。
