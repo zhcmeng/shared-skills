@@ -1,4 +1,6 @@
-.claude/
+# 本仓库自用的项目级技能跟着仓库走；.claude/ 下其它本地配置（settings.local.json 之类）仍旧忽略
+.claude/*
+!.claude/skills/
 .DS_Store
 Thumbs.db
 
