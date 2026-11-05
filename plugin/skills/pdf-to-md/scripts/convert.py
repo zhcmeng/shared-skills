@@ -36,6 +36,10 @@ _WEB_INSTALL_HINT = ("uv run --with requests --with lxml --with tabulate "
 FINANCIAL_PAGE_ATTEMPTS = 3
 FINANCIAL_PAGE_RETRY_DELAY = 2.0
 
+# 429 没带 code 时，官方文档分不清是配额还是限流：先等一次再换 KEY。
+# 等的时间够短的限流恢复，又不会在配额用完时白拖太久。
+UNKNOWN_429_WAIT = 5.0
+
 
 def missing_dependencies(names=REQUIRED):
     """哪些依赖没装。"""
@@ -384,6 +388,36 @@ def _debug_error(debug_dir):
                          traceback.format_exc())
     except OSError:
         pass
+
+
+def _submit_with_pool(target, model, pool, optional_payload=None):
+    """按池里的顺序提交，额度类拒绝就换下一个 KEY。
+
+    返回 `(job_id, 提交成功的那个 token)`：调用方要用这个 token 轮询，
+    不能再用池子的当前值——池子可能已经往前走了。
+    """
+    while True:
+        token = pool.current()
+        try:
+            job_id = aistudio.submit(target, model, token, optional_payload)
+            return job_id, token
+        except aistudio.SubmitRejected as exc:
+            kind = aistudio.classify_rejection(exc)
+            if kind == aistudio.REJECTION_UNKNOWN_429:
+                time.sleep(UNKNOWN_429_WAIT)
+                try:
+                    job_id = aistudio.submit(target, model, token,
+                                             optional_payload)
+                    return job_id, token
+                except aistudio.SubmitRejected as again:
+                    if (aistudio.classify_rejection(again)
+                            != aistudio.REJECTION_UNKNOWN_429):
+                        raise
+                    exc = again
+            elif kind not in (aistudio.REJECTION_QUOTA,
+                              aistudio.REJECTION_KEY_DEAD):
+                raise
+            pool.retire(token, exc)
 
 
 def _convert_one_page(path, page_no, model, token, debug_dir=None):

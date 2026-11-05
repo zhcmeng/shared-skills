@@ -2366,6 +2366,87 @@ class TestAlreadyDone(unittest.TestCase):
         self.assertTrue(convert.already_done(self.root, "a"))
 
 
+class TestSubmitWithPool(unittest.TestCase):
+    def setUp(self):
+        patcher = mock.patch.object(convert, "UNKNOWN_429_WAIT", 0)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def submit(self, responses):
+        """按顺序把 responses 交给假 submit。"""
+        seq = iter(responses)
+        calls = []
+
+        def fake(target, model, token, optional_payload=None):
+            calls.append(token)
+            item = next(seq)
+            if isinstance(item, Exception):
+                raise item
+            return item
+
+        return fake, calls
+
+    def test_quota_rejection_switches_and_returns_the_new_token(self):
+        fake, calls = self.submit([SubmitRejected(403, code=12001), "j1"])
+        pool = aistudio.TokenPool(["a", "b"])
+        with mock.patch.object(aistudio, "submit", fake):
+            self.assertEqual(
+                convert._submit_with_pool("x.pdf", "m", pool), ("j1", "b"))
+        self.assertEqual(calls, ["a", "b"])
+
+    def test_dead_key_is_switched_too(self):
+        # 2026-11-05 实测：无效 token 返回 401 + code 401
+        fake, calls = self.submit([SubmitRejected(401, code=401), "j1"])
+        pool = aistudio.TokenPool(["a", "b"])
+        with mock.patch.object(aistudio, "submit", fake):
+            self.assertEqual(
+                convert._submit_with_pool("x.pdf", "m", pool), ("j1", "b"))
+        self.assertEqual(calls, ["a", "b"])
+
+    def test_rate_limit_is_raised_without_switching(self):
+        fake, calls = self.submit([SubmitRejected(429, code=12002)])
+        pool = aistudio.TokenPool(["a", "b"])
+        with mock.patch.object(aistudio, "submit", fake):
+            with self.assertRaises(SubmitRejected):
+                convert._submit_with_pool("x.pdf", "m", pool)
+        self.assertEqual(calls, ["a"])
+
+    def test_unknown_429_is_retried_once_on_the_same_token(self):
+        fake, calls = self.submit([SubmitRejected(429), "j1"])
+        pool = aistudio.TokenPool(["a", "b"])
+        with mock.patch.object(aistudio, "submit", fake):
+            self.assertEqual(
+                convert._submit_with_pool("x.pdf", "m", pool), ("j1", "a"))
+        self.assertEqual(calls, ["a", "a"])
+
+    def test_two_unknown_429s_switch(self):
+        fake, calls = self.submit(
+            [SubmitRejected(429), SubmitRejected(429), "j1"])
+        pool = aistudio.TokenPool(["a", "b"])
+        with mock.patch.object(aistudio, "submit", fake):
+            self.assertEqual(
+                convert._submit_with_pool("x.pdf", "m", pool), ("j1", "b"))
+        self.assertEqual(calls, ["a", "a", "b"])
+
+    def test_other_rejection_is_raised_without_switching(self):
+        fake, calls = self.submit([SubmitRejected(400, code=10004)])
+        pool = aistudio.TokenPool(["a", "b"])
+        with mock.patch.object(aistudio, "submit", fake):
+            with self.assertRaises(SubmitRejected):
+                convert._submit_with_pool("x.pdf", "m", pool)
+        self.assertEqual(calls, ["a"])
+
+    def test_all_keys_gone_raises_all_exhausted(self):
+        fake, calls = self.submit([
+            SubmitRejected(403, code=12001),
+            SubmitRejected(403, code=12001),
+        ])
+        pool = aistudio.TokenPool(["a", "b"])
+        with mock.patch.object(aistudio, "submit", fake):
+            with self.assertRaises(aistudio.AllTokensExhausted):
+                convert._submit_with_pool("x.pdf", "m", pool)
+
+
 class TestConvertOne(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
