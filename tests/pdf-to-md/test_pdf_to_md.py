@@ -2765,6 +2765,30 @@ class TestFinancialSinglePage(unittest.TestCase):
             self.assertIs(payload, aistudio.FINANCIAL_OPTIONAL_PAYLOAD)
         self.assertEqual(self.read_md(), "正文1\n\n正文2\n\n正文3\n")
 
+    def test_quota_rejection_switches_key_and_polls_with_it(self):
+        seen = []
+
+        def fake_submit(target, model, token, optional_payload=None):
+            if token == "a":
+                raise SubmitRejected(403, code=12001)
+            seen.append(("submit", token))
+            return "j1"
+
+        def fake_poll(job_id, token, on_progress=None):
+            seen.append(("poll", token))
+            return "http://x/result.jsonl"
+
+        pool = aistudio.TokenPool(["a", "b"])
+        with mock.patch.object(aistudio, "submit", fake_submit), \
+             mock.patch.object(aistudio, "poll", fake_poll), \
+             mock.patch.object(aistudio, "fetch_jsonl", lambda url: "{}"), \
+             mock.patch.object(convert.md_utils, "parse_jsonl",
+                               lambda raw: [Page(index=0, text="p",
+                                                 images={})]):
+            pages = convert._convert_one_page("x.pdf", 1, "m", pool)
+        self.assertEqual(seen, [("submit", "b"), ("poll", "b")])
+        self.assertEqual(pages[0].text, "p")
+
     def test_a_failed_page_is_retried_then_succeeds(self):
         _, attempts = self.fake_api(fail_first={2})
         with mock.patch.object(convert.time, "sleep", lambda *_: None):

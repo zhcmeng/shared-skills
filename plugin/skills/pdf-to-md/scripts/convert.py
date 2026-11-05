@@ -420,7 +420,7 @@ def _submit_with_pool(target, model, pool, optional_payload=None):
             pool.retire(token, exc)
 
 
-def _convert_one_page(path, page_no, model, token, debug_dir=None):
+def _convert_one_page(path, page_no, model, pool, debug_dir=None):
     """提交一页，失败重试；重试完仍失败就带着页码抛 PageFailed。"""
     last = None
     for attempt in range(1, FINANCIAL_PAGE_ATTEMPTS + 1):
@@ -428,9 +428,8 @@ def _convert_one_page(path, page_no, model, token, debug_dir=None):
         meta_path = os.path.join(
             "raw", f"page-{page_no:04d}-attempt-{attempt}.json")
         try:
-            job_id = aistudio.submit(
-                path, model, token,
-                optional_payload=aistudio.FINANCIAL_OPTIONAL_PAYLOAD)
+            job_id, token = _submit_with_pool(
+                path, model, pool, aistudio.FINANCIAL_OPTIONAL_PAYLOAD)
             meta["job_id"] = job_id
             jsonl_url = aistudio.poll(job_id, token)
             meta["jsonl_url"] = jsonl_url
@@ -485,7 +484,7 @@ def _cache_images(pages, image_dir, fetched, failed, lock):
                 fetched[url] = path
 
 
-def _convert_single_pages(task, model, token, page_jobs, image_dir,
+def _convert_single_pages(task, model, pool, page_jobs, image_dir,
                           on_pages=None, debug_dir=None):
     """财报模式：切单页、逐页提交、按原页序摊平。
 
@@ -520,7 +519,7 @@ def _convert_single_pages(task, model, token, page_jobs, image_dir,
         def work(index, path):
             nonlocal done
             try:
-                pages = _convert_one_page(path, index + 1, model, token,
+                pages = _convert_one_page(path, index + 1, model, pool,
                                           debug_dir=debug_dir)
             except PageFailed as exc:
                 with lock:
@@ -533,8 +532,8 @@ def _convert_single_pages(task, model, token, page_jobs, image_dir,
                 if on_pages:
                     on_pages(done, total)
 
-        with ThreadPoolExecutor(max_workers=min(page_jobs, total)) as pool:
-            futures = [pool.submit(work, i, p)
+        with ThreadPoolExecutor(max_workers=min(page_jobs, total)) as executor:
+            futures = [executor.submit(work, i, p)
                        for i, p in enumerate(page_files)]
             for future in as_completed(futures):
                 # work 只接 PageFailed；其余异常（本机读文件失败等）让它
@@ -629,6 +628,9 @@ def convert_one(task, out_root, model, token, on_pages=None,
     if source_type == "financial":
         model = aistudio.FINANCIAL_MODEL
 
+    pool = token if isinstance(token, aistudio.TokenPool) else aistudio.TokenPool(
+        [token] if token else [])
+
     debug_dir = None
     if debug:
         debug_dir = _new_debug_dir(task, out_root, t0)
@@ -674,7 +676,7 @@ def convert_one(task, out_root, model, token, on_pages=None,
             with tempfile.TemporaryDirectory(
                     prefix="pdf-to-md-images-") as image_tmp:
                 pages, fetched, failed = _convert_single_pages(
-                    task, model, token, page_jobs, image_tmp, on_pages,
+                    task, model, pool, page_jobs, image_tmp, on_pages,
                     debug_dir=debug_dir)
                 _debug_pages(debug_dir, "before-merge", pages)
                 pages = md_utils.merge_cross_page_tables(
