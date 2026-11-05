@@ -410,8 +410,13 @@ def _submit_with_pool(target, model, pool, optional_payload=None):
                                              optional_payload)
                     return job_id, token
                 except aistudio.SubmitRejected as again:
+                    # 第二次已经明确是额度用完或 KEY 失效，照样换下一个：
+                    # 「限流层先回 429、稍后配额层回 12001」是一条现实序列，
+                    # 这时候把 KEY 留在池子里，这一趟永远换不到下一个。
                     if (aistudio.classify_rejection(again)
-                            != aistudio.REJECTION_UNKNOWN_429):
+                            not in (aistudio.REJECTION_UNKNOWN_429,
+                                    aistudio.REJECTION_QUOTA,
+                                    aistudio.REJECTION_KEY_DEAD)):
                         raise
                     exc = again
             elif kind not in (aistudio.REJECTION_QUOTA,

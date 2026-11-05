@@ -2428,6 +2428,26 @@ class TestSubmitWithPool(unittest.TestCase):
                 convert._submit_with_pool("x.pdf", "m", pool), ("j1", "b"))
         self.assertEqual(calls, ["a", "a", "b"])
 
+    def test_unknown_429_then_quota_rejection_still_switches(self):
+        # 限流层先回 429、5 秒后配额层回 12001 是一条现实序列：
+        # 第二次已经明确是额度用完，不能把 KEY 留在池子里。
+        fake, calls = self.submit([
+            SubmitRejected(429), SubmitRejected(403, code=12001), "j1"])
+        pool = aistudio.TokenPool(["a", "b"])
+        with mock.patch.object(aistudio, "submit", fake):
+            self.assertEqual(
+                convert._submit_with_pool("x.pdf", "m", pool), ("j1", "b"))
+        self.assertEqual(calls, ["a", "a", "b"])
+
+    def test_unknown_429_then_dead_key_still_switches(self):
+        fake, calls = self.submit([
+            SubmitRejected(429), SubmitRejected(401, code=401), "j1"])
+        pool = aistudio.TokenPool(["a", "b"])
+        with mock.patch.object(aistudio, "submit", fake):
+            self.assertEqual(
+                convert._submit_with_pool("x.pdf", "m", pool), ("j1", "b"))
+        self.assertEqual(calls, ["a", "a", "b"])
+
     def test_other_rejection_is_raised_without_switching(self):
         fake, calls = self.submit([SubmitRejected(400, code=10004)])
         pool = aistudio.TokenPool(["a", "b"])
@@ -2504,11 +2524,15 @@ class TestConvertOne(unittest.TestCase):
 
     def test_general_submit_switches_key_and_polls_with_it(self):
         seen = []
+        pool = aistudio.TokenPool(["a", "b", "c"])
 
         def fake_submit(target, model, token, optional_payload=None):
             if token == "a":
                 raise SubmitRejected(403, code=12001)
             seen.append(("submit", token))
+            # 提交成功后把池子推到第三个 KEY：轮询若跟着池子的当前值走，
+            # 就会收到 "c"，而不是提交时用的 "b"。
+            pool.retire(token, SubmitRejected(403, code=12001))
             return "j1"
 
         def fake_poll(job_id, token, on_progress=None):
@@ -2522,8 +2546,7 @@ class TestConvertOne(unittest.TestCase):
              mock.patch.object(convert.md_utils, "parse_jsonl",
                                lambda raw: [Page(index=0, text="p",
                                                  images={})]):
-            convert.convert_one(task, self.root, "m",
-                                aistudio.TokenPool(["a", "b"]))
+            convert.convert_one(task, self.root, "m", pool)
         self.assertEqual(seen, [("submit", "b"), ("poll", "b")])
 
     def test_writes_md_and_images(self):
@@ -2791,18 +2814,21 @@ class TestFinancialSinglePage(unittest.TestCase):
 
     def test_quota_rejection_switches_key_and_polls_with_it(self):
         seen = []
+        pool = aistudio.TokenPool(["a", "b", "c"])
 
         def fake_submit(target, model, token, optional_payload=None):
             if token == "a":
                 raise SubmitRejected(403, code=12001)
             seen.append(("submit", token))
+            # 提交成功后把池子推到第三个 KEY：轮询若跟着池子的当前值走，
+            # 就会收到 "c"，而不是提交时用的 "b"。
+            pool.retire(token, SubmitRejected(403, code=12001))
             return "j1"
 
         def fake_poll(job_id, token, on_progress=None):
             seen.append(("poll", token))
             return "http://x/result.jsonl"
 
-        pool = aistudio.TokenPool(["a", "b"])
         with mock.patch.object(aistudio, "submit", fake_submit), \
              mock.patch.object(aistudio, "poll", fake_poll), \
              mock.patch.object(aistudio, "fetch_jsonl", lambda url: "{}"), \
@@ -3468,7 +3494,9 @@ class TestRunWeb(unittest.TestCase):
 
     def test_web_does_not_fetch_the_api_token(self):
         tasks = [convert.Task("/tmp/a.pdf", "a", "a")]
-        with mock.patch.object(aistudio, "get_token",
+        with mock.patch.object(aistudio, "get_tokens",
+                               side_effect=AssertionError("不该拿 token")), \
+             mock.patch.object(aistudio, "get_token",
                                side_effect=AssertionError("不该拿 token")), \
              mock.patch.object(aistudio_web, "WebSession", self.FakeSession), \
              mock.patch.object(convert, "convert_one",
