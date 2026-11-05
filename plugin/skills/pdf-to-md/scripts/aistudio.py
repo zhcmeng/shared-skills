@@ -83,6 +83,32 @@ class SubmitRejected(Exception):
         super().__init__("  ".join(bits))
 
 
+REJECTION_QUOTA = "quota"
+REJECTION_KEY_DEAD = "key_dead"
+REJECTION_RATE_LIMITED = "rate_limited"
+REJECTION_UNKNOWN_429 = "unknown_429"
+REJECTION_OTHER = "other"
+
+
+def classify_rejection(exc):
+    """判断一次提交被拒该不该换 KEY。
+
+    官方两份文档对「额度用完」的状态码说法不一致：异步接口文档写 403 +
+    code 12001，通用配额文档写 429。2026-11-05 实测：无效 token 返回
+    401 + code 401。所以按 code 优先、状态码兜底，429 且没有 code 时
+    归到 unknown_429。
+    """
+    if exc.code == 12001:
+        return REJECTION_QUOTA
+    if exc.code == 12002:
+        return REJECTION_RATE_LIMITED
+    if exc.status in (401, 403):
+        return REJECTION_KEY_DEAD
+    if exc.status == 429:
+        return REJECTION_UNKNOWN_429
+    return REJECTION_OTHER
+
+
 class AllTokensExhausted(Exception):
     """所有 KEY 都用完了。消息里只出现序号，不出现 KEY 值。"""
 

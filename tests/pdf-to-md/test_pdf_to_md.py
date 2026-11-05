@@ -1545,6 +1545,33 @@ class TestTokenPool(unittest.TestCase):
         self.assertNotIn("secret", pool.label("secret-a"))
 
 
+class TestClassifyRejection(unittest.TestCase):
+    def test_code_12001_is_quota(self):
+        self.assertEqual(aistudio.classify_rejection(
+            SubmitRejected(403, code=12001)), aistudio.REJECTION_QUOTA)
+
+    def test_code_12002_is_rate_limited(self):
+        self.assertEqual(aistudio.classify_rejection(
+            SubmitRejected(429, code=12002)), aistudio.REJECTION_RATE_LIMITED)
+
+    def test_403_without_code_is_key_dead(self):
+        self.assertEqual(aistudio.classify_rejection(
+            SubmitRejected(403)), aistudio.REJECTION_KEY_DEAD)
+
+    def test_401_is_key_dead(self):
+        # 2026-11-05 实测：无效 token 返回 HTTP 401 + code 401
+        self.assertEqual(aistudio.classify_rejection(
+            SubmitRejected(401, code=401)), aistudio.REJECTION_KEY_DEAD)
+
+    def test_429_without_code_is_unknown(self):
+        self.assertEqual(aistudio.classify_rejection(
+            SubmitRejected(429)), aistudio.REJECTION_UNKNOWN_429)
+
+    def test_400_is_other(self):
+        self.assertEqual(aistudio.classify_rejection(
+            SubmitRejected(400, code=10004)), aistudio.REJECTION_OTHER)
+
+
 class TestSubmit(unittest.TestCase):
     def test_url_goes_in_a_json_body(self):
         captured = {}
