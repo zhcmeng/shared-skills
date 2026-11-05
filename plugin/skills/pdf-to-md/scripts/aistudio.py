@@ -4,6 +4,7 @@
 """
 import json
 import os
+import threading
 import time
 
 import requests
@@ -11,6 +12,7 @@ import requests
 JOB_URL = "https://paddleocr.aistudio-app.com/api/v2/ocr/jobs"
 DEFAULT_MODEL = "PaddleOCR-VL-1.6"
 TOKEN_ENV = "PADDLEOCR_MCP_AISTUDIO_ACCESS_TOKEN"
+TOKEN_SEPARATOR = ","
 
 UPLOAD_TIMEOUT = 900.0
 SMALL_TIMEOUT = 60.0
@@ -81,6 +83,78 @@ class SubmitRejected(Exception):
         super().__init__("  ".join(bits))
 
 
+REJECTION_QUOTA = "quota"
+REJECTION_KEY_DEAD = "key_dead"
+REJECTION_RATE_LIMITED = "rate_limited"
+REJECTION_UNKNOWN_429 = "unknown_429"
+REJECTION_OTHER = "other"
+
+
+def classify_rejection(exc):
+    """判断一次提交被拒该不该换 KEY。
+
+    官方两份文档对「额度用完」的状态码说法不一致：异步接口文档写 403 +
+    code 12001，通用配额文档写 429。2026-11-05 实测：无效 token 返回
+    401 + code 401。所以按 code 优先、状态码兜底，429 且没有 code 时
+    归到 unknown_429。
+    """
+    if exc.code == 12001:
+        return REJECTION_QUOTA
+    if exc.code == 12002:
+        return REJECTION_RATE_LIMITED
+    if exc.status in (401, 403):
+        return REJECTION_KEY_DEAD
+    if exc.status == 429:
+        return REJECTION_UNKNOWN_429
+    return REJECTION_OTHER
+
+
+class AllTokensExhausted(Exception):
+    """所有 KEY 都用完了。消息里只出现序号，不出现 KEY 值。"""
+
+    def __init__(self, reasons):
+        lines = ["所有 KEY 都用完了："]
+        for index in sorted(reasons):
+            lines.append(f"  KEY {index + 1}：{reasons[index]}")
+        super().__init__("\n".join(lines))
+
+
+class TokenPool:
+    """按顺序消耗的 KEY 池，线程安全。"""
+
+    def __init__(self, tokens):
+        self._tokens = list(tokens)
+        self._index = 0
+        self._reasons = {}
+        self._lock = threading.Lock()
+
+    def current(self):
+        with self._lock:
+            if self._index >= len(self._tokens):
+                raise AllTokensExhausted(dict(self._reasons))
+            return self._tokens[self._index]
+
+    def retire(self, token, reason):
+        with self._lock:
+            if (self._index >= len(self._tokens)
+                    or self._tokens[self._index] != token):
+                return False
+            self._reasons[self._index] = reason
+            self._index += 1
+            if self._index < len(self._tokens):
+                print(f"KEY {self._index} 额度不足，改用 KEY {self._index + 1}")
+            else:
+                print(f"KEY {self._index} 额度不足，没有更多 KEY 了")
+            return True
+
+    def label(self, token):
+        with self._lock:
+            try:
+                return f"KEY {self._tokens.index(token) + 1}"
+            except ValueError:
+                return "KEY"
+
+
 class JobFailed(Exception):
     """任务跑起来之后失败了。"""
 
@@ -89,16 +163,27 @@ class NetworkError(Exception):
     """连不上服务，或者连着失败太多次。"""
 
 
-def get_token():
-    token = os.environ.get(TOKEN_ENV)
-    if not token:
+def get_tokens():
+    """按环境变量里的书写顺序返回所有 token。
+
+    多个账号的 token 用英文逗号隔开；每一项去掉首尾空白，空项丢掉。
+    """
+    raw = os.environ.get(TOKEN_ENV, "")
+    tokens = [part.strip() for part in raw.split(TOKEN_SEPARATOR)]
+    tokens = [part for part in tokens if part]
+    if not tokens:
         raise SystemExit(
             f"环境里没有 {TOKEN_ENV}。\n"
             f"它是这个 skill 唯一认的 token 来源，在 ~/.claude/settings.json 的 "
-            f"env 段里设一次即可：\n"
-            f'  {{"env": {{"{TOKEN_ENV}": "<你的 token>"}}}}'
+            f"env 段里设一次即可；多个账号的 token 用英文逗号隔开：\n"
+            f'  {{"env": {{"{TOKEN_ENV}": "<token1>,<token2>"}}}}'
         )
-    return token
+    return tokens
+
+
+def get_token():
+    """兼容旧调用：返回第一个 token。"""
+    return get_tokens()[0]
 
 
 def _retry(fn, what, attempts=None, delay=None):

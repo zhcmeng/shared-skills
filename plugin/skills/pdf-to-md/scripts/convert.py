@@ -36,6 +36,10 @@ _WEB_INSTALL_HINT = ("uv run --with requests --with lxml --with tabulate "
 FINANCIAL_PAGE_ATTEMPTS = 3
 FINANCIAL_PAGE_RETRY_DELAY = 2.0
 
+# 429 没带 code 时，官方文档分不清是配额还是限流：先等一次再换 KEY。
+# 等的时间够短的限流恢复，又不会在配额用完时白拖太久。
+UNKNOWN_429_WAIT = 5.0
+
 
 def missing_dependencies(names=REQUIRED):
     """哪些依赖没装。"""
@@ -386,7 +390,42 @@ def _debug_error(debug_dir):
         pass
 
 
-def _convert_one_page(path, page_no, model, token, debug_dir=None):
+def _submit_with_pool(target, model, pool, optional_payload=None):
+    """按池里的顺序提交，额度类拒绝就换下一个 KEY。
+
+    返回 `(job_id, 提交成功的那个 token)`：调用方要用这个 token 轮询，
+    不能再用池子的当前值——池子可能已经往前走了。
+    """
+    while True:
+        token = pool.current()
+        try:
+            job_id = aistudio.submit(target, model, token, optional_payload)
+            return job_id, token
+        except aistudio.SubmitRejected as exc:
+            kind = aistudio.classify_rejection(exc)
+            if kind == aistudio.REJECTION_UNKNOWN_429:
+                time.sleep(UNKNOWN_429_WAIT)
+                try:
+                    job_id = aistudio.submit(target, model, token,
+                                             optional_payload)
+                    return job_id, token
+                except aistudio.SubmitRejected as again:
+                    # 第二次已经明确是额度用完或 KEY 失效，照样换下一个：
+                    # 「限流层先回 429、稍后配额层回 12001」是一条现实序列，
+                    # 这时候把 KEY 留在池子里，这一趟永远换不到下一个。
+                    if (aistudio.classify_rejection(again)
+                            not in (aistudio.REJECTION_UNKNOWN_429,
+                                    aistudio.REJECTION_QUOTA,
+                                    aistudio.REJECTION_KEY_DEAD)):
+                        raise
+                    exc = again
+            elif kind not in (aistudio.REJECTION_QUOTA,
+                              aistudio.REJECTION_KEY_DEAD):
+                raise
+            pool.retire(token, exc)
+
+
+def _convert_one_page(path, page_no, model, pool, debug_dir=None):
     """提交一页，失败重试；重试完仍失败就带着页码抛 PageFailed。"""
     last = None
     for attempt in range(1, FINANCIAL_PAGE_ATTEMPTS + 1):
@@ -394,9 +433,8 @@ def _convert_one_page(path, page_no, model, token, debug_dir=None):
         meta_path = os.path.join(
             "raw", f"page-{page_no:04d}-attempt-{attempt}.json")
         try:
-            job_id = aistudio.submit(
-                path, model, token,
-                optional_payload=aistudio.FINANCIAL_OPTIONAL_PAYLOAD)
+            job_id, token = _submit_with_pool(
+                path, model, pool, aistudio.FINANCIAL_OPTIONAL_PAYLOAD)
             meta["job_id"] = job_id
             jsonl_url = aistudio.poll(job_id, token)
             meta["jsonl_url"] = jsonl_url
@@ -451,7 +489,7 @@ def _cache_images(pages, image_dir, fetched, failed, lock):
                 fetched[url] = path
 
 
-def _convert_single_pages(task, model, token, page_jobs, image_dir,
+def _convert_single_pages(task, model, pool, page_jobs, image_dir,
                           on_pages=None, debug_dir=None):
     """财报模式：切单页、逐页提交、按原页序摊平。
 
@@ -486,7 +524,7 @@ def _convert_single_pages(task, model, token, page_jobs, image_dir,
         def work(index, path):
             nonlocal done
             try:
-                pages = _convert_one_page(path, index + 1, model, token,
+                pages = _convert_one_page(path, index + 1, model, pool,
                                           debug_dir=debug_dir)
             except PageFailed as exc:
                 with lock:
@@ -499,8 +537,8 @@ def _convert_single_pages(task, model, token, page_jobs, image_dir,
                 if on_pages:
                     on_pages(done, total)
 
-        with ThreadPoolExecutor(max_workers=min(page_jobs, total)) as pool:
-            futures = [pool.submit(work, i, p)
+        with ThreadPoolExecutor(max_workers=min(page_jobs, total)) as executor:
+            futures = [executor.submit(work, i, p)
                        for i, p in enumerate(page_files)]
             for future in as_completed(futures):
                 # work 只接 PageFailed；其余异常（本机读文件失败等）让它
@@ -595,6 +633,9 @@ def convert_one(task, out_root, model, token, on_pages=None,
     if source_type == "financial":
         model = aistudio.FINANCIAL_MODEL
 
+    pool = token if isinstance(token, aistudio.TokenPool) else aistudio.TokenPool(
+        [token] if token else [])
+
     debug_dir = None
     if debug:
         debug_dir = _new_debug_dir(task, out_root, t0)
@@ -640,7 +681,7 @@ def convert_one(task, out_root, model, token, on_pages=None,
             with tempfile.TemporaryDirectory(
                     prefix="pdf-to-md-images-") as image_tmp:
                 pages, fetched, failed = _convert_single_pages(
-                    task, model, token, page_jobs, image_tmp, on_pages,
+                    task, model, pool, page_jobs, image_tmp, on_pages,
                     debug_dir=debug_dir)
                 _debug_pages(debug_dir, "before-merge", pages)
                 pages = md_utils.merge_cross_page_tables(
@@ -653,8 +694,8 @@ def convert_one(task, out_root, model, token, on_pages=None,
                                           failed_urls=failed,
                                           debug_dir=debug_dir)
         else:
-            job_id = aistudio.submit(task.target, model, token)
-            jsonl_url = aistudio.poll(job_id, token, on_progress=on_pages)
+            job_id, used_token = _submit_with_pool(task.target, model, pool)
+            jsonl_url = aistudio.poll(job_id, used_token, on_progress=on_pages)
             raw = aistudio.fetch_jsonl(jsonl_url)
             _debug_write(debug_dir, os.path.join("raw", "result.jsonl"), raw)
             _debug_json(debug_dir, os.path.join("raw", "job.json"),
@@ -797,27 +838,29 @@ def run(tasks, args):
     # 才能变成退出码和一句提示，而不是烂在某个线程里。
     # 全部文件都已转过时不必拿——那一趟根本不用 token。
     # 官网方式不用 API token，也不该因为没配 token 就报错。
-    # 写成 aistudio.get_token() 而不是 from aistudio import get_token：本模块
-    # 通篇用的是 aistudio.xxx，而且测试是把 aistudio.get_token 换掉的，
+    # 写成 aistudio.get_tokens() 而不是 from aistudio import get_tokens：本模块
+    # 通篇用的是 aistudio.xxx，而且测试是把 aistudio.get_tokens 换掉的，
     # 提前绑进来的名字换不掉。
-    token = aistudio.get_token() if todo and backend == "api" else None
+    tokens = aistudio.get_tokens() if todo and backend == "api" else None
+    pool = aistudio.TokenPool(tokens) if tokens else None
 
     def work(task):
         progress.add(task.name)
         return convert_one(
-            task, args.output, model, token,
+            task, args.output, model, pool,
             on_pages=lambda d, t, n=task.name: progress.pages(n, d, t),
             source_type=source_type, page_jobs=page_jobs,
             debug=getattr(args, "debug", False), backend=backend)
 
-    with ThreadPoolExecutor(max_workers=args.jobs) as pool:
-        futures = {pool.submit(work, t): t for t in todo}
+    with ThreadPoolExecutor(max_workers=args.jobs) as executor:
+        futures = {executor.submit(work, t): t for t in todo}
         for future in as_completed(futures):
             task = futures[future]
             try:
                 result = future.result()
             except (aistudio.SubmitRejected, aistudio.JobFailed,
-                    aistudio.NetworkError, EmptyDocument,
+                    aistudio.NetworkError, aistudio.AllTokensExhausted,
+                    EmptyDocument,
                     md_utils.JsonlLineError, FinancialSplitError,
                     OSError) as exc:
                 # OSError 是本机的问题（文件读不出来、目录建不了、盘写满了），

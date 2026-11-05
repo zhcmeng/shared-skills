@@ -1479,6 +1479,98 @@ class TestGetToken(unittest.TestCase):
         self.assertIn(aistudio.TOKEN_ENV, str(ctx.exception))
         self.assertIn("settings.json", str(ctx.exception))
 
+    def test_reads_several_tokens_in_order(self):
+        with mock.patch.dict(os.environ, {aistudio.TOKEN_ENV: "a,b"}, clear=False):
+            self.assertEqual(aistudio.get_tokens(), ["a", "b"])
+
+    def test_trims_spaces_and_drops_empty_items(self):
+        with mock.patch.dict(os.environ, {aistudio.TOKEN_ENV: " a , , b ,"},
+                             clear=False):
+            self.assertEqual(aistudio.get_tokens(), ["a", "b"])
+
+    def test_get_token_still_returns_the_first(self):
+        with mock.patch.dict(os.environ, {aistudio.TOKEN_ENV: "a,b"}, clear=False):
+            self.assertEqual(aistudio.get_token(), "a")
+
+    def test_missing_tokens_mentions_the_comma_syntax(self):
+        with mock.patch.dict(os.environ, {}, clear=True):
+            with self.assertRaises(SystemExit) as ctx:
+                aistudio.get_tokens()
+        self.assertIn(aistudio.TOKEN_ENV, str(ctx.exception))
+        self.assertIn(",", str(ctx.exception))
+
+
+class TestTokenPool(unittest.TestCase):
+    def test_hands_tokens_out_in_order(self):
+        pool = aistudio.TokenPool(["a", "b"])
+        self.assertEqual(pool.current(), "a")
+        pool.retire("a", SubmitRejected(429, code=12001))
+        self.assertEqual(pool.current(), "b")
+
+    def test_retire_returns_false_when_it_is_not_current(self):
+        pool = aistudio.TokenPool(["a", "b"])
+        self.assertFalse(pool.retire("b", SubmitRejected(429, code=12001)))
+        self.assertEqual(pool.current(), "a")
+
+    def test_two_threads_retiring_the_same_token_move_once(self):
+        pool = aistudio.TokenPool(["a", "b", "c"])
+        moves = []
+
+        def retire():
+            moves.append(pool.retire("a", SubmitRejected(429, code=12001)))
+
+        threads = [threading.Thread(target=retire) for _ in range(2)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        self.assertEqual(moves.count(True), 1)
+        self.assertEqual(pool.current(), "b")
+
+    def test_all_exhausted_lists_each_key_without_the_value(self):
+        pool = aistudio.TokenPool(["secret-a", "secret-b"])
+        pool.retire("secret-a", SubmitRejected(403, code=12001))
+        pool.retire("secret-b", SubmitRejected(429, code=12001))
+        with self.assertRaises(aistudio.AllTokensExhausted) as ctx:
+            pool.current()
+        text = str(ctx.exception)
+        self.assertIn("KEY 1", text)
+        self.assertIn("KEY 2", text)
+        self.assertNotIn("secret-a", text)
+        self.assertNotIn("secret-b", text)
+
+    def test_label_never_shows_the_token(self):
+        pool = aistudio.TokenPool(["secret-a"])
+        self.assertEqual(pool.label("secret-a"), "KEY 1")
+        self.assertNotIn("secret", pool.label("secret-a"))
+
+
+class TestClassifyRejection(unittest.TestCase):
+    def test_code_12001_is_quota(self):
+        self.assertEqual(aistudio.classify_rejection(
+            SubmitRejected(403, code=12001)), aistudio.REJECTION_QUOTA)
+
+    def test_code_12002_is_rate_limited(self):
+        self.assertEqual(aistudio.classify_rejection(
+            SubmitRejected(429, code=12002)), aistudio.REJECTION_RATE_LIMITED)
+
+    def test_403_without_code_is_key_dead(self):
+        self.assertEqual(aistudio.classify_rejection(
+            SubmitRejected(403)), aistudio.REJECTION_KEY_DEAD)
+
+    def test_401_is_key_dead(self):
+        # 2026-11-05 实测：无效 token 返回 HTTP 401 + code 401
+        self.assertEqual(aistudio.classify_rejection(
+            SubmitRejected(401, code=401)), aistudio.REJECTION_KEY_DEAD)
+
+    def test_429_without_code_is_unknown(self):
+        self.assertEqual(aistudio.classify_rejection(
+            SubmitRejected(429)), aistudio.REJECTION_UNKNOWN_429)
+
+    def test_400_is_other(self):
+        self.assertEqual(aistudio.classify_rejection(
+            SubmitRejected(400, code=10004)), aistudio.REJECTION_OTHER)
+
 
 class TestSubmit(unittest.TestCase):
     def test_url_goes_in_a_json_body(self):
@@ -2274,6 +2366,107 @@ class TestAlreadyDone(unittest.TestCase):
         self.assertTrue(convert.already_done(self.root, "a"))
 
 
+class TestSubmitWithPool(unittest.TestCase):
+    def setUp(self):
+        patcher = mock.patch.object(convert, "UNKNOWN_429_WAIT", 0)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def submit(self, responses):
+        """按顺序把 responses 交给假 submit。"""
+        seq = iter(responses)
+        calls = []
+
+        def fake(target, model, token, optional_payload=None):
+            calls.append(token)
+            item = next(seq)
+            if isinstance(item, Exception):
+                raise item
+            return item
+
+        return fake, calls
+
+    def test_quota_rejection_switches_and_returns_the_new_token(self):
+        fake, calls = self.submit([SubmitRejected(403, code=12001), "j1"])
+        pool = aistudio.TokenPool(["a", "b"])
+        with mock.patch.object(aistudio, "submit", fake):
+            self.assertEqual(
+                convert._submit_with_pool("x.pdf", "m", pool), ("j1", "b"))
+        self.assertEqual(calls, ["a", "b"])
+
+    def test_dead_key_is_switched_too(self):
+        # 2026-11-05 实测：无效 token 返回 401 + code 401
+        fake, calls = self.submit([SubmitRejected(401, code=401), "j1"])
+        pool = aistudio.TokenPool(["a", "b"])
+        with mock.patch.object(aistudio, "submit", fake):
+            self.assertEqual(
+                convert._submit_with_pool("x.pdf", "m", pool), ("j1", "b"))
+        self.assertEqual(calls, ["a", "b"])
+
+    def test_rate_limit_is_raised_without_switching(self):
+        fake, calls = self.submit([SubmitRejected(429, code=12002)])
+        pool = aistudio.TokenPool(["a", "b"])
+        with mock.patch.object(aistudio, "submit", fake):
+            with self.assertRaises(SubmitRejected):
+                convert._submit_with_pool("x.pdf", "m", pool)
+        self.assertEqual(calls, ["a"])
+
+    def test_unknown_429_is_retried_once_on_the_same_token(self):
+        fake, calls = self.submit([SubmitRejected(429), "j1"])
+        pool = aistudio.TokenPool(["a", "b"])
+        with mock.patch.object(aistudio, "submit", fake):
+            self.assertEqual(
+                convert._submit_with_pool("x.pdf", "m", pool), ("j1", "a"))
+        self.assertEqual(calls, ["a", "a"])
+
+    def test_two_unknown_429s_switch(self):
+        fake, calls = self.submit(
+            [SubmitRejected(429), SubmitRejected(429), "j1"])
+        pool = aistudio.TokenPool(["a", "b"])
+        with mock.patch.object(aistudio, "submit", fake):
+            self.assertEqual(
+                convert._submit_with_pool("x.pdf", "m", pool), ("j1", "b"))
+        self.assertEqual(calls, ["a", "a", "b"])
+
+    def test_unknown_429_then_quota_rejection_still_switches(self):
+        # 限流层先回 429、5 秒后配额层回 12001 是一条现实序列：
+        # 第二次已经明确是额度用完，不能把 KEY 留在池子里。
+        fake, calls = self.submit([
+            SubmitRejected(429), SubmitRejected(403, code=12001), "j1"])
+        pool = aistudio.TokenPool(["a", "b"])
+        with mock.patch.object(aistudio, "submit", fake):
+            self.assertEqual(
+                convert._submit_with_pool("x.pdf", "m", pool), ("j1", "b"))
+        self.assertEqual(calls, ["a", "a", "b"])
+
+    def test_unknown_429_then_dead_key_still_switches(self):
+        fake, calls = self.submit([
+            SubmitRejected(429), SubmitRejected(401, code=401), "j1"])
+        pool = aistudio.TokenPool(["a", "b"])
+        with mock.patch.object(aistudio, "submit", fake):
+            self.assertEqual(
+                convert._submit_with_pool("x.pdf", "m", pool), ("j1", "b"))
+        self.assertEqual(calls, ["a", "a", "b"])
+
+    def test_other_rejection_is_raised_without_switching(self):
+        fake, calls = self.submit([SubmitRejected(400, code=10004)])
+        pool = aistudio.TokenPool(["a", "b"])
+        with mock.patch.object(aistudio, "submit", fake):
+            with self.assertRaises(SubmitRejected):
+                convert._submit_with_pool("x.pdf", "m", pool)
+        self.assertEqual(calls, ["a"])
+
+    def test_all_keys_gone_raises_all_exhausted(self):
+        fake, calls = self.submit([
+            SubmitRejected(403, code=12001),
+            SubmitRejected(403, code=12001),
+        ])
+        pool = aistudio.TokenPool(["a", "b"])
+        with mock.patch.object(aistudio, "submit", fake):
+            with self.assertRaises(aistudio.AllTokensExhausted):
+                convert._submit_with_pool("x.pdf", "m", pool)
+
+
 class TestConvertOne(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -2290,7 +2483,7 @@ class TestConvertOne(unittest.TestCase):
         # 「位置写反」「传错变量」这类错整套一条不红（实测过）。
         self.calls = []
 
-        def fake_submit(target, model, token):
+        def fake_submit(target, model, token, optional_payload=None):
             self.calls.append(("submit", (target, model, token)))
             return "j1"
 
@@ -2317,7 +2510,7 @@ class TestConvertOne(unittest.TestCase):
 
     def fake_pipeline_raw(self, raw):
         """同 fake_pipeline，但直接给原始 JSONL 正文——造畸形结果时用。"""
-        def fake_submit(target, model, token):
+        def fake_submit(target, model, token, optional_payload=None):
             return "j1"
 
         def fake_poll(job_id, token, on_progress=None):
@@ -2328,6 +2521,33 @@ class TestConvertOne(unittest.TestCase):
             submit=fake_submit, poll=fake_poll,
             fetch_jsonl=lambda url: raw,
             fetch_image=lambda url: b"\xff\xd8\xff\xe0jpeg")
+
+    def test_general_submit_switches_key_and_polls_with_it(self):
+        seen = []
+        pool = aistudio.TokenPool(["a", "b", "c"])
+
+        def fake_submit(target, model, token, optional_payload=None):
+            if token == "a":
+                raise SubmitRejected(403, code=12001)
+            seen.append(("submit", token))
+            # 提交成功后把池子推到第三个 KEY：轮询若跟着池子的当前值走，
+            # 就会收到 "c"，而不是提交时用的 "b"。
+            pool.retire(token, SubmitRejected(403, code=12001))
+            return "j1"
+
+        def fake_poll(job_id, token, on_progress=None):
+            seen.append(("poll", token))
+            return "http://x/result.jsonl"
+
+        task = convert.Task(target="/tmp/a.pdf", name="a", origin="a")
+        with mock.patch.object(aistudio, "submit", fake_submit), \
+             mock.patch.object(aistudio, "poll", fake_poll), \
+             mock.patch.object(aistudio, "fetch_jsonl", lambda url: "{}"), \
+             mock.patch.object(convert.md_utils, "parse_jsonl",
+                               lambda raw: [Page(index=0, text="p",
+                                                 images={})]):
+            convert.convert_one(task, self.root, "m", pool)
+        self.assertEqual(seen, [("submit", "b"), ("poll", "b")])
 
     def test_writes_md_and_images(self):
         task = convert.Task(target="/tmp/a.pdf", name="a", origin="/tmp/a.pdf")
@@ -2591,6 +2811,33 @@ class TestFinancialSinglePage(unittest.TestCase):
             self.assertEqual(model, aistudio.FINANCIAL_MODEL)
             self.assertIs(payload, aistudio.FINANCIAL_OPTIONAL_PAYLOAD)
         self.assertEqual(self.read_md(), "正文1\n\n正文2\n\n正文3\n")
+
+    def test_quota_rejection_switches_key_and_polls_with_it(self):
+        seen = []
+        pool = aistudio.TokenPool(["a", "b", "c"])
+
+        def fake_submit(target, model, token, optional_payload=None):
+            if token == "a":
+                raise SubmitRejected(403, code=12001)
+            seen.append(("submit", token))
+            # 提交成功后把池子推到第三个 KEY：轮询若跟着池子的当前值走，
+            # 就会收到 "c"，而不是提交时用的 "b"。
+            pool.retire(token, SubmitRejected(403, code=12001))
+            return "j1"
+
+        def fake_poll(job_id, token, on_progress=None):
+            seen.append(("poll", token))
+            return "http://x/result.jsonl"
+
+        with mock.patch.object(aistudio, "submit", fake_submit), \
+             mock.patch.object(aistudio, "poll", fake_poll), \
+             mock.patch.object(aistudio, "fetch_jsonl", lambda url: "{}"), \
+             mock.patch.object(convert.md_utils, "parse_jsonl",
+                               lambda raw: [Page(index=0, text="p",
+                                                 images={})]):
+            pages = convert._convert_one_page("x.pdf", 1, "m", pool)
+        self.assertEqual(seen, [("submit", "b"), ("poll", "b")])
+        self.assertEqual(pages[0].text, "p")
 
     def test_a_failed_page_is_retried_then_succeeds(self):
         _, attempts = self.fake_api(fail_first={2})
@@ -2914,7 +3161,7 @@ class TestRun(unittest.TestCase):
             patcher.start()
             self.addCleanup(patcher.stop)
         # run() 一开头会去拿 token；测试里不发请求，直接换掉
-        patcher = mock.patch.object(aistudio, "get_token", lambda: "t")
+        patcher = mock.patch.object(aistudio, "get_tokens", lambda: ["t"])
         patcher.start()
         self.addCleanup(patcher.stop)
 
@@ -2931,6 +3178,33 @@ class TestRun(unittest.TestCase):
             self.assertEqual(convert.run(tasks, self.args()), 0)
         # 那一行动态进度是这东西唯一的存在理由，完成数不累加它就永远显示 0
         self.assertIn("1/1 完成", self.out.getvalue())
+
+    def test_reads_all_tokens_from_the_environment(self):
+        seen = {}
+
+        def fake(task, out, model, pool, **kw):
+            seen["pool"] = pool
+            return convert.Result("a", 1, 0.1, [])
+
+        tasks = [convert.Task(target="/tmp/a.pdf", name="a", origin="a")]
+        with mock.patch.object(aistudio, "get_tokens", lambda: ["a", "b"]), \
+             mock.patch.object(convert, "convert_one", fake):
+            convert.run(tasks, self.args())
+        self.assertEqual(seen["pool"].current(), "a")
+
+    def test_all_tokens_exhausted_fails_only_that_file(self):
+        tasks = [convert.Task(target="/tmp/a.pdf", name="a", origin="a"),
+                 convert.Task(target="/tmp/b.pdf", name="b", origin="b")]
+
+        def fake(task, out, model, pool, **kw):
+            if task.name == "a":
+                raise aistudio.AllTokensExhausted(
+                    {0: SubmitRejected(403, code=12001)})
+            return convert.Result("b", 1, 0.1, [])
+
+        with mock.patch.object(convert, "convert_one", fake):
+            self.assertEqual(convert.run(tasks, self.args()), 1)
+        self.assertIn("1/2 完成", self.out.getvalue())
 
     def test_financial_run_hands_the_fixed_model_and_page_jobs_down(self):
         seen = {}
@@ -3163,7 +3437,7 @@ class TestRun(unittest.TestCase):
         def boom():
             raise AssertionError("全跳过的一趟不该去拿 token")
 
-        with mock.patch.object(aistudio, "get_token", boom):
+        with mock.patch.object(aistudio, "get_tokens", boom):
             self.assertEqual(convert.run(tasks, self.args()), 0)
         self.assertIn("跳过 a", self.out.getvalue())
 
@@ -3220,7 +3494,9 @@ class TestRunWeb(unittest.TestCase):
 
     def test_web_does_not_fetch_the_api_token(self):
         tasks = [convert.Task("/tmp/a.pdf", "a", "a")]
-        with mock.patch.object(aistudio, "get_token",
+        with mock.patch.object(aistudio, "get_tokens",
+                               side_effect=AssertionError("不该拿 token")), \
+             mock.patch.object(aistudio, "get_token",
                                side_effect=AssertionError("不该拿 token")), \
              mock.patch.object(aistudio_web, "WebSession", self.FakeSession), \
              mock.patch.object(convert, "convert_one",
@@ -3413,6 +3689,18 @@ class TestDoctorChecks(unittest.TestCase):
     def test_token_present_passes(self):
         with mock.patch.dict(os.environ, {doctor.TOKEN_ENV: "x" * 40}):
             self.assertTrue(doctor.check_token().ok)
+
+    def test_two_tokens_pass_and_report_the_count(self):
+        with mock.patch.dict(os.environ, {doctor.TOKEN_ENV: "a,b"}, clear=False):
+            check = doctor.check_token()
+        self.assertTrue(check.ok)
+        self.assertIn("2", check.detail)
+
+    def test_empty_items_are_ignored(self):
+        with mock.patch.dict(os.environ, {doctor.TOKEN_ENV: "a,, ,b"}, clear=False):
+            check = doctor.check_token()
+        self.assertTrue(check.ok)
+        self.assertIn("2", check.detail)
 
     def test_an_empty_token_counts_as_missing(self):
         # 设成空串和没设是一回事，转换那边也一样读不出来
