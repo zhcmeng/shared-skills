@@ -689,8 +689,8 @@ def convert_one(task, out_root, model, token, on_pages=None,
                                           failed_urls=failed,
                                           debug_dir=debug_dir)
         else:
-            job_id = aistudio.submit(task.target, model, token)
-            jsonl_url = aistudio.poll(job_id, token, on_progress=on_pages)
+            job_id, used_token = _submit_with_pool(task.target, model, pool)
+            jsonl_url = aistudio.poll(job_id, used_token, on_progress=on_pages)
             raw = aistudio.fetch_jsonl(jsonl_url)
             _debug_write(debug_dir, os.path.join("raw", "result.jsonl"), raw)
             _debug_json(debug_dir, os.path.join("raw", "job.json"),
@@ -833,27 +833,29 @@ def run(tasks, args):
     # 才能变成退出码和一句提示，而不是烂在某个线程里。
     # 全部文件都已转过时不必拿——那一趟根本不用 token。
     # 官网方式不用 API token，也不该因为没配 token 就报错。
-    # 写成 aistudio.get_token() 而不是 from aistudio import get_token：本模块
-    # 通篇用的是 aistudio.xxx，而且测试是把 aistudio.get_token 换掉的，
+    # 写成 aistudio.get_tokens() 而不是 from aistudio import get_tokens：本模块
+    # 通篇用的是 aistudio.xxx，而且测试是把 aistudio.get_tokens 换掉的，
     # 提前绑进来的名字换不掉。
-    token = aistudio.get_token() if todo and backend == "api" else None
+    tokens = aistudio.get_tokens() if todo and backend == "api" else None
+    pool = aistudio.TokenPool(tokens) if tokens else None
 
     def work(task):
         progress.add(task.name)
         return convert_one(
-            task, args.output, model, token,
+            task, args.output, model, pool,
             on_pages=lambda d, t, n=task.name: progress.pages(n, d, t),
             source_type=source_type, page_jobs=page_jobs,
             debug=getattr(args, "debug", False), backend=backend)
 
-    with ThreadPoolExecutor(max_workers=args.jobs) as pool:
-        futures = {pool.submit(work, t): t for t in todo}
+    with ThreadPoolExecutor(max_workers=args.jobs) as executor:
+        futures = {executor.submit(work, t): t for t in todo}
         for future in as_completed(futures):
             task = futures[future]
             try:
                 result = future.result()
             except (aistudio.SubmitRejected, aistudio.JobFailed,
-                    aistudio.NetworkError, EmptyDocument,
+                    aistudio.NetworkError, aistudio.AllTokensExhausted,
+                    EmptyDocument,
                     md_utils.JsonlLineError, FinancialSplitError,
                     OSError) as exc:
                 # OSError 是本机的问题（文件读不出来、目录建不了、盘写满了），

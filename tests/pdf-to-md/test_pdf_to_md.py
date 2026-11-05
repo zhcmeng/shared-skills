@@ -2463,7 +2463,7 @@ class TestConvertOne(unittest.TestCase):
         # 「位置写反」「传错变量」这类错整套一条不红（实测过）。
         self.calls = []
 
-        def fake_submit(target, model, token):
+        def fake_submit(target, model, token, optional_payload=None):
             self.calls.append(("submit", (target, model, token)))
             return "j1"
 
@@ -2490,7 +2490,7 @@ class TestConvertOne(unittest.TestCase):
 
     def fake_pipeline_raw(self, raw):
         """同 fake_pipeline，但直接给原始 JSONL 正文——造畸形结果时用。"""
-        def fake_submit(target, model, token):
+        def fake_submit(target, model, token, optional_payload=None):
             return "j1"
 
         def fake_poll(job_id, token, on_progress=None):
@@ -2501,6 +2501,30 @@ class TestConvertOne(unittest.TestCase):
             submit=fake_submit, poll=fake_poll,
             fetch_jsonl=lambda url: raw,
             fetch_image=lambda url: b"\xff\xd8\xff\xe0jpeg")
+
+    def test_general_submit_switches_key_and_polls_with_it(self):
+        seen = []
+
+        def fake_submit(target, model, token, optional_payload=None):
+            if token == "a":
+                raise SubmitRejected(403, code=12001)
+            seen.append(("submit", token))
+            return "j1"
+
+        def fake_poll(job_id, token, on_progress=None):
+            seen.append(("poll", token))
+            return "http://x/result.jsonl"
+
+        task = convert.Task(target="/tmp/a.pdf", name="a", origin="a")
+        with mock.patch.object(aistudio, "submit", fake_submit), \
+             mock.patch.object(aistudio, "poll", fake_poll), \
+             mock.patch.object(aistudio, "fetch_jsonl", lambda url: "{}"), \
+             mock.patch.object(convert.md_utils, "parse_jsonl",
+                               lambda raw: [Page(index=0, text="p",
+                                                 images={})]):
+            convert.convert_one(task, self.root, "m",
+                                aistudio.TokenPool(["a", "b"]))
+        self.assertEqual(seen, [("submit", "b"), ("poll", "b")])
 
     def test_writes_md_and_images(self):
         task = convert.Task(target="/tmp/a.pdf", name="a", origin="/tmp/a.pdf")
@@ -3111,7 +3135,7 @@ class TestRun(unittest.TestCase):
             patcher.start()
             self.addCleanup(patcher.stop)
         # run() 一开头会去拿 token；测试里不发请求，直接换掉
-        patcher = mock.patch.object(aistudio, "get_token", lambda: "t")
+        patcher = mock.patch.object(aistudio, "get_tokens", lambda: ["t"])
         patcher.start()
         self.addCleanup(patcher.stop)
 
@@ -3128,6 +3152,33 @@ class TestRun(unittest.TestCase):
             self.assertEqual(convert.run(tasks, self.args()), 0)
         # 那一行动态进度是这东西唯一的存在理由，完成数不累加它就永远显示 0
         self.assertIn("1/1 完成", self.out.getvalue())
+
+    def test_reads_all_tokens_from_the_environment(self):
+        seen = {}
+
+        def fake(task, out, model, pool, **kw):
+            seen["pool"] = pool
+            return convert.Result("a", 1, 0.1, [])
+
+        tasks = [convert.Task(target="/tmp/a.pdf", name="a", origin="a")]
+        with mock.patch.object(aistudio, "get_tokens", lambda: ["a", "b"]), \
+             mock.patch.object(convert, "convert_one", fake):
+            convert.run(tasks, self.args())
+        self.assertEqual(seen["pool"].current(), "a")
+
+    def test_all_tokens_exhausted_fails_only_that_file(self):
+        tasks = [convert.Task(target="/tmp/a.pdf", name="a", origin="a"),
+                 convert.Task(target="/tmp/b.pdf", name="b", origin="b")]
+
+        def fake(task, out, model, pool, **kw):
+            if task.name == "a":
+                raise aistudio.AllTokensExhausted(
+                    {0: SubmitRejected(403, code=12001)})
+            return convert.Result("b", 1, 0.1, [])
+
+        with mock.patch.object(convert, "convert_one", fake):
+            self.assertEqual(convert.run(tasks, self.args()), 1)
+        self.assertIn("1/2 完成", self.out.getvalue())
 
     def test_financial_run_hands_the_fixed_model_and_page_jobs_down(self):
         seen = {}
@@ -3360,7 +3411,7 @@ class TestRun(unittest.TestCase):
         def boom():
             raise AssertionError("全跳过的一趟不该去拿 token")
 
-        with mock.patch.object(aistudio, "get_token", boom):
+        with mock.patch.object(aistudio, "get_tokens", boom):
             self.assertEqual(convert.run(tasks, self.args()), 0)
         self.assertIn("跳过 a", self.out.getvalue())
 
