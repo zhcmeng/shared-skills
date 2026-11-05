@@ -1479,6 +1479,26 @@ class TestGetToken(unittest.TestCase):
         self.assertIn(aistudio.TOKEN_ENV, str(ctx.exception))
         self.assertIn("settings.json", str(ctx.exception))
 
+    def test_reads_several_tokens_in_order(self):
+        with mock.patch.dict(os.environ, {aistudio.TOKEN_ENV: "a,b"}, clear=False):
+            self.assertEqual(aistudio.get_tokens(), ["a", "b"])
+
+    def test_trims_spaces_and_drops_empty_items(self):
+        with mock.patch.dict(os.environ, {aistudio.TOKEN_ENV: " a , , b ,"},
+                             clear=False):
+            self.assertEqual(aistudio.get_tokens(), ["a", "b"])
+
+    def test_get_token_still_returns_the_first(self):
+        with mock.patch.dict(os.environ, {aistudio.TOKEN_ENV: "a,b"}, clear=False):
+            self.assertEqual(aistudio.get_token(), "a")
+
+    def test_missing_tokens_mentions_the_comma_syntax(self):
+        with mock.patch.dict(os.environ, {}, clear=True):
+            with self.assertRaises(SystemExit) as ctx:
+                aistudio.get_tokens()
+        self.assertIn(aistudio.TOKEN_ENV, str(ctx.exception))
+        self.assertIn(",", str(ctx.exception))
+
 
 class TestSubmit(unittest.TestCase):
     def test_url_goes_in_a_json_body(self):

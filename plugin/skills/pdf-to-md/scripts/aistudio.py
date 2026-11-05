@@ -11,6 +11,7 @@ import requests
 JOB_URL = "https://paddleocr.aistudio-app.com/api/v2/ocr/jobs"
 DEFAULT_MODEL = "PaddleOCR-VL-1.6"
 TOKEN_ENV = "PADDLEOCR_MCP_AISTUDIO_ACCESS_TOKEN"
+TOKEN_SEPARATOR = ","
 
 UPLOAD_TIMEOUT = 900.0
 SMALL_TIMEOUT = 60.0
@@ -89,16 +90,27 @@ class NetworkError(Exception):
     """连不上服务，或者连着失败太多次。"""
 
 
-def get_token():
-    token = os.environ.get(TOKEN_ENV)
-    if not token:
+def get_tokens():
+    """按环境变量里的书写顺序返回所有 token。
+
+    多个账号的 token 用英文逗号隔开；每一项去掉首尾空白，空项丢掉。
+    """
+    raw = os.environ.get(TOKEN_ENV, "")
+    tokens = [part.strip() for part in raw.split(TOKEN_SEPARATOR)]
+    tokens = [part for part in tokens if part]
+    if not tokens:
         raise SystemExit(
             f"环境里没有 {TOKEN_ENV}。\n"
             f"它是这个 skill 唯一认的 token 来源，在 ~/.claude/settings.json 的 "
-            f"env 段里设一次即可：\n"
-            f'  {{"env": {{"{TOKEN_ENV}": "<你的 token>"}}}}'
+            f"env 段里设一次即可；多个账号的 token 用英文逗号隔开：\n"
+            f'  {{"env": {{"{TOKEN_ENV}": "<token1>,<token2>"}}}}'
         )
-    return token
+    return tokens
+
+
+def get_token():
+    """兼容旧调用：返回第一个 token。"""
+    return get_tokens()[0]
 
 
 def _retry(fn, what, attempts=None, delay=None):
