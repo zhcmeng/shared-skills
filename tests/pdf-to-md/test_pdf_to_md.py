@@ -1500,6 +1500,51 @@ class TestGetToken(unittest.TestCase):
         self.assertIn(",", str(ctx.exception))
 
 
+class TestTokenPool(unittest.TestCase):
+    def test_hands_tokens_out_in_order(self):
+        pool = aistudio.TokenPool(["a", "b"])
+        self.assertEqual(pool.current(), "a")
+        pool.retire("a", SubmitRejected(429, code=12001))
+        self.assertEqual(pool.current(), "b")
+
+    def test_retire_returns_false_when_it_is_not_current(self):
+        pool = aistudio.TokenPool(["a", "b"])
+        self.assertFalse(pool.retire("b", SubmitRejected(429, code=12001)))
+        self.assertEqual(pool.current(), "a")
+
+    def test_two_threads_retiring_the_same_token_move_once(self):
+        pool = aistudio.TokenPool(["a", "b", "c"])
+        moves = []
+
+        def retire():
+            moves.append(pool.retire("a", SubmitRejected(429, code=12001)))
+
+        threads = [threading.Thread(target=retire) for _ in range(2)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        self.assertEqual(moves.count(True), 1)
+        self.assertEqual(pool.current(), "b")
+
+    def test_all_exhausted_lists_each_key_without_the_value(self):
+        pool = aistudio.TokenPool(["secret-a", "secret-b"])
+        pool.retire("secret-a", SubmitRejected(403, code=12001))
+        pool.retire("secret-b", SubmitRejected(429, code=12001))
+        with self.assertRaises(aistudio.AllTokensExhausted) as ctx:
+            pool.current()
+        text = str(ctx.exception)
+        self.assertIn("KEY 1", text)
+        self.assertIn("KEY 2", text)
+        self.assertNotIn("secret-a", text)
+        self.assertNotIn("secret-b", text)
+
+    def test_label_never_shows_the_token(self):
+        pool = aistudio.TokenPool(["secret-a"])
+        self.assertEqual(pool.label("secret-a"), "KEY 1")
+        self.assertNotIn("secret", pool.label("secret-a"))
+
+
 class TestSubmit(unittest.TestCase):
     def test_url_goes_in_a_json_body(self):
         captured = {}

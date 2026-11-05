@@ -4,6 +4,7 @@
 """
 import json
 import os
+import threading
 import time
 
 import requests
@@ -80,6 +81,52 @@ class SubmitRejected(Exception):
         if trace_id:
             bits.append(f"traceId={trace_id}")
         super().__init__("  ".join(bits))
+
+
+class AllTokensExhausted(Exception):
+    """所有 KEY 都用完了。消息里只出现序号，不出现 KEY 值。"""
+
+    def __init__(self, reasons):
+        lines = ["所有 KEY 都用完了："]
+        for index in sorted(reasons):
+            lines.append(f"  KEY {index + 1}：{reasons[index]}")
+        super().__init__("\n".join(lines))
+
+
+class TokenPool:
+    """按顺序消耗的 KEY 池，线程安全。"""
+
+    def __init__(self, tokens):
+        self._tokens = list(tokens)
+        self._index = 0
+        self._reasons = {}
+        self._lock = threading.Lock()
+
+    def current(self):
+        with self._lock:
+            if self._index >= len(self._tokens):
+                raise AllTokensExhausted(dict(self._reasons))
+            return self._tokens[self._index]
+
+    def retire(self, token, reason):
+        with self._lock:
+            if (self._index >= len(self._tokens)
+                    or self._tokens[self._index] != token):
+                return False
+            self._reasons[self._index] = reason
+            self._index += 1
+            if self._index < len(self._tokens):
+                print(f"KEY {self._index} 额度不足，改用 KEY {self._index + 1}")
+            else:
+                print(f"KEY {self._index} 额度不足，没有更多 KEY 了")
+            return True
+
+    def label(self, token):
+        with self._lock:
+            try:
+                return f"KEY {self._tokens.index(token) + 1}"
+            except ValueError:
+                return "KEY"
 
 
 class JobFailed(Exception):
