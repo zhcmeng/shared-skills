@@ -62,16 +62,24 @@ def check_uv():
 
 def check_token():
     raw = os.environ.get(TOKEN_ENV, "")
-    if not raw.strip():
+    raw_parts = raw.split(",")
+    tokens = [part.strip() for part in raw_parts]
+    tokens = [part for part in tokens if part]
+    if not tokens:
         return Check(
             "token 环境变量在", False,
             f"环境里没有 {TOKEN_ENV}。",
             "在 ~/.claude/settings.json 的 env 段里设一次：\n"
-            f'  {{"env": {{"{TOKEN_ENV}": "<你的 AI Studio token>"}}}}')
+            f'  {{"env": {{"{TOKEN_ENV}": "<你的 AI Studio token>"}}}}\n'
+            "多个账号的 token 用英文逗号隔开，写在同一行。")
     # 只提醒、不算不通过：服务收不收得下这个带空白的 token 不好说，
     # 让下一项真转一次自己说了算——体检不该替服务下结论。
-    note = "（首尾有空白字符，多半是复制时带上的）" if raw != raw.strip() else ""
-    return Check("token 环境变量在", True, note)
+    bits = []
+    if len(tokens) > 1:
+        bits.append(f"检测到 {len(tokens)} 个 KEY，按顺序使用")
+    if any(part != part.strip() for part in raw_parts):
+        bits.append("（首尾有空白字符，多半是复制时带上的）")
+    return Check("token 环境变量在", True, "".join(bits))
 
 
 def default_base_dir():

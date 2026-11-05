@@ -3662,6 +3662,18 @@ class TestDoctorChecks(unittest.TestCase):
         with mock.patch.dict(os.environ, {doctor.TOKEN_ENV: "x" * 40}):
             self.assertTrue(doctor.check_token().ok)
 
+    def test_two_tokens_pass_and_report_the_count(self):
+        with mock.patch.dict(os.environ, {doctor.TOKEN_ENV: "a,b"}, clear=False):
+            check = doctor.check_token()
+        self.assertTrue(check.ok)
+        self.assertIn("2", check.detail)
+
+    def test_empty_items_are_ignored(self):
+        with mock.patch.dict(os.environ, {doctor.TOKEN_ENV: "a,, ,b"}, clear=False):
+            check = doctor.check_token()
+        self.assertTrue(check.ok)
+        self.assertIn("2", check.detail)
+
     def test_an_empty_token_counts_as_missing(self):
         # 设成空串和没设是一回事，转换那边也一样读不出来
         with mock.patch.dict(os.environ, {doctor.TOKEN_ENV: ""}):
