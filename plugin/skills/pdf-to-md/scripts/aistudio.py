@@ -227,10 +227,17 @@ def _data_of(body):
 def _rejected_from(resp, what="请求"):
     """把失败的响应变成异常。响应体不是 JSON 时也不能崩在解码上。"""
     body = _body_of(resp)
+    msg = body.get("msg") or _text_of(resp)[:300]
+    if resp.status_code == 401:
+        # 1.29.4 及以前不拆逗号：多个 KEY 写成 "a,b" 时整串被当成一个 token
+        # 发出去，服务只回 401。把最可能的原因直接写在报错里。
+        msg = (msg + "  " if msg else "") + (
+            "如果环境变量里写了多个 KEY（英文逗号分隔），"
+            "请确认脚本版本支持多 KEY（1.29.5 起）；否则请检查 KEY 是否正确。")
     return SubmitRejected(
         status=resp.status_code,
         code=body.get("code"),
-        msg=body.get("msg") or _text_of(resp)[:300],
+        msg=msg,
         trace_id=body.get("traceId"),
         what=what,
     )

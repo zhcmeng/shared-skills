@@ -1695,6 +1695,19 @@ class TestSubmit(unittest.TestCase):
         self.assertEqual(ctx.exception.code, 10004)
         self.assertIn("文件格式不支持", str(ctx.exception))
 
+    def test_401_mentions_the_comma_separated_keys(self):
+        # 旧版本（1.29.4 及以前）不拆逗号：多个 KEY 写成 "a,b" 时整串被当成
+        # 一个 token 发出去，服务只回 401。报错得把最可能的原因说出来。
+        resp = FakeResponse(status_code=401,
+                            body={"traceId": "t1", "code": 401,
+                                  "msg": "Unauthorized"})
+        with mock.patch.object(requests, "post", lambda *a, **k: resp):
+            with self.assertRaises(SubmitRejected) as ctx:
+                aistudio.submit("https://example.com/a.pdf", "m",
+                                "key1,key2")
+        self.assertIn("逗号", str(ctx.exception))
+        self.assertIn("1.29.5", str(ctx.exception))
+
     def test_non_json_error_body_does_not_crash(self):
         # 网关返回 HTML 错误页时，报出来的该是「服务说了什么」而不是 JSON 解码错
         resp = FakeResponse(status_code=502, text="<html>Bad Gateway</html>")
