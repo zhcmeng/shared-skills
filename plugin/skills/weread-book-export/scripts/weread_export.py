@@ -36,6 +36,7 @@ from weread import (
     pre_render_blocks,
     read_catalog,
     search_books,
+    show_search_page,
     switch_to_paged_mode,
     switch_to_scroll_mode,
     turn_back_page,
@@ -527,6 +528,7 @@ def main(argv=None):
             if len(hits) == 1:
                 page.goto(hits[0]["href"], wait_until="domcontentloaded")
             else:
+                show_search_page(page, args.title)
                 print("搜到 %d 条，请在弹出的浏览器窗口里点开要导出的那本：" % len(hits))
                 for i, hit in enumerate(hits, 1):
                     print("  %d. %s — %s" % (i, hit["title"], hit["author"]))

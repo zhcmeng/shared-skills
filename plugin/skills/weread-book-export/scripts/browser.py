@@ -106,10 +106,13 @@ class Browser:
             "processsingleton" in lowered
             or "already in use" in lowered
             or "user data directory" in lowered
+            # Chromium 发现配置目录被别的实例占着时，进程以 21 退出
+            or "exitcode=21" in lowered
         ):
             bits.append(
                 "这个配置目录已经被另一个浏览器占用了——先把开着同一个"
-                "配置目录的 Edge/Chrome 窗口全部关掉，再重跑。"
+                "配置目录的 Edge/Chrome 窗口全部关掉（正在跑的导出也会占着它），"
+                "再重跑。"
             )
         bits.append(
             "默认用 %s；机器上没有这个浏览器时，用 --browser-channel 换一个，"

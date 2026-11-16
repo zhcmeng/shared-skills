@@ -1,11 +1,14 @@
 # -*- coding: utf-8 -*-
 """微信读书网页阅读器：确认登录、按书名找书、等用户点进阅读器。
 
-这一层全是浏览器上的动作，没有单测——每个行为都要连真站点才有意义。
-验证靠探路脚本实跑（见实施计划 Task 7 Step 4）。
+浏览器上的动作没有单测——每个行为都要连真站点才有意义；页面状态的
+解析是纯逻辑，测试在 ``tests/weread-book-export/test_weread.py``。
+验证靠探路脚本实跑（见实施计划 Task 9）。
 """
 
+import json
 import random
+import re
 import time
 from pathlib import Path
 from urllib.parse import quote, urljoin
@@ -63,20 +66,159 @@ def is_logged_out(page):
         return True
 
 
-def search_books(page, title):
-    """按书名搜索，返回候选 ``[{"title": str, "author": str, "href": str}, ...]``。
+_STATE_START = re.compile(r"window\.__INITIAL_STATE__\s*=\s*")
 
-    同一本书在结果里往往有好几个链接（封面一个、标题一个），按 ``href`` 去重，
-    顺序保持页面上的先后。**不替用户挑第一条**——同名书和不同版本会弄错。
+
+def _search_state(html):
+    """从搜索页原始 HTML 里取出 ``__INITIAL_STATE__``；拿不到返回 None。
+
+    服务端把搜索结果直接写进了页面状态，不用等 Vue 渲染。零结果也是
+    立刻就有，不像等 DOM 那样要空等 30 秒。
+    """
+    match = _STATE_START.search(html or "")
+    if not match:
+        return None
+    try:
+        state, _ = json.JSONDecoder().raw_decode(html[match.end():])
+    except ValueError:
+        return None
+    return state if isinstance(state, dict) else None
+
+
+def _hits_from_state(state):
+    """从 ``searchBooksStoreModule.bookInfos`` 取标题、作者、地址，按地址去重。
+
+    顺序保持服务端给的先后；同一本书的封面和标题可能是两个链接，
+    只留第一次出现的。结构不对（微信读书改版）时返回空列表，由调用方
+    判断要不要回退 DOM，不能在这里抛异常。
+    """
+    module = state.get("searchBooksStoreModule") if isinstance(state, dict) else None
+    infos = module.get("bookInfos") if isinstance(module, dict) else None
+    if not isinstance(infos, list):
+        return []
+    hits = []
+    seen = set()
+    for item in infos:
+        if not isinstance(item, dict):
+            continue
+        info = item.get("bookInfo")
+        if not isinstance(info, dict):
+            continue
+        href = (info.get("readerLink") or "").strip()
+        if not href or href in seen:
+            continue
+        seen.add(href)
+        hits.append(
+            {
+                "title": info.get("title") or "",
+                "author": info.get("author") or "",
+                "href": href,
+            }
+        )
+    return hits
+
+
+def _logged_in_from_state(state):
+    """``user`` 的 skey、name、avatar 有一个非空就算已登录。"""
+    user = state.get("user") if isinstance(state, dict) else None
+    if not isinstance(user, dict):
+        return False
+    return any(user.get(key) for key in ("skey", "name", "avatar"))
+
+
+def _logged_in(page, state=None):
+    """登录判断：页面状态或 cookie 里有一处能确认就算已登录。
+
+    搜索页状态里的 user 可能是个空壳——已登录时也可能不带 skey、name、
+    avatar——所以再看一眼 ``wr_skey`` cookie。
+    """
+    if _logged_in_from_state(state):
+        return True
+    try:
+        cookies = page.context.cookies(WEREAD_HOME)
+    except Exception:
+        return False
+    return any(
+        cookie.get("name") == "wr_skey" and cookie.get("value")
+        for cookie in cookies
+    )
+
+
+# 等用户扫码登录，默认给 5 分钟
+LOGIN_TIMEOUT = 300.0
+
+
+def wait_for_login(page, timeout=LOGIN_TIMEOUT):
+    """打开微信读书首页，等用户扫码登录；已经登录就立即返回 True。
+
+    搜索读服务端状态时不会导航页面，`--show` 打开的窗口会停在空白页；
+    这里先把首页打开，再等登录按钮消失，给用户扫码的机会。
+    """
+    page.goto(WEREAD_HOME, wait_until="domcontentloaded")
+    if not is_logged_out(page):
+        return True
+    print("请在弹出的浏览器窗口里扫码登录微信读书……", flush=True)
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        page.wait_for_timeout(1000)
+        if not is_logged_out(page):
+            return True
+    print("等了 %d 秒没见登录完成。" % int(timeout), flush=True)
+    return False
+
+
+def search_books_page(page, title):
+    """搜索书名，返回结果与页面状态。
+
+    返回 ``{"hits": [...], "total_count": int | None,
+    "has_more": bool | None, "logged_in": bool}``。
+
+    先读服务端 ``__INITIAL_STATE__``；没有就退回等页面渲染。DOM 路径
+    拿不到总数和「还有更多」，这两项留 None。
+    """
+    url = SEARCH_URL % quote(title)
+    try:
+        response = page.context.request.get(url, timeout=30000)
+        html = response.text() if response.ok else ""
+    except Exception:
+        html = ""
+    state = _search_state(html)
+    module = state.get("searchBooksStoreModule") if isinstance(state, dict) else None
+    if isinstance(module, dict) and isinstance(module.get("bookInfos"), list):
+        return {
+            "hits": _hits_from_state(state),
+            "total_count": module.get("totalCount"),
+            "has_more": module.get("hasMore"),
+            "logged_in": _logged_in(page, state),
+        }
+    return _search_books_dom(page, url)
+
+
+def show_search_page(page, title):
+    """把搜索页显示在窗口里，供用户自己点开候选。
+
+    搜索本身读服务端状态，不需要导航；导出遇到多条候选时，人得在窗口里
+    看见搜索结果才点得到，所以由调用方显式打开这一页。
     """
     page.goto(SEARCH_URL % quote(title), wait_until="domcontentloaded")
+
+
+def _search_books_dom(page, url):
+    """DOM 回退：等页面渲染出阅读器链接，再按链接取标题和作者。"""
+    page.goto(url, wait_until="domcontentloaded")
+    logged_in = _logged_in(page)
     try:
         page.wait_for_function(
             """() => document.querySelectorAll('a[href*="/web/reader/"]').length > 0""",
             timeout=30000,
         )
     except Exception:
-        return []
+        return {
+            "hits": [],
+            "total_count": None,
+            "has_more": None,
+            "logged_in": logged_in,
+        }
 
     hits = []
     seen = set()
@@ -92,7 +234,21 @@ def search_books(page, title):
                 "href": urljoin(WEREAD_HOME, href),
             }
         )
-    return hits
+    return {
+        "hits": hits,
+        "total_count": None,
+        "has_more": None,
+        "logged_in": logged_in,
+    }
+
+
+def search_books(page, title):
+    """按书名搜索，返回候选 ``[{"title": str, "author": str, "href": str}, ...]``。
+
+    同一本书在结果里往往有好几个链接（封面一个、标题一个），按 ``href`` 去重，
+    顺序保持页面上的先后。**不替用户挑第一条**——同名书和不同版本会弄错。
+    """
+    return search_books_page(page, title)["hits"]
 
 
 def _parse_title(title):
