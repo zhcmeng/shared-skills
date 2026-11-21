@@ -39,6 +39,7 @@ tests/<技能名>/test_<脚本名>.py         # 技能里带的脚本，它自�
 | `install-agent-reach` | 装 agent-reach 命令行：已经装过只报版本；没装就用 uv 装本体，再跑 `agent-reach setup` 把技能副本放进 `~/.claude/skills/`。只手动调用，模型不会自己触发。 |
 | `authoritative-sources` | 检索行业或市场数据之前用：给出权威来源清单、判断来源等级、确定检索强度。数据源按行业分文件挂载，当前有中国游戏行业与全球游戏市场；加新行业只加一个文件，不动主体。 |
 | `agent-desktop` | 在 Windows 上装并安全使用 agent-desktop 操控桌面程序：装命令行工具与 MCP、第一次只读验证、按 snapshot 的 ref 点击输入、安全护栏与常见故障排查。命令的完整清单不复制，指向官方仓库与它自带的两个技能，避免几份文档各自漂移。 |
+| `vscode-handoff` | 把当前任务交给一个新的后台会话，并保证它出现在 VS Code Claude Code 扩展的会话列表里：在 VS Code 工作区根目录用 `claude --bg` 派发，会话文件按工作区归档，插件列表里可见、可点开接续；带工作目录校验与会话文件生成确认。 |
 
 ## 安装
 
