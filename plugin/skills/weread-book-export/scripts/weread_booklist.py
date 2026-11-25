@@ -13,6 +13,7 @@
 """
 
 import argparse
+import datetime
 import json
 import os
 import sys
@@ -26,11 +27,14 @@ from booklist import (
     filter_by_rating,
     flatten_books,
     merge_books,
+    merge_details,
     page_offset,
     parse_keywords,
     raw_cache_path,
     read_json,
+    render_booklist,
     resolve_skill_version,
+    validate_picks,
     write_json,
 )
 
@@ -377,6 +381,52 @@ def run_info(args):
         print("有 %d 本详情没拉成，结果不完整。" % len(failed))
         return 3
     print("详情拉取完成：%d 本。" % ok)
+    return 0
+
+
+def run_render(args):
+    """把 picks 与详情合成榜单，写成品文件。"""
+    try:
+        cache = cache_dir(args.topic, args.cache_dir)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    meta = read_json(cache / "search_meta.json", {})
+    candidates = read_json(cache / "candidates.json", [])
+    bookinfo = read_json(cache / "bookinfo.json", {})
+    picks = read_json(args.picks, None)
+    if not isinstance(meta, dict):
+        meta = {}
+    if not isinstance(candidates, list):
+        candidates = []
+    if not isinstance(bookinfo, dict):
+        bookinfo = {}
+    details = merge_details(candidates, bookinfo)
+    try:
+        validate_picks(picks, set(details), details)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
+    if args.min_ratings > 0:
+        picks = dict(picks)
+        kept = []
+        for entry in picks.get("kept") or []:
+            count = (details.get(entry.get("bookId")) or {}).get(
+                "newRatingCount"
+            ) or 0
+            if count >= args.min_ratings:
+                kept.append(entry)
+        picks["kept"] = kept
+
+    text = render_booklist(meta, picks, details, top=args.top, group=args.group)
+    out = Path(args.out) if args.out else cache / (
+        "booklist-%s.md" % datetime.date.today()
+    )
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(text, encoding="utf-8")
+    print(text)
+    print("书单写在 %s" % out.resolve())
     return 0
 
 

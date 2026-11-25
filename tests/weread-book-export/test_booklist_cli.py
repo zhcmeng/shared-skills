@@ -7,6 +7,7 @@
 
 import argparse
 import contextlib
+import datetime
 import io
 import json
 import os
@@ -450,6 +451,182 @@ def main():
             weread_booklist.call_api = original
             weread_booklist.INFO_PAUSE = old_pause
             weread_booklist.RETRY_DELAYS = old_delays
+
+    with tempfile.TemporaryDirectory() as tmp:
+        cache = cache_dir("t", base=tmp)
+        cache.mkdir(parents=True, exist_ok=True)
+        (cache / "search_meta.json").write_text(
+            json.dumps(
+                {
+                    "title": "测试主题",
+                    "keywords": ["AI"],
+                    "min_rating": 700,
+                    "unique_books": 4,
+                    "candidates": 2,
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        (cache / "candidates.json").write_text(
+            json.dumps(
+                [
+                    {
+                        "bookId": "1",
+                        "title": "书一",
+                        "author": "甲",
+                        "newRating": 902,
+                        "newRatingCount": 100,
+                    },
+                    {
+                        "bookId": "2",
+                        "title": "书二",
+                        "author": "乙",
+                        "newRating": 880,
+                        "newRatingCount": 20,
+                    },
+                ],
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        (cache / "bookinfo.json").write_text(
+            json.dumps(
+                {
+                    "1": {
+                        "bookId": "1",
+                        "title": "书一",
+                        "author": "甲",
+                        "intro": "简介一",
+                        "newRating": 902,
+                        "newRatingCount": 100,
+                        "readerLink": "https://r/1",
+                    },
+                    "2": {
+                        "bookId": "2",
+                        "title": "书二",
+                        "author": "乙",
+                        "intro": "",
+                        "newRating": 880,
+                        "newRatingCount": 20,
+                        "deepLink": "https://d/2",
+                    },
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        picks_path = cache / "picks.json"
+        picks_path.write_text(
+            json.dumps(
+                {
+                    "kept": [
+                        {
+                            "bookId": "1",
+                            "theme": "组织",
+                            "summary": "一句话",
+                            "reason": "相关",
+                        },
+                        {"bookId": "2", "theme": "经济", "reason": "无简介"},
+                    ],
+                    "dropped": [],
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        render_args = argparse.Namespace(
+            topic="t",
+            picks=str(picks_path),
+            top=20,
+            group=False,
+            min_ratings=0,
+            out=None,
+            cache_dir=tmp,
+        )
+        code = weread_booklist.run_render(render_args)
+        eq("render 退出 0", code, 0)
+        default_out = cache / (
+            "booklist-%s.md" % datetime.date.today()
+        )
+        eq("成品存在", default_out.exists(), True)
+        text = default_out.read_text(encoding="utf-8")
+        eq("标题", "测试主题" in text, True)
+        eq("计数", "4" in text and "2" in text, True)
+        eq("排名", "1. **《书一》**" in text, True)
+        eq("推荐值", "90.2%" in text, True)
+        eq("链接", "https://r/1" in text, True)
+        eq("主题", "主题：组织" in text, True)
+        eq("简述", "一句话" in text, True)
+        eq("空简介", "暂无简介" in text, True)
+
+        out_path = Path(tmp) / "outside.md"
+        render_args.out = str(out_path)
+        code = weread_booklist.run_render(render_args)
+        eq("--out 退出 0", code, 0)
+        eq("--out 文件存在", out_path.exists(), True)
+
+        render_args.out = None
+        render_args.min_ratings = 100
+        code = weread_booklist.run_render(render_args)
+        eq("min-ratings 退出 0", code, 0)
+        filtered = default_out.read_text(encoding="utf-8")
+        eq("min-ratings 去掉人数少的", "书二" not in filtered, True)
+        render_args.min_ratings = 0
+
+        render_args.group = True
+        code = weread_booklist.run_render(render_args)
+        grouped = default_out.read_text(encoding="utf-8")
+        eq("group 有组织", "### 组织" in grouped, True)
+        eq("group 有经济", "### 经济" in grouped, True)
+        render_args.group = False
+
+        bad_picks = cache / "bad_picks.json"
+        bad_picks.write_text(
+            json.dumps(
+                {
+                    "kept": [
+                        {
+                            "bookId": "1",
+                            "theme": "组织",
+                            "summary": "x",
+                        }
+                    ],
+                    "dropped": [],
+                }
+            ),
+            encoding="utf-8",
+        )
+        render_args.picks = str(bad_picks)
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            code = weread_booklist.run_render(render_args)
+        eq("缺 reason 退出 1", code, 1)
+        eq("缺 reason 报错", "reason" in err.getvalue(), True)
+
+        unknown_picks = cache / "unknown_picks.json"
+        unknown_picks.write_text(
+            json.dumps(
+                {
+                    "kept": [
+                        {
+                            "bookId": "9",
+                            "theme": "组织",
+                            "summary": "x",
+                            "reason": "x",
+                        }
+                    ],
+                    "dropped": [],
+                }
+            ),
+            encoding="utf-8",
+        )
+        render_args.picks = str(unknown_picks)
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            code = weread_booklist.run_render(render_args)
+        eq("未知 bookId 退出 1", code, 1)
+        eq("未知 bookId 报错", "未知" in err.getvalue(), True)
 
     print()
     if bad:
