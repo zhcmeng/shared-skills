@@ -1,7 +1,7 @@
 {
   "name": "shared-skills",
   "description": "跨工程共享的 Agent Skill 集合：十五条常驻规则（说人话、改文件用 Read/Edit/Write、跑命令写全路径、文件名用英文、读文件先拿结构、等待挂到事件上不用 sleep、临时文件统一放 .tmp/、Git Bash 调 PowerShell 时 -Command 用单引号、正文不用 emoji 这类非 BMP 字符、不写时间和工作量评估、子代理搜资料先落盘、检索强度、篇幅与耗时不作判断与决策依据、缺工具先装工具、提交信息不加 AI 署名，会话启动时注入）、英文文档翻译、提交、Markdown 导出、Markdown 图片本地化、PDF 转 Markdown、公众号文章归档、token 计数、快速了解一个对象、权威数据源、Windows 桌面操控（agent-desktop）、VS Code 会话交接（vscode-handoff）、状态栏脚本、后台会话通知",
-  "version": "1.35.5",
+  "version": "1.35.6",
   "author": { "name": "zhcmeng" },
   "homepage": "https://github.com/zhcmeng/shared-skills",
   "repository": "https://github.com/zhcmeng/shared-skills",
