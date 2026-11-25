@@ -242,8 +242,7 @@ def smoke_command(backend, out_dir):
                 "--backend", "official-web", "--no-wait-login"]
     return ["uv", "run", "--with", "requests", "--with", "lxml",
             "--with", "tabulate", "--with", "pypdf",
-            "python", CONVERT, SAMPLE_PDF, "--output", out_dir,
-            "--backend", "api"]
+            "python", CONVERT, SAMPLE_PDF, "--output", out_dir]
 
 
 def _run_smoke(cmd, timeout):
@@ -324,10 +323,6 @@ def parse_args(argv=None):
     parser = argparse.ArgumentParser(
         prog="doctor.py",
         description="检查这台机器现在能不能用 pdf-to-md 转 PDF")
-    parser.add_argument("--backend", choices=("official-web", "api"),
-                        default="official-web",
-                        help="验哪条链路。official-web 是默认：要开浏览器、"
-                             "要登录；api 需要环境变量里的 token")
     parser.add_argument("--output", default=None,
                         help="顺便验一下这个输出目录写不写得进去")
     return parser.parse_args(argv)
@@ -352,15 +347,12 @@ def main(argv=None):
 
     # 前面几项查的都是本机，免费，一次全跑完——把毛病一次说清，别让人
     # 修一个跑一次。最后那项要花配额、要等十几秒，前面全绿了才跑。
-    if args.backend == "official-web":
-        checks = [check_uv(), check_profile_dir(), check_credentials()]
-    else:
-        checks = [check_uv(), check_token()]
+    checks = [check_uv(), check_token()]
     if args.output:
         checks.append(check_output_dir(args.output))
     local_ok = all(check.ok for check in checks)
     if local_ok:
-        checks.append(check_smoke(args.backend))
+        checks.append(check_smoke("api"))
 
     out = sys.stdout
     out.write("pdf-to-md 体检\n\n")

@@ -3885,10 +3885,7 @@ class TestDoctorSmokeCheck(unittest.TestCase):
         return run
 
     def test_the_official_web_command_is_the_one_the_skill_documents(self):
-        """跑的是使用者平时跑的那条命令行，不是把转换的逻辑再写一遍。
-
-        再写一遍等于验了另一套代码——真命令行哪天坏了，体检照样全绿。
-        """
+        """残留的官网命令：入口已移除，这里只钉住这个函数当前的样子。"""
         cmd = doctor.smoke_command("official-web", "OUT")
         self.assertEqual(cmd[:1], ["uv"])
         for package in ("requests", "lxml", "tabulate", "playwright"):
@@ -3905,7 +3902,7 @@ class TestDoctorSmokeCheck(unittest.TestCase):
         for package in ("requests", "lxml", "tabulate", "pypdf"):
             self.assertIn(package, cmd)
         self.assertNotIn("playwright", cmd)
-        self.assertEqual(cmd[cmd.index("--backend") + 1], "api")
+        self.assertNotIn("--backend", cmd)
         self.assertNotIn("--no-wait-login", cmd)
 
     def test_the_web_smoke_allows_time_for_the_browser(self):
@@ -3969,6 +3966,16 @@ class TestDoctorSmokeCheck(unittest.TestCase):
         self.assertIn("样例", check.detail)
 
 
+class TestDoctorArgs(unittest.TestCase):
+    def test_backend_is_not_accepted(self):
+        err = io.StringIO()
+        with mock.patch.object(sys, "stderr", err), \
+             self.assertRaises(SystemExit) as ctx:
+            doctor.parse_args(["--backend", "api"])
+        self.assertEqual(ctx.exception.code, 2)
+        self.assertIn("--backend", err.getvalue())
+
+
 class TestDoctorMain(unittest.TestCase):
     """整份报告与退出码。"""
 
@@ -4012,27 +4019,23 @@ class TestDoctorMain(unittest.TestCase):
         # 样例转出来的东西落在哪，是跑体检的人会问的第一件事
         self.assertIn("临时目录", text)
 
-    def test_the_web_backend_does_not_need_a_token(self):
+    def test_the_token_check_runs_and_the_browser_checks_do_not(self):
         mocks = self._patch()
         self.assertEqual(doctor.main([]), 0)
-        self.assertEqual(mocks["token"].call_count, 0)
-        self.assertEqual(mocks["profile_dir"].call_count, 1)
-        self.assertEqual(mocks["credentials"].call_count, 1)
-
-    def test_the_api_backend_checks_the_token_instead(self):
-        mocks = self._patch(token=False)
-        self.assertEqual(doctor.main(["--backend", "api"]), 2)
         self.assertEqual(mocks["token"].call_count, 1)
         self.assertEqual(mocks["profile_dir"].call_count, 0)
         self.assertEqual(mocks["credentials"].call_count, 0)
+
+    def test_a_missing_token_stops_with_exit_2(self):
+        mocks = self._patch(token=False)
+        self.assertEqual(doctor.main([]), 2)
+        self.assertEqual(mocks["token"].call_count, 1)
         self.assertIn("环境里没有它。", self.out.getvalue())
 
-    def test_the_smoke_step_gets_the_selected_backend(self):
+    def test_the_smoke_step_always_gets_the_api_backend(self):
         mocks = self._patch()
-        doctor.main(["--backend", "api"])
+        doctor.main([])
         self.assertEqual(mocks["smoke"].call_args.args, ("api",))
-        self.assertEqual(doctor.main([]), 0)
-        self.assertEqual(mocks["smoke"].call_args.args, ("official-web",))
 
     def test_anything_red_says_it_cannot_and_exits_2(self):
         self.assertEqual(self._run_main([], smoke=False), 2)
@@ -4040,22 +4043,22 @@ class TestDoctorMain(unittest.TestCase):
 
     def test_a_local_failure_stops_before_the_smoke_step(self):
         """本地就没配好时不去花配额——这条钉的正是白花配额那件事。"""
-        mocks = self._patch(credential=False)
+        mocks = self._patch(token=False)
         self.assertEqual(doctor.main([]), 2)
         self.assertEqual(mocks["smoke"].call_count, 0)
         self.assertIn("没跑", self.out.getvalue())
 
     def test_every_local_check_runs_so_all_the_problems_show_at_once(self):
         """本机那几项一次全跑完：让人修一个跑一次太折腾。"""
-        mocks = self._patch(uv=False, credential=False)
+        mocks = self._patch(uv=False, token=False)
         self.assertEqual(doctor.main([]), 2)
         self.assertEqual(mocks["uv"].call_count, 1)
-        self.assertEqual(mocks["profile_dir"].call_count, 1)
-        self.assertEqual(mocks["credentials"].call_count, 1)
+        self.assertEqual(mocks["token"].call_count, 1)
+        self.assertEqual(mocks["profile_dir"].call_count, 0)
+        self.assertEqual(mocks["credentials"].call_count, 0)
         text = self.out.getvalue()
         self.assertIn("找不到 uv。", text)
-        self.assertIn("配置目录写不进去。", text)
-        self.assertIn("凭据文件坏了。", text)
+        self.assertIn("环境里没有它。", text)
 
     def test_the_output_dir_is_probed_only_when_one_is_given(self):
         path = tempfile.TemporaryDirectory()
@@ -4090,15 +4093,8 @@ class TestDoctorMain(unittest.TestCase):
         self.assertEqual(proc.returncode, 2,
                          text + proc.stderr.decode("utf-8", "replace"))
         self.assertIn("uv", text)
-        # 默认走官网方式：报告里要提浏览器配置与凭据，不提 token。
-        self.assertIn("浏览器配置目录", text)
-        self.assertNotIn(doctor.TOKEN_ENV, text)
-
-        proc = run("--backend", "api")
-        text = proc.stdout.decode("utf-8")
-        self.assertEqual(proc.returncode, 2,
-                         text + proc.stderr.decode("utf-8", "replace"))
         self.assertIn(doctor.TOKEN_ENV, text)
+        self.assertNotIn("浏览器配置目录", text)
 
 
 class TestMain(unittest.TestCase):
