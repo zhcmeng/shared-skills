@@ -2227,8 +2227,7 @@ class TestParseArgs(unittest.TestCase):
     def test_defaults(self):
         args = convert.parse_args(["a.pdf", "--output", self.output()])
         self.assertEqual(args.model, aistudio.DEFAULT_MODEL)
-        # 默认走官网方式，一次只能处理一份；api 方式才是 4。
-        self.assertEqual(args.jobs, 1)
+        self.assertEqual(args.jobs, 4)
         self.assertEqual(args.page_jobs, 4)
         self.assertEqual(args.source_type, "general")
         self.assertFalse(args.force)
@@ -2241,7 +2240,6 @@ class TestParseArgs(unittest.TestCase):
 
     def test_financial_mode_pins_the_model(self):
         args = convert.parse_args(["a.pdf", "--output", self.output(),
-                                   "--backend", "api",
                                    "--source-type", "financial"])
         self.assertEqual(args.source_type, "financial")
         self.assertEqual(args.model, aistudio.FINANCIAL_MODEL)
@@ -2253,7 +2251,6 @@ class TestParseArgs(unittest.TestCase):
         with mock.patch.object(sys, "stderr", err), \
              self.assertRaises(SystemExit) as ctx:
             convert.parse_args(["a.pdf", "--output", self.output(),
-                                "--backend", "api",
                                 "--source-type", "financial",
                                 "--model", "PP-StructureV3"])
         self.assertEqual(ctx.exception.code, 2)
@@ -2289,67 +2286,54 @@ class TestParseArgs(unittest.TestCase):
         self.assertIn("目录", err.getvalue())
 
 
-class TestParseArgsBackend(unittest.TestCase):
+class TestWebEntryIsGone(unittest.TestCase):
     def parse(self, *extra):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         return convert.parse_args(
             ["a.pdf", "--output", os.path.join(tmp.name, "out"), *extra])
 
-    def test_official_web_is_the_default(self):
-        args = self.parse()
-        self.assertEqual(args.backend, "official-web")
-        self.assertEqual(args.source_type, "general")
+    def test_web_options_are_not_accepted(self):
+        for option, value in (
+                ("--backend", "api"),
+                ("--browser-profile", "p"),
+                ("--browser-channel", "chrome"),
+                ("--web-timeout", "60"),
+                ("--login-timeout", "30")):
+            err = io.StringIO()
+            with mock.patch.object(sys, "stderr", err), \
+                 self.assertRaises(SystemExit) as ctx:
+                self.parse(option, value)
+            self.assertEqual(ctx.exception.code, 2)
+            self.assertIn(option, err.getvalue())
 
-    def test_api_can_be_selected(self):
-        self.assertEqual(self.parse("--backend", "api").backend, "api")
-
-    def test_api_defaults_to_four_jobs(self):
-        # api 方式能并发提交多份，默认沿用原来的 4。
-        self.assertEqual(self.parse("--backend", "api").jobs, 4)
-
-    def test_official_web_defaults_to_one_job(self):
-        self.assertEqual(self.parse().jobs, 1)
-
-    def test_financial_is_only_for_the_api_backend(self):
+    def test_no_wait_login_is_not_accepted(self):
         err = io.StringIO()
         with mock.patch.object(sys, "stderr", err), \
              self.assertRaises(SystemExit) as ctx:
-            self.parse("--backend", "official-web",
-                       "--source-type", "financial")
+            self.parse("--no-wait-login")
         self.assertEqual(ctx.exception.code, 2)
-        self.assertIn("financial", err.getvalue())
+        self.assertIn("--no-wait-login", err.getvalue())
 
-    def test_a_different_model_is_rejected_for_the_web_backend(self):
-        err = io.StringIO()
-        with mock.patch.object(sys, "stderr", err), \
-             self.assertRaises(SystemExit) as ctx:
-            self.parse("--model", "PP-StructureV3")
-        self.assertEqual(ctx.exception.code, 2)
-        self.assertIn(aistudio.DEFAULT_MODEL, err.getvalue())
+    def test_jobs_defaults_to_four(self):
+        self.assertEqual(self.parse().jobs, 4)
 
-    def test_the_api_backend_still_accepts_another_model(self):
-        args = self.parse("--backend", "api", "--model", "PP-StructureV3")
-        self.assertEqual(args.model, "PP-StructureV3")
+    def test_another_model_is_still_accepted(self):
+        self.assertEqual(
+            self.parse("--model", "PP-StructureV3").model, "PP-StructureV3")
 
-    def test_web_options_are_parsed(self):
-        args = self.parse("--browser-profile", "p",
-                          "--browser-channel", "chrome",
-                          "--web-timeout", "60", "--login-timeout", "30",
-                          "--no-wait-login")
-        self.assertEqual(args.browser_profile, "p")
-        self.assertEqual(args.browser_channel, "chrome")
-        self.assertEqual(args.web_timeout, 60)
-        self.assertEqual(args.login_timeout, 30)
-        self.assertTrue(args.no_wait_login)
 
-    def test_web_timeout_must_be_positive(self):
-        err = io.StringIO()
-        with mock.patch.object(sys, "stderr", err), \
-             self.assertRaises(SystemExit) as ctx:
-            self.parse("--web-timeout", "0")
-        self.assertEqual(ctx.exception.code, 2)
-        self.assertIn("web-timeout", err.getvalue())
+class TestMainDependencies(unittest.TestCase):
+    def test_main_checks_only_the_api_dependencies(self):
+        """接口方式不需要 playwright；官网那套依赖不该再被查。"""
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        out = os.path.join(tmp.name, "out")
+        with mock.patch.object(convert, "check_dependencies") as check, \
+             mock.patch.object(convert, "collect_inputs", return_value=[]), \
+             mock.patch.object(convert, "run", return_value=0):
+            self.assertEqual(convert.main(["--output", out, "a.pdf"]), 0)
+        self.assertEqual(check.call_args.args, (convert.REQUIRED,))
 
 
 class TestAlreadyDone(unittest.TestCase):
@@ -3672,7 +3656,7 @@ class TestUtf8WhenRedirected(unittest.TestCase):
             f.write("# 已经转过\n")
         proc = subprocess.run(
             [sys.executable, os.path.abspath(convert.__file__),
-             pdf, "--output", out, "--backend", "api"],
+             pdf, "--output", out],
             capture_output=True, env=dict(os.environ, PYTHONIOENCODING="gbk"))
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("跳过", proc.stderr.decode("utf-8"))

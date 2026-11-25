@@ -77,77 +77,36 @@ def parse_args(argv=None):
                         help="输出根目录（必填）")
     parser.add_argument("--model", default=None,
                         help=f"接口认的模型名，默认 {aistudio.DEFAULT_MODEL}；"
-                             f"官网方式只能用 {aistudio.DEFAULT_MODEL}；"
                              f"财报模式固定用 {aistudio.FINANCIAL_MODEL}")
     parser.add_argument("--force", action="store_true",
                         help="已转过的也重转")
-    parser.add_argument("--jobs", type=int, default=None,
-                        help="同时最多几个文件在转。api 方式默认 4；"
-                             "官网方式一次只能处理一份，默认 1")
+    parser.add_argument("--jobs", type=int, default=4,
+                        help="同时最多几个文件在转，默认 4")
     parser.add_argument("--source-type", choices=("general", "financial"),
                         default="general",
                         help="素材类型。financial 表示财报：逐页切分单独提交，"
                              f"避免整本多页解析把宽表降级；模型固定为 "
-                             f"{aistudio.FINANCIAL_MODEL}。默认 general；"
-                             f"只对 --backend api 有效")
+                             f"{aistudio.FINANCIAL_MODEL}。默认 general")
     parser.add_argument("--page-jobs", type=int, default=4,
                         help="财报单页模式下，一份 PDF 里同时最多几页在转，"
                              "默认 4")
     parser.add_argument("--debug", action="store_true",
                         help="保留完整过程：服务原始结果、切出来的单页 PDF、"
-                             "合并前后的页表、图片对照和失败原因；官网方式"
-                             "还留官网 JSON、任务详情与任务页截图。放在"
+                             "合并前后的页表、图片对照和失败原因。放在"
                              "输出目录的 debug/ 下，每次运行一个带时间戳的子目录")
-    parser.add_argument("--backend", choices=("official-web", "api"),
-                        default="official-web",
-                        help="解析走哪条路。official-web（默认）在浏览器里"
-                             "上传到 PaddleOCR 官网；api 走 AI Studio 的异步"
-                             "解析接口")
-    parser.add_argument("--browser-profile", default=None,
-                        help="官网方式的浏览器配置目录；里面是登录 cookie。"
-                             "默认放在用户缓存目录下的 pdf-to-md/browser-profile")
-    parser.add_argument("--browser-channel", default=None,
-                        help="官网方式用哪个浏览器。Windows 默认 msedge，"
-                             "其他系统默认 chrome")
-    parser.add_argument("--web-timeout", type=float,
-                        default=aistudio_web.DEFAULT_WEB_TIMEOUT,
-                        help="官网方式等解析完成最多多少秒，默认 3600")
-    parser.add_argument("--login-timeout", type=float,
-                        default=aistudio_web.DEFAULT_LOGIN_TIMEOUT,
-                        help="官网方式等手动登录最多多少秒，默认 600")
-    parser.add_argument("--no-wait-login", action="store_true",
-                        help="官网方式没登录就立刻报错，不等人。体检用")
     args = parser.parse_args(argv)
-
-    # 官网方式只有一个浏览器窗口，一次只能跑一份；api 方式沿用原来的 4。
-    if args.jobs is None:
-        args.jobs = 1 if args.backend == "official-web" else 4
 
     if args.jobs < 1:
         parser.error(f"--jobs 至少是 1，给的是 {args.jobs}")
     if args.page_jobs < 1:
         parser.error(f"--page-jobs 至少是 1，给的是 {args.page_jobs}")
-    if args.web_timeout < 1:
-        parser.error(f"--web-timeout 至少是 1，给的是 {args.web_timeout}")
-    if args.login_timeout < 1:
-        parser.error(f"--login-timeout 至少是 1，给的是 {args.login_timeout}")
 
-    # --model 不给时用接口的默认模型。官网方式只按 1.6 解析；财报模式再把它
-    # 钉死到 1.6：调用方可能还带着清单里的 PP-StructureV3，静默换掉会让人
-    # 以为跑的是自己指定的那个；直接报错，让调用方改参数。
+    # --model 不给时用接口的默认模型。财报模式再把它钉死到 1.6：调用方可能
+    # 还带着清单里的 PP-StructureV3，静默换掉会让人以为跑的是自己指定的那个；
+    # 直接报错，让调用方改参数。
     if args.model is None:
         args.model = aistudio.DEFAULT_MODEL
-    if args.backend == "official-web":
-        if args.source_type == "financial":
-            parser.error(
-                "官网方式由服务端整本解析并合并表格，不支持 "
-                "--source-type financial；财报逐页模式请用 --backend api。")
-        if args.model != aistudio.DEFAULT_MODEL:
-            parser.error(
-                f"官网方式目前只按 {aistudio.DEFAULT_MODEL} 解析，"
-                f"--model 给的是 {args.model}。去掉 --model，"
-                f"或者改用 --backend api。")
-    elif args.source_type == "financial":
+    if args.source_type == "financial":
         if args.model not in (aistudio.DEFAULT_MODEL, aistudio.FINANCIAL_MODEL):
             parser.error(
                 f"财报模式固定用 {aistudio.FINANCIAL_MODEL}，"
@@ -1004,15 +963,10 @@ def main(argv=None):
     prefer_utf8(sys.stderr)
     args = parse_args(argv)
     try:
-        if args.backend == "official-web":
-            check_dependencies(WEB_REQUIRED, _WEB_INSTALL_HINT)
-        else:
-            check_dependencies(
-                FINANCIAL_REQUIRED if args.source_type == "financial"
-                else REQUIRED)
+        check_dependencies(
+            FINANCIAL_REQUIRED if args.source_type == "financial"
+            else REQUIRED)
         tasks = collect_inputs(args.inputs)
-        if args.backend == "official-web":
-            return run_web(tasks, args)
         return run(tasks, args)
     except SystemExit as exc:      # 缺依赖、目录里没有 PDF、缺 token
         if exc.code and not isinstance(exc.code, int):
