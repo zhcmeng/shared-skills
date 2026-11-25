@@ -278,6 +278,108 @@ def run_search(args):
     return 0
 
 
+INFO_FIELDS = (
+    "title",
+    "author",
+    "translator",
+    "intro",
+    "category",
+    "publisher",
+    "newRating",
+    "newRatingCount",
+    "readerLink",
+    "deepLink",
+)
+
+
+def run_info(args):
+    """给短名单里的书拉 ``/book/info``，写 ``bookinfo.json`` 与失败清单。"""
+    api_key = os.environ.get("WEREAD_API_KEY")
+    if not api_key:
+        print("没设置 WEREAD_API_KEY；先设置环境变量再跑。")
+        return 2
+    try:
+        version, _source = resolve_skill_version(
+            args.skill_version,
+            os.environ.get("WEREAD_SKILL_VERSION"),
+            official_skill_paths(),
+        )
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    try:
+        cache = cache_dir(args.topic, args.cache_dir)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
+    shortlist = read_json(args.shortlist, None)
+    if not isinstance(shortlist, dict) or not isinstance(shortlist.get("kept"), list):
+        print("shortlist.json 格式不对：需要 kept 数组。", file=sys.stderr)
+        return 1
+    book_ids = [
+        entry.get("bookId")
+        for entry in shortlist["kept"]
+        if (entry or {}).get("bookId")
+    ]
+    if not book_ids:
+        print("shortlist.json 里没有 kept 的 bookId。", file=sys.stderr)
+        return 1
+
+    bookinfo_path = cache / "bookinfo.json"
+    bookinfo = read_json(bookinfo_path, {})
+    if not isinstance(bookinfo, dict):
+        bookinfo = {}
+
+    failed = []
+    ok = 0
+    for book_id in book_ids:
+        if book_id in bookinfo and not args.refresh:
+            ok += 1
+            continue
+        try:
+            payload = api_with_retry(
+                {
+                    "api_name": "/book/info",
+                    "bookId": book_id,
+                    "skill_version": version,
+                },
+                api_key,
+                delays=RETRY_DELAYS,
+            )
+        except ApiError as exc:
+            failed.append(book_id)
+            print("详情「%s」失败：%s" % (book_id, exc), file=sys.stderr)
+            continue
+        bookinfo[book_id] = {key: payload.get(key) for key in INFO_FIELDS}
+        write_json(bookinfo_path, bookinfo)
+        ok += 1
+        time.sleep(INFO_PAUSE)
+
+    failed_path = cache / "failed_info.txt"
+    if failed:
+        failed_path.write_text("\n".join(failed) + "\n", encoding="utf-8")
+    elif failed_path.exists():
+        failed_path.unlink()
+
+    meta_path = cache / "search_meta.json"
+    meta = read_json(meta_path, {})
+    if not isinstance(meta, dict):
+        meta = {}
+    meta["info_ok"] = ok
+    meta["info_failed"] = len(failed)
+    write_json(meta_path, meta)
+
+    if failed and ok == 0:
+        print("所有详情都没拉成。", file=sys.stderr)
+        return 1
+    if failed:
+        print("有 %d 本详情没拉成，结果不完整。" % len(failed))
+        return 3
+    print("详情拉取完成：%d 本。" % ok)
+    return 0
+
+
 def parse_args(argv=None):
     parser = _ArgumentParser(
         prog="weread_booklist.py",

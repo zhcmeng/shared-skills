@@ -299,6 +299,158 @@ def main():
             weread_booklist.PAGE_PAUSE = old_pause
             weread_booklist.RETRY_DELAYS = old_delays
 
+    with tempfile.TemporaryDirectory() as tmp:
+        cache = cache_dir("t", base=tmp)
+        cache.mkdir(parents=True, exist_ok=True)
+        (cache / "shortlist.json").write_text(
+            json.dumps(
+                {
+                    "kept": [
+                        {"bookId": "1", "reason": "相关"},
+                        {"bookId": "2", "reason": "相关"},
+                    ],
+                    "dropped": [],
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        (cache / "search_meta.json").write_text(
+            json.dumps(
+                {
+                    "title": "测试",
+                    "keywords": ["AI"],
+                    "min_rating": 700,
+                    "unique_books": 1,
+                    "candidates": 2,
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        info_args = argparse.Namespace(
+            topic="t",
+            shortlist=str(cache / "shortlist.json"),
+            refresh=False,
+            cache_dir=tmp,
+            skill_version="1.0.6",
+        )
+        old_pause = weread_booklist.INFO_PAUSE
+        old_delays = weread_booklist.RETRY_DELAYS
+        weread_booklist.INFO_PAUSE = 0
+        weread_booklist.RETRY_DELAYS = (0, 0)
+        os.environ["WEREAD_API_KEY"] = "wrk-test"
+        try:
+            calls = []
+
+            def fake_info(body, key, **kw):
+                calls.append(body["bookId"])
+                if body["bookId"] == "1":
+                    return {
+                        "bookId": "1",
+                        "title": "书一",
+                        "author": "甲",
+                        "intro": "简介",
+                        "newRating": 900,
+                        "newRatingCount": 100,
+                        "readerLink": "https://r/1",
+                    }
+                raise weread_booklist.ApiError(499, "限流")
+
+            weread_booklist.call_api = fake_info
+            code = weread_booklist.run_info(info_args)
+            eq("info 部分失败退出 3", code, 3)
+            bookinfo = json.loads(
+                (cache / "bookinfo.json").read_text(encoding="utf-8")
+            )
+            eq("成功的一本在", "1" in bookinfo, True)
+            eq("失败的一本不在", "2" in bookinfo, False)
+            eq(
+                "failed_info 有 2",
+                "2" in (cache / "failed_info.txt").read_text(encoding="utf-8"),
+                True,
+            )
+            meta = json.loads(
+                (cache / "search_meta.json").read_text(encoding="utf-8")
+            )
+            eq("meta info_ok", meta["info_ok"], 1)
+            eq("meta info_failed", meta["info_failed"], 1)
+
+            before = len(calls)
+            code = weread_booklist.run_info(info_args)
+            eq("第二次仍退出 3", code, 3)
+            eq("已成功的不再请求", "1" not in calls[before:], True)
+            eq("失败的会重试", "2" in calls[before:], True)
+
+            with tempfile.TemporaryDirectory() as tmp2:
+                cache2 = cache_dir("t", base=tmp2)
+                cache2.mkdir(parents=True, exist_ok=True)
+                (cache2 / "shortlist.json").write_text(
+                    json.dumps(
+                        {
+                            "kept": [
+                                {"bookId": "1", "reason": "x"},
+                                {"bookId": "2", "reason": "x"},
+                            ],
+                            "dropped": [],
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                (cache2 / "search_meta.json").write_text(
+                    json.dumps({"title": "测试"}), encoding="utf-8"
+                )
+                args2 = argparse.Namespace(
+                    topic="t",
+                    shortlist=str(cache2 / "shortlist.json"),
+                    refresh=False,
+                    cache_dir=tmp2,
+                    skill_version="1.0.6",
+                )
+
+                def always_fail(body, key, **kw):
+                    raise weread_booklist.ApiError(499, "限流")
+
+                weread_booklist.call_api = always_fail
+                code = weread_booklist.run_info(args2)
+                eq("全部失败退出 1", code, 1)
+
+            with tempfile.TemporaryDirectory() as tmp3:
+                cache3 = cache_dir("t", base=tmp3)
+                cache3.mkdir(parents=True, exist_ok=True)
+                (cache3 / "shortlist.json").write_text(
+                    json.dumps(
+                        {"kept": [{"bookId": "1", "reason": "x"}], "dropped": []}
+                    ),
+                    encoding="utf-8",
+                )
+                (cache3 / "search_meta.json").write_text(
+                    json.dumps({"title": "测试"}), encoding="utf-8"
+                )
+                args3 = argparse.Namespace(
+                    topic="t",
+                    shortlist=str(cache3 / "shortlist.json"),
+                    refresh=False,
+                    cache_dir=tmp3,
+                    skill_version="1.0.6",
+                )
+
+                def empty_intro(body, key, **kw):
+                    return {"bookId": "1", "title": "书一", "intro": ""}
+
+                weread_booklist.call_api = empty_intro
+                code = weread_booklist.run_info(args3)
+                eq("空简介退出 0", code, 0)
+                info3 = json.loads(
+                    (cache3 / "bookinfo.json").read_text(encoding="utf-8")
+                )
+                eq("空简介保留", info3["1"]["intro"], "")
+        finally:
+            os.environ.pop("WEREAD_API_KEY", None)
+            weread_booklist.call_api = original
+            weread_booklist.INFO_PAUSE = old_pause
+            weread_booklist.RETRY_DELAYS = old_delays
+
     print()
     if bad:
         print("%d 例没过" % bad)
