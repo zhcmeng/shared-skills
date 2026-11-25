@@ -244,6 +244,72 @@ def main():
     trimmed = render_booklist(meta, good, details, top=2)
     eq("截断到前 2", "1. **《书一》**" in trimmed and "2. **《书二》**" in trimmed and "书三" not in trimmed, True)
 
+    fix_details = {
+        "1": {"bookId": "1", "title": "书一", "author": "甲", "newRating": 902,
+              "newRatingCount": 100, "readerLink": "https://r/1", "intro": "简介一"},
+        "2": {"bookId": "2", "title": "书二", "author": "乙", "newRating": 880,
+              "newRatingCount": 20, "intro": ""},
+        "3": {"bookId": "3", "title": "书三", "author": "丙", "newRating": 850,
+              "newRatingCount": 100, "intro": "简介三"},
+    }
+    fix_meta = {"title": "测试", "keywords": ["AI"], "min_rating": 700,
+                "unique_books": 10, "candidates": 5}
+    fix_picks = {
+        "kept": [
+            {"bookId": "1", "theme": "组织", "secondary": ["提效"],
+             "summary": "一句话", "reason": "r"},
+            {"bookId": "2", "theme": "经济", "reason": "r"},
+            {"bookId": "3", "theme": "组织", "summary": "另一句", "reason": "r"},
+        ],
+        "dropped": [{"bookId": "4", "reason": "d"}, {"bookId": "5", "reason": "d"}],
+    }
+    fix_text = render_booklist(fix_meta, fix_picks, fix_details, top=20, shortlist_dropped=7)
+    eq("次主题标出", "次主题：提效" in fix_text, True)
+    eq("初筛去掉数", "初筛去掉 7 本" in fix_text, True)
+    eq("精筛去掉数", "精筛去掉 2 本" in fix_text, True)
+    eq("标题按实际本数", "共 3 本" in fix_text, True)
+
+    failed_text = render_booklist(fix_meta, fix_picks, fix_details, top=20, failed_ids={"1"})
+    eq("失败详情标注", "简介获取失败" in failed_text, True)
+    eq("失败不用编的简述", "一句话" not in failed_text, True)
+
+    no_link_picks = {
+        "kept": [{"bookId": "3", "theme": "组织", "summary": "x", "reason": "r"}],
+        "dropped": [],
+    }
+    no_link_text = render_booklist(
+        fix_meta, no_link_picks, {"3": fix_details["3"]}, top=20
+    )
+    eq(
+        "没有链接就不写",
+        "打开阅读" not in no_link_text and "查看详情" not in no_link_text,
+        True,
+    )
+
+    empty_text = render_booklist(fix_meta, {"kept": [], "dropped": []}, fix_details, top=20)
+    eq("空榜单不崩", "共 0 本" in empty_text, True)
+
+    raises("条目不是对象", lambda: validate_picks(
+        {"kept": ["x"], "dropped": []}, {"1"}, fix_details), "对象")
+    raises("次主题不是数组", lambda: validate_picks(
+        {"kept": [{"bookId": "1", "theme": "组织", "summary": "x", "reason": "r",
+                   "secondary": "提效"}], "dropped": []},
+        {"1"}, fix_details), "secondary")
+
+    eq(
+        "只认 frontmatter",
+        parse_skill_version("version: 9.9.9\n---\nversion: 1.0.6\n---\n"),
+        None,
+    )
+
+    md = merge_details([{"bookId": "1", "title": "书一"}], {"1": "x"})
+    eq("详情不是对象就跳过", md["1"]["title"], "书一")
+    eq(
+        "合并时跳过非对象",
+        [b["bookId"] for b in merge_books([("AI", [{"bookId": "1"}, "x"])])],
+        ["1"],
+    )
+
     print()
     if bad:
         print("%d 例没过" % bad)

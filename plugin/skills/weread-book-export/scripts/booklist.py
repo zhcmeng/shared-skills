@@ -21,8 +21,16 @@ _BOM = "﻿"
 
 def parse_skill_version(text):
     """从官方 SKILL.md 的 frontmatter 里读 version；读不到返回 None。"""
-    match = _VERSION_LINE.search(text or "")
-    return match.group(1) if match else None
+    lines = (text or "").splitlines()
+    if not lines or lines[0].strip() != "---":
+        return None
+    for line in lines[1:]:
+        if line.strip() == "---":
+            break
+        match = _VERSION_LINE.match(line)
+        if match:
+            return match.group(1)
+    return None
 
 
 def resolve_skill_version(cli_value, env_value, paths):
@@ -147,7 +155,9 @@ def merge_books(per_keyword):
     order = []
     for keyword, books in per_keyword or []:
         for book in books or []:
-            book_id = (book or {}).get("bookId")
+            if not isinstance(book, dict):
+                continue
+            book_id = book.get("bookId")
             if not book_id:
                 continue
             item = by_id.get(book_id)
@@ -210,12 +220,18 @@ def merge_details(candidates, bookinfo):
     """
     details = {}
     for book in candidates or []:
-        book_id = (book or {}).get("bookId")
+        if not isinstance(book, dict):
+            continue
+        book_id = book.get("bookId")
         if book_id:
             details[book_id] = dict(book)
-    for book_id, info in (bookinfo or {}).items():
+    if not isinstance(bookinfo, dict):
+        bookinfo = {}
+    for book_id, info in bookinfo.items():
+        if not isinstance(info, dict):
+            continue
         item = details.setdefault(book_id, {"bookId": book_id})
-        for key, value in (info or {}).items():
+        for key, value in info.items():
             if value not in (None, ""):
                 item[key] = value
     return details
@@ -231,7 +247,9 @@ def validate_picks(picks, known_ids, details):
         raise ValueError("picks.json 的 kept 与 dropped 必须是数组")
 
     def check_entry(entry, group):
-        book_id = (entry or {}).get("bookId")
+        if not isinstance(entry, dict):
+            raise ValueError("%s 里的条目必须是对象" % group)
+        book_id = entry.get("bookId")
         if not book_id:
             raise ValueError("%s 里有条目缺 bookId" % group)
         if book_id not in known_ids:
@@ -242,6 +260,14 @@ def validate_picks(picks, known_ids, details):
         book_id = check_entry(entry, "kept")
         if not (entry.get("theme") or "").strip():
             raise ValueError("kept 里的 %s 缺 theme" % book_id)
+        secondary = entry.get("secondary")
+        if secondary is not None:
+            if not isinstance(secondary, list) or any(
+                not isinstance(word, str) for word in secondary
+            ):
+                raise ValueError(
+                    "kept 里的 %s 的 secondary 必须是字符串数组" % book_id
+                )
         if not (entry.get("reason") or "").strip():
             raise ValueError("kept 里的 %s 缺 reason" % book_id)
         intro = (details.get(book_id) or {}).get("intro")
@@ -254,7 +280,15 @@ def validate_picks(picks, known_ids, details):
             raise ValueError("dropped 里的 %s 缺 reason" % book_id)
 
 
-def _render_entry(index, entry, book):
+def format_threshold(value):
+    """把推荐值下限写成 ``70%`` 或 ``70.6%``。"""
+    text = "%.1f" % ((value if value is not None else 700) / 10)
+    if text.endswith(".0"):
+        text = text[:-2]
+    return text + "%"
+
+
+def _render_entry(index, entry, book, failed=False):
     """渲染榜单里的一条。"""
     title = book.get("title") or "书名缺失"
     author = book.get("author") or "作者未知"
@@ -268,55 +302,76 @@ def _render_entry(index, entry, book):
         if note:
             rating = "%s（%s）" % (rating, note)
     theme = (entry.get("theme") or "未分类").strip() or "未分类"
+    theme_text = "主题：%s" % theme
+    secondary = entry.get("secondary")
+    if isinstance(secondary, list) and secondary:
+        theme_text += "；次主题：%s" % "、".join(secondary)
     lines = [
-        "%d. **《%s》** %s · 推荐值 %s · %s · 主题：%s"
-        % (index, title, author, rating, count_text, theme)
+        "%d. **《%s》** %s · 推荐值 %s · %s · %s"
+        % (index, title, author, rating, count_text, theme_text)
     ]
     if book.get("readerLink"):
         lines.append("[打开阅读](%s)" % book["readerLink"])
     elif book.get("deepLink"):
         lines.append("[查看详情](%s)" % book["deepLink"])
-    summary = (entry.get("summary") or "").strip()
-    lines.append(summary or "暂无简介")
+    if failed:
+        lines.append("简介获取失败")
+    else:
+        summary = (entry.get("summary") or "").strip()
+        lines.append(summary or "暂无简介")
     return lines
 
 
-def render_booklist(meta, picks, details, top=20, group=False):
+def render_booklist(
+    meta,
+    picks,
+    details,
+    top=20,
+    group=False,
+    failed_ids=None,
+    shortlist_dropped=None,
+):
     """把 ``picks`` 与详情渲染成 Markdown 榜单。"""
     meta = meta or {}
-    rows = []
+    failed_ids = set(failed_ids or [])
+    all_kept = []
     for entry in (picks or {}).get("kept") or []:
         book = details.get(entry.get("bookId")) or {}
-        rows.append((entry, book))
-    rows.sort(
+        all_kept.append((entry, book))
+    all_kept.sort(
         key=lambda pair: (
             -(pair[1].get("newRating") or 0),
             -(pair[1].get("newRatingCount") or 0),
             pair[1].get("title") or "",
         )
     )
-    rows = rows[:top]
+    shown = min(top, len(all_kept))
+    rows = all_kept[:top]
 
     min_rating = meta.get("min_rating")
     if min_rating is None:
         min_rating = 700
-    min_pct = min_rating / 10
     title = meta.get("title") or meta.get("topic") or "主题书单"
+    scope = ("共 %d 本" % shown) if shown < top else ("前 %d 本" % top)
     lines = [
-        "## %s：推荐值 %.0f%% 以上的前 %d 本" % (title, min_pct, top),
+        "## %s：推荐值 %s 以上的%s"
+        % (title, format_threshold(min_rating), scope),
         "",
     ]
-    lines.append(
-        "检索 %d 个关键词，去重 %d 本；推荐值 %.0f%% 以上 %d 本；"
-        "按书名与简介筛掉教程、案例集、传记等，取前 %d，按推荐值排序。"
-        % (
-            len(meta.get("keywords") or []),
-            meta.get("unique_books") or 0,
-            min_pct,
-            meta.get("candidates") or 0,
-            len(rows),
-        )
+    parts = [
+        "检索 %d 个关键词" % len(meta.get("keywords") or []),
+        "去重 %d 本" % (meta.get("unique_books") or 0),
+        "推荐值 %s 以上 %d 本"
+        % (format_threshold(min_rating), meta.get("candidates") or 0),
+    ]
+    count_line = "，".join(parts) + "；按书名与简介筛掉教程、案例集、传记等；"
+    if shortlist_dropped is not None:
+        count_line += "初筛去掉 %d 本，" % shortlist_dropped
+    count_line += "精筛去掉 %d 本；留下 %d 本，按推荐值排序。" % (
+        len((picks or {}).get("dropped") or []),
+        len(rows),
     )
+    lines.append(count_line)
     lines.append("")
 
     if group:
@@ -332,11 +387,17 @@ def render_booklist(meta, picks, details, top=20, group=False):
             lines.append("### %s" % theme)
             lines.append("")
             for index, (entry, book) in enumerate(buckets[theme], 1):
-                lines.extend(_render_entry(index, entry, book))
+                lines.extend(
+                    _render_entry(
+                        index, entry, book, entry.get("bookId") in failed_ids
+                    )
+                )
                 lines.append("")
     else:
         for index, (entry, book) in enumerate(rows, 1):
-            lines.extend(_render_entry(index, entry, book))
+            lines.extend(
+                _render_entry(index, entry, book, entry.get("bookId") in failed_ids)
+            )
             lines.append("")
 
     return "\n".join(lines).rstrip() + "\n"

@@ -113,7 +113,8 @@ python "<skill目录>/scripts/weread_booklist.py" info --topic ai-impact --short
 python "<skill目录>/scripts/weread_booklist.py" render --topic ai-impact --picks picks.json
 ```
 
-- 关键词由模型按主题展开，一行一个写进文件；脚本不内置词表。
+- 关键词由模型按主题展开，一行一个写进文件；也可以用 `--keywords "AI,大模型"` 直接给。脚本不内置词表。
+- `--group` 按主主题分组，`--min-ratings` 收紧评分人数，`--top` 改数量。
 - 缓存与成品在 `%LOCALAPPDATA%\weread-book-export\booklist\<主题>\`；同主题重跑默认复用缓存，`--refresh` 重搜。
 - 成品默认 `booklist-<日期>.md`，`--out` 可改。
 - 退出码：`0` 跑完；`2` 没设 Key；`3` 部分失败；`1` 参数或版本号错误。
