@@ -586,7 +586,7 @@ def convert_one(task, out_root, model, token, on_pages=None,
     都写进 `<输出根>/<任务名>/debug/<时间戳>/`，成功失败都留。
 
     `backend="api"` 是默认值，直接调这个函数的老代码不受影响；命令行
-    的默认是 `official-web`，那边会把浏览器会话传进来。
+    只走这条路径，`official-web` 只有调用方直接传 `web_session` 时才可达。
     """
     t0 = time.time()
     if source_type == "financial":

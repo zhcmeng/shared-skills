@@ -12,7 +12,7 @@ skills/pdf-to-md/
 ├── SKILL.md           主流程
 ├── scripts/
 │   ├── markdown.py    纯文本处理，不联网
-│   ├── aistudio.py    网络：提交、轮询、取结果、下图（--backend api）
+│   ├── aistudio.py    网络：提交、轮询、取结果、下图（接口方式）
 │   ├── aistudio_web.py 浏览器：登录、上传官网、等任务、下载官网 JSON（残留：入口已移除，不再被调用）
 │   ├── convert.py     主流程：认任务、调上面三个、写文件
 │   └── doctor.py      体检：回答「这台机器现在能不能转」

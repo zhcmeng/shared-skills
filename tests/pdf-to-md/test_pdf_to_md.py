@@ -3956,6 +3956,8 @@ class TestDoctorSmokeCheck(unittest.TestCase):
             exc=subprocess.TimeoutExpired("uv", doctor.SMOKE_TIMEOUT)))
         self.assertFalse(check.ok)
         self.assertIn("超时", check.detail)
+        self.assertIn("服务", check.fix)
+        self.assertNotIn("浏览器", check.fix)
 
     def test_a_missing_sample_file_says_the_install_is_incomplete(self):
         # 只拷了 scripts/ 没拷 assets/：这不是环境问题，是装得不全

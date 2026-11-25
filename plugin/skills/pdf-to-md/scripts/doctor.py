@@ -288,7 +288,7 @@ def check_smoke(backend=None, runner=None):
                 SMOKE_NAME, False,
                 f"超时：跑了 {timeout:.0f} 秒还没回来，已经掐掉。"
                 f"样例只有 1 页，正常十几秒就该完。",
-                "多半是卡在连不上服务或浏览器上了。换个网络再试；"
+                "多半是卡在连不上服务上了。换个网络再试；"
                 "连不上时真转也一样会这么一直等。")
         elapsed = time.time() - t0
 
