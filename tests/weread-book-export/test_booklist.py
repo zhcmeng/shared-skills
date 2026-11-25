@@ -18,11 +18,19 @@ sys.path.insert(
 from booklist import (  # noqa: E402
     cache_dir,
     default_base_dir,
+    filter_by_rating,
+    flatten_books,
+    format_rating,
+    merge_books,
+    merge_details,
+    page_offset,
     parse_keywords,
     parse_skill_version,
+    rating_count_note,
     raw_cache_path,
     read_json,
     resolve_skill_version,
+    sort_books,
     write_json,
 )
 
@@ -125,6 +133,63 @@ def main():
     eq("文件不存在", read_json(tmp / "none.json", {"d": 1}), {"d": 1})
     target.write_text("{坏", encoding="utf-8")
     eq("文件坏了", read_json(target, {"d": 2}), {"d": 2})
+
+    raw = [
+        {"books": [
+            {"bookInfo": {"bookId": "1", "title": "书一", "author": "甲", "newRating": 802, "newRatingCount": 100}},
+            {"bookInfo": {"bookId": "2", "title": "书二", "author": "乙", "intro": None}},
+        ]},
+        {"books": [
+            {"bookInfo": {"bookId": "3", "title": "书三"}, "newRating": 905, "newRatingCount": 7},
+        ]},
+    ]
+    flat = flatten_books(raw)
+    eq("扁平化条数", len(flat), 3)
+    eq("评分在 bookInfo", flat[0]["newRating"], 802)
+    eq("缺 bookInfo 评分时读顶层", flat[2]["newRating"], 905)
+    eq("顶层评分人数", flat[2]["newRatingCount"], 7)
+    eq("没有 bookId 的条目丢掉", len(flatten_books([{"books": [{"bookInfo": {}}]}])), 0)
+    eq("空回包", flatten_books([]), [])
+
+    merged = merge_books([("人工智能", flat[:2]), ("大模型", [flat[1], flat[2]])])
+    eq("按 bookId 去重", len(merged), 3)
+    eq("保留首次出现顺序", [b["bookId"] for b in merged], ["1", "2", "3"])
+    eq("记录命中词", merged[1]["keywords"], ["人工智能", "大模型"])
+
+    edge = [
+        {"bookId": "a", "newRating": 699},
+        {"bookId": "b", "newRating": 700},
+        {"bookId": "c", "newRating": 701},
+        {"bookId": "d"},
+    ]
+    eq("过线边界 700", [b["bookId"] for b in filter_by_rating(edge, 700)], ["b", "c"])
+    eq("没有评分的丢掉", filter_by_rating([{"bookId": "x"}], 700), [])
+
+    same = [
+        {"bookId": "a", "title": "乙", "newRating": 800, "newRatingCount": 10},
+        {"bookId": "b", "title": "甲", "newRating": 900, "newRatingCount": 5},
+        {"bookId": "c", "title": "丙", "newRating": 900, "newRatingCount": 20},
+    ]
+    eq("按评分、人数、书名排序", [b["bookId"] for b in sort_books(same)], ["c", "b", "a"])
+
+    eq("推荐值格式", format_rating(902), "90.2%")
+    eq("0 分当没有评分", format_rating(0), "暂无评分")
+    eq("None 当没有评分", format_rating(None), "暂无评分")
+    eq("少于 50 人", rating_count_note(49), "少于 50 人评分")
+    eq("刚好 50 人", rating_count_note(50), "")
+    eq("人数未知", rating_count_note(None), "评分人数未知")
+
+    eq("第一页偏移", page_offset(0, 50), 0)
+    eq("第二页偏移", page_offset(1, 50), 50)
+    eq("第三页偏移", page_offset(2, 50), 100)
+
+    details = merge_details(
+        [{"bookId": "1", "title": "书一", "newRating": 802}],
+        {"1": {"intro": "简介", "category": "经济"}, "2": {"title": "书二"}},
+    )
+    eq("详情覆盖标题", details["1"]["title"], "书一")
+    eq("详情补简介", details["1"]["intro"], "简介")
+    eq("只有详情也保留", details["2"]["title"], "书二")
 
     print()
     if bad:

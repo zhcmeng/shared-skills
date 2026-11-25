@@ -100,3 +100,122 @@ def write_json(path, data):
     tmp = path.with_name(path.name + ".tmp")
     tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     os.replace(tmp, path)
+
+
+def flatten_books(results):
+    """把 ``/store/search`` 的 ``results`` 分组扁平化成书籍数组。
+
+    评分与评分人数先读 ``bookInfo``，为空再读条目顶层；``intro`` 不保留，
+    搜索结果里本来也没有。
+    """
+    books = []
+    for group in results or []:
+        for item in (group or {}).get("books") or []:
+            info = item.get("bookInfo") or {}
+            book_id = info.get("bookId")
+            if not book_id:
+                continue
+            rating = info.get("newRating")
+            if rating is None:
+                rating = item.get("newRating")
+            rating_count = info.get("newRatingCount")
+            if rating_count is None:
+                rating_count = item.get("newRatingCount")
+            books.append(
+                {
+                    "bookId": book_id,
+                    "title": info.get("title"),
+                    "author": info.get("author"),
+                    "translator": info.get("translator"),
+                    "deepLink": info.get("deepLink"),
+                    "readerLink": info.get("readerLink"),
+                    "newRating": rating,
+                    "newRatingCount": rating_count,
+                    "soldout": info.get("soldout"),
+                }
+            )
+    return books
+
+
+def merge_books(per_keyword):
+    """按 ``bookId`` 合并多个关键词的结果，保留首次出现顺序。
+
+    ``per_keyword`` 是 ``[(keyword, books), ...]``；每本书记下命中的词，
+    后面写主题标签时用得上。
+    """
+    by_id = {}
+    order = []
+    for keyword, books in per_keyword or []:
+        for book in books or []:
+            book_id = (book or {}).get("bookId")
+            if not book_id:
+                continue
+            item = by_id.get(book_id)
+            if item is None:
+                item = dict(book)
+                item["keywords"] = [keyword] if keyword else []
+                by_id[book_id] = item
+                order.append(book_id)
+            elif keyword and keyword not in item["keywords"]:
+                item["keywords"].append(keyword)
+    return [by_id[book_id] for book_id in order]
+
+
+def filter_by_rating(books, min_rating):
+    """留下推荐值达到 ``min_rating`` 的书；没有评分的丢掉。"""
+    return [
+        book
+        for book in books or []
+        if book.get("newRating") is not None and book["newRating"] >= min_rating
+    ]
+
+
+def sort_books(books):
+    """按推荐值、评分人数、书名排序。"""
+    return sorted(
+        books or [],
+        key=lambda book: (
+            -(book.get("newRating") or 0),
+            -(book.get("newRatingCount") or 0),
+            book.get("title") or "",
+        ),
+    )
+
+
+def format_rating(value):
+    """把 0-1000 的推荐值写成 ``90.2%``；0 或缺失当没有评分。"""
+    if value is None or value == 0:
+        return "暂无评分"
+    return "%.1f%%" % (value / 10)
+
+
+def rating_count_note(count):
+    """评分人数少于 50 或未知时给一句标注，否则空串。"""
+    if count is None:
+        return "评分人数未知"
+    if count < 50:
+        return "少于 50 人评分"
+    return ""
+
+
+def page_offset(page_index, count):
+    """第几页（从 0 起）对应的 ``maxIdx``。"""
+    return page_index * count
+
+
+def merge_details(candidates, bookinfo):
+    """把候选书与 ``/book/info`` 的详情合成一张 ``bookId -> 书`` 的表。
+
+    详情里的非空字段覆盖候选书的同名字段；只有详情、没有候选的书也保留。
+    """
+    details = {}
+    for book in candidates or []:
+        book_id = (book or {}).get("bookId")
+        if book_id:
+            details[book_id] = dict(book)
+    for book_id, info in (bookinfo or {}).items():
+        item = details.setdefault(book_id, {"bookId": book_id})
+        for key, value in (info or {}).items():
+            if value not in (None, ""):
+                item[key] = value
+    return details
