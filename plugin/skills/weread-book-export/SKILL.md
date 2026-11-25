@@ -1,6 +1,6 @@
 ---
 name: weread-book-export
-description: "微信读书里的整本书要导成 Markdown，或要查某本书、列某杂志某年的全部各期时使用——整本导出按章拆文件、另出一份带目录的 README，正文逐字还原并连同插图存到本地，支持断点续跑；搜索有三种：知道完整书名就精确找，同名多本全列出、不替用户挑；想搜集一类主题，就按标题关键词模糊找，多个词任意一个命中；想找和某个概念相关的书，就用一组相关词做语义扩展、合并去重；也能按「系列名 + 年份」逐期查全，绕开搜索页约 40 条的上限。触发词：把这本书导出来、微信读书整本书存成 md、导出这本书、微信读书导出、weread export、微信读书搜书、按主题找书、找和 AI 相关的书、列全某杂志某年的各期、这本杂志有哪些期。不用于：导出笔记与划线（本技能不导，也拿不到）、把网页抓成 Markdown（用 defuddle）、只取某一章的正文（那是临时的活，不必跑整本）。"
+description: "微信读书里的整本书要导成 Markdown，或要查某本书、列某杂志某年的全部各期时使用——整本导出按章拆文件、另出一份带目录的 README，正文逐字还原并连同插图存到本地，支持断点续跑；搜索有三种：知道完整书名就精确找，同名多本全列出、不替用户挑；想搜集一类主题，就按标题关键词模糊找，多个词任意一个命中；想找和某个概念相关的书，就用一组相关词做语义扩展、合并去重；也能按「系列名 + 年份」逐期查全，绕开搜索页约 40 条的上限；要按主题筛一份书单（限定推荐值和数量、按推荐值排名）时也用这门技能，走 Agent API 脚本，需要 WEREAD_API_KEY。触发词：把这本书导出来、微信读书整本书存成 md、导出这本书、微信读书导出、weread export、微信读书搜书、按主题找书、找和 AI 相关的书、按主题筛书单、推荐度 70% 以上的前 20 本、列一个 XX 主题书单、列全某杂志某年的各期、这本杂志有哪些期。不用于：导出笔记与划线（本技能不导，也拿不到）、把网页抓成 Markdown（用 defuddle）、只取某一章的正文（那是临时的活，不必跑整本）。"
 argument-hint: "<书名> <输出目录>"
 ---
 
@@ -72,6 +72,40 @@ uv run --with playwright python "<skill目录>/scripts/weread_search.py" \
 - 清单里的「另见」是标题带系列名和年份、但不是按期号排的条目（年刊、专刊）。它来自一次普通搜索，受 40 条上限影响，可能不全。
 - 跑完把共几期、缺哪几期、清单写到哪报给用户。三种搜索档跑完报：共几条、有没有满页、命中词数最多的前几条；语义档还要报哪些词 0 条。
 - 搜索和导出共用登录配置，**同一时刻只能开一个浏览器**：导出在跑时，等它跑完，或者给搜索加 `--profile <空目录>`（搜索不登录也能用）。要登录时加 `--show`。
+
+## 按主题筛书单
+
+按主题找一批书、按推荐值排名时用这一节。找具体某本用上面的 `weread_search.py`，导正文用 `weread_export.py`，按主题筛一批用 `weread_booklist.py`。
+
+**需要 `WEREAD_API_KEY`**；`skill_version` 由脚本从官方 `weread-skills` 的 `SKILL.md` 自己读，官方升级不用改这里。
+
+```bash
+# 1. 检查 Key、版本号、接口可用性
+python "<skill目录>/scripts/weread_booklist.py" check
+
+# 2. 批量搜、去重、按推荐值过滤
+python "<skill目录>/scripts/weread_booklist.py" search \
+    --topic ai-impact --title "AI 对组织、经济与社会的影响" \
+    --context "<用户原话>" --keywords-file "<关键词文件>"
+
+# 3. 给初筛后的书拉详情
+python "<skill目录>/scripts/weread_booklist.py" info \
+    --topic ai-impact --shortlist "<shortlist.json>"
+
+# 4. 渲染并落盘
+python "<skill目录>/scripts/weread_booklist.py" render \
+    --topic ai-impact --picks "<picks.json>"
+```
+
+- **关键词**：模型按主题展开 12-15 个（用户说「尽量全」时 30 个以上），一行一个写进文件；脚本不内置词表。
+- **初筛**：`search` 后按书名和作者筛。搜索回包没有分类、出版方、简介，这三样拉详情后才有。
+- **短名单**：按目标数量的 2-3 倍留，写 `shortlist.json`：`{"kept": [{"bookId", "reason"}], "dropped": [{"bookId", "reason"}]}`。
+- **精筛**：`info` 后用分类、出版方、简介判断，写 `picks.json`：`{"kept": [{"bookId", "theme", "secondary", "summary", "reason"}], "dropped": [...]}`；`summary` 只在有简介时必填。
+- **判据**：排除技术教程与编程入门、工具操作手册、案例集、人物传记与访谈、副业变现、轻商业与短篇轻读物。「不要实例」= 案例集。
+- **输出**：排名、书名链接、作者、推荐值、评分人数、主题、一句话；评分人数少于 50 的标注；不写「共有」「一共」。
+- **退出码**：`0` 跑完；`2` 没设 `WEREAD_API_KEY`；`3` 部分关键词或详情失败、结果不完整，把失败的词或 bookId 转告用户；`1` 参数或版本号错误。
+- 缓存与成品在 `%LOCALAPPDATA%\weread-book-export\booklist\<主题>\`；同主题重跑默认复用 `raw/` 缓存，`--refresh` 重搜。
+- 官方升级后先跑 `check`；接口字段变了，改 `weread_booklist.py` 和这一节。
 
 ## 退出码
 
