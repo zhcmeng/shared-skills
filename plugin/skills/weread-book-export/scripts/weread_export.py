@@ -103,7 +103,22 @@ def _paywall(page):
 
 
 def _identify(page, titles, expected=None):
-    """屏幕上画的是目录里的哪一条；认不出返回 None。"""
+    """屏幕上画的是目录里的哪一条；认不出返回 None。
+
+    窗口最小化时画布不重绘，屏幕上没有字可认；改从预渲染 HTML 的开头认。
+    预渲染还没换成本章时认到的是上一章，调用方会继续等。
+    """
+    if _page_hidden(page):
+        blocks = pre_render_blocks(page)
+        if blocks:
+            lines = [
+                {"text": block.get("text") or ""}
+                for block in blocks
+                if block.get("kind") != "image"
+            ]
+            found = identify_chapter(lines, titles, expected)
+            if found is not None:
+                return found
     return identify_chapter(group_lines(capture_glyphs(page)), titles, expected)
 
 
@@ -122,18 +137,21 @@ RENDER_STABLE_SAMPLES = 3
 RENDER_SAMPLE_INTERVAL = 1.0
 
 
-def _wait_drawn(page, timeout=15.0):
-    """等这一章画完：抓到的字形数连续几次采样都不再增加。
+def _page_hidden(page):
+    """窗口最小化或被完全遮挡时，页面会变成 hidden。"""
+    try:
+        return bool(page.evaluate("() => document.visibilityState === 'hidden'"))
+    except Exception:
+        return False
 
-    只看画布高度不行：高度在开头就定下来了，字是随后一块块画上去的，
-    高度还稳着的时候尾巴可能还没画，截出来就断在句子中间（实测第 10 章
-    停在「谁都理」，后面还有字）。
-    """
+
+def _wait_capture_stable(page, variable, timeout):
+    """等某个抓取数组的元素数连续几次采样都不再增加。"""
     deadline = time.monotonic() + timeout
     previous = -1
     stable = 0
     while time.monotonic() < deadline:
-        captured = page.evaluate("() => (window.__wereadCap || []).length")
+        captured = page.evaluate("() => (window.%s || []).length" % variable)
         if captured > 0 and captured == previous:
             stable += 1
             if stable >= RENDER_STABLE_SAMPLES - 1:
@@ -143,6 +161,29 @@ def _wait_drawn(page, timeout=15.0):
         previous = captured
         time.sleep(RENDER_SAMPLE_INTERVAL)
     return False
+
+
+def _wait_drawn(page, timeout=15.0):
+    """等这一章画完：抓到的字形数连续几次采样都不再增加。
+
+    只看画布高度不行：高度在开头就定下来了，字是随后一块块画上去的，
+    高度还稳着的时候尾巴可能还没画，截出来就断在句子中间（实测第 10 章
+    停在「谁都理」，后面还有字）。
+
+    窗口最小化时画布不重绘，字形永远等不到。这时改等预渲染 HTML 稳定：
+    那份 HTML 在画字之前就赋值好了，与窗口可见与否无关（实测最小化时导出
+    的第一章与可见时逐字相同）。没有预渲染的格式（PDF、导入书可能是这类）
+    退回把窗口叫回前台，再等字形。
+    """
+    if _page_hidden(page):
+        if _wait_capture_stable(page, "__wereadPre", timeout):
+            return True
+        try:
+            page.bring_to_front()
+        except Exception:
+            return False
+        return _wait_capture_stable(page, "__wereadCap", timeout)
+    return _wait_capture_stable(page, "__wereadCap", timeout)
 
 
 def _wait_titleless_page(page, timeout=TITLELESS_TIMEOUT):
