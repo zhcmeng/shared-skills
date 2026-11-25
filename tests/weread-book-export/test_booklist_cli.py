@@ -746,6 +746,32 @@ def main():
                     True,
                 )
 
+            empty_calls = []
+
+            def empty_page(body, key, **kw):
+                empty_calls.append(body)
+                return {"results": [], "hasMore": 1}
+
+            weread_booklist.call_api = empty_page
+            args_empty = argparse.Namespace(
+                topic="empty",
+                title="测试",
+                context="测试",
+                keywords=None,
+                keywords_file=str(words),
+                min_rating=700,
+                pages=3,
+                count=2,
+                interval=0,
+                retries=2,
+                refresh=True,
+                cache_dir=tmp,
+                skill_version="1.0.6",
+            )
+            code = weread_booklist.run_search(args_empty)
+            eq("空页退出 0", code, 0)
+            eq("空页只请求一页", len(empty_calls), 1)
+
             class FakeResponse:
                 def __init__(self, payload):
                     self.payload = payload
