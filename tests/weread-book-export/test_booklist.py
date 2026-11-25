@@ -29,8 +29,10 @@ from booklist import (  # noqa: E402
     rating_count_note,
     raw_cache_path,
     read_json,
+    render_booklist,
     resolve_skill_version,
     sort_books,
+    validate_picks,
     write_json,
 )
 
@@ -190,6 +192,57 @@ def main():
     eq("详情覆盖标题", details["1"]["title"], "书一")
     eq("详情补简介", details["1"]["intro"], "简介")
     eq("只有详情也保留", details["2"]["title"], "书二")
+
+    details = {
+        "1": {"bookId": "1", "title": "书一", "author": "甲", "newRating": 902,
+              "newRatingCount": 1234, "readerLink": "https://r/1", "intro": "简介一"},
+        "2": {"bookId": "2", "title": "书二", "author": "乙", "newRating": 880,
+              "newRatingCount": 20, "deepLink": "https://d/2", "intro": ""},
+        "3": {"bookId": "3", "title": "书三", "author": "丙", "newRating": 850,
+              "newRatingCount": None, "intro": "简介三"},
+    }
+    meta = {"title": "AI 的影响", "keywords": ["AI", "大模型"], "min_rating": 700,
+            "unique_books": 941, "candidates": 323}
+
+    good = {
+        "kept": [
+            {"bookId": "1", "theme": "组织", "summary": "一句话", "reason": "论述组织变革"},
+            {"bookId": "2", "theme": "经济", "reason": "无简介但主题相关"},
+            {"bookId": "3", "theme": "组织", "summary": "另一句", "reason": "社会影响"},
+        ],
+        "dropped": [{"bookId": "4", "reason": "教程"}],
+    }
+    validate_picks(good, {"1", "2", "3", "4"}, details)
+
+    raises("未知 bookId", lambda: validate_picks(
+        {"kept": [{"bookId": "9", "theme": "组织", "summary": "x", "reason": "x"}], "dropped": []},
+        {"1"}, details), "未知")
+    raises("缺 reason", lambda: validate_picks(
+        {"kept": [{"bookId": "1", "theme": "组织", "summary": "x"}], "dropped": []},
+        {"1"}, details), "reason")
+    raises("缺 theme", lambda: validate_picks(
+        {"kept": [{"bookId": "1", "summary": "x", "reason": "x"}], "dropped": []},
+        {"1"}, details), "theme")
+    raises("有简介却缺 summary", lambda: validate_picks(
+        {"kept": [{"bookId": "1", "theme": "组织", "reason": "x"}], "dropped": []},
+        {"1"}, details), "summary")
+
+    text = render_booklist(meta, good, details, top=20)
+    eq("有标题", "AI 的影响" in text, True)
+    eq("有计数", "941" in text and "323" in text, True)
+    eq("有排名", "1. **《书一》**" in text, True)
+    eq("有推荐值", "90.2%" in text, True)
+    eq("有人数标注", "少于 50 人评分" in text, True)
+    eq("有 readerLink", "https://r/1" in text, True)
+    eq("有 deepLink", "https://d/2" in text, True)
+    eq("空简介写暂无简介", "暂无简介" in text, True)
+
+    grouped = render_booklist(meta, good, details, top=20, group=True)
+    eq("分组有组织小节", "### 组织" in grouped, True)
+    eq("分组有经济小节", "### 经济" in grouped, True)
+
+    trimmed = render_booklist(meta, good, details, top=2)
+    eq("截断到前 2", "1. **《书一》**" in trimmed and "2. **《书二》**" in trimmed and "书三" not in trimmed, True)
 
     print()
     if bad:

@@ -219,3 +219,124 @@ def merge_details(candidates, bookinfo):
             if value not in (None, ""):
                 item[key] = value
     return details
+
+
+def validate_picks(picks, known_ids, details):
+    """校验 ``picks.json``；不合法时抛 ``ValueError``，报错里带字段名。"""
+    if not isinstance(picks, dict):
+        raise ValueError("picks.json 必须是对象")
+    kept = picks.get("kept")
+    dropped = picks.get("dropped") or []
+    if not isinstance(kept, list) or not isinstance(dropped, list):
+        raise ValueError("picks.json 的 kept 与 dropped 必须是数组")
+
+    def check_entry(entry, group):
+        book_id = (entry or {}).get("bookId")
+        if not book_id:
+            raise ValueError("%s 里有条目缺 bookId" % group)
+        if book_id not in known_ids:
+            raise ValueError("%s 里有未知 bookId：%s" % (group, book_id))
+        return book_id
+
+    for entry in kept:
+        book_id = check_entry(entry, "kept")
+        if not (entry.get("theme") or "").strip():
+            raise ValueError("kept 里的 %s 缺 theme" % book_id)
+        if not (entry.get("reason") or "").strip():
+            raise ValueError("kept 里的 %s 缺 reason" % book_id)
+        intro = (details.get(book_id) or {}).get("intro")
+        if intro and not (entry.get("summary") or "").strip():
+            raise ValueError("kept 里的 %s 有简介却缺 summary" % book_id)
+
+    for entry in dropped:
+        book_id = check_entry(entry, "dropped")
+        if not (entry.get("reason") or "").strip():
+            raise ValueError("dropped 里的 %s 缺 reason" % book_id)
+
+
+def _render_entry(index, entry, book):
+    """渲染榜单里的一条。"""
+    title = book.get("title") or "书名缺失"
+    author = book.get("author") or "作者未知"
+    rating = format_rating(book.get("newRating"))
+    count = book.get("newRatingCount")
+    if count is None:
+        count_text = "评分人数未知"
+    else:
+        count_text = "%s 人评分" % format(count, ",")
+        note = rating_count_note(count)
+        if note:
+            rating = "%s（%s）" % (rating, note)
+    theme = (entry.get("theme") or "未分类").strip() or "未分类"
+    lines = [
+        "%d. **《%s》** %s · 推荐值 %s · %s · 主题：%s"
+        % (index, title, author, rating, count_text, theme)
+    ]
+    if book.get("readerLink"):
+        lines.append("[打开阅读](%s)" % book["readerLink"])
+    elif book.get("deepLink"):
+        lines.append("[查看详情](%s)" % book["deepLink"])
+    summary = (entry.get("summary") or "").strip()
+    lines.append(summary or "暂无简介")
+    return lines
+
+
+def render_booklist(meta, picks, details, top=20, group=False):
+    """把 ``picks`` 与详情渲染成 Markdown 榜单。"""
+    meta = meta or {}
+    rows = []
+    for entry in (picks or {}).get("kept") or []:
+        book = details.get(entry.get("bookId")) or {}
+        rows.append((entry, book))
+    rows.sort(
+        key=lambda pair: (
+            -(pair[1].get("newRating") or 0),
+            -(pair[1].get("newRatingCount") or 0),
+            pair[1].get("title") or "",
+        )
+    )
+    rows = rows[:top]
+
+    min_rating = meta.get("min_rating")
+    if min_rating is None:
+        min_rating = 700
+    min_pct = min_rating / 10
+    title = meta.get("title") or meta.get("topic") or "主题书单"
+    lines = [
+        "## %s：推荐值 %.0f%% 以上的前 %d 本" % (title, min_pct, top),
+        "",
+    ]
+    lines.append(
+        "检索 %d 个关键词，去重 %d 本；推荐值 %.0f%% 以上 %d 本；"
+        "按书名与简介筛掉教程、案例集、传记等，取前 %d，按推荐值排序。"
+        % (
+            len(meta.get("keywords") or []),
+            meta.get("unique_books") or 0,
+            min_pct,
+            meta.get("candidates") or 0,
+            len(rows),
+        )
+    )
+    lines.append("")
+
+    if group:
+        themes = []
+        buckets = {}
+        for entry, book in rows:
+            theme = (entry.get("theme") or "未分类").strip() or "未分类"
+            if theme not in buckets:
+                buckets[theme] = []
+                themes.append(theme)
+            buckets[theme].append((entry, book))
+        for theme in themes:
+            lines.append("### %s" % theme)
+            lines.append("")
+            for index, (entry, book) in enumerate(buckets[theme], 1):
+                lines.extend(_render_entry(index, entry, book))
+                lines.append("")
+    else:
+        for index, (entry, book) in enumerate(rows, 1):
+            lines.extend(_render_entry(index, entry, book))
+            lines.append("")
+
+    return "\n".join(lines).rstrip() + "\n"
