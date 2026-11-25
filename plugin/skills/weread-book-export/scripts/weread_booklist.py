@@ -21,7 +21,18 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-from booklist import flatten_books, resolve_skill_version
+from booklist import (
+    cache_dir,
+    filter_by_rating,
+    flatten_books,
+    merge_books,
+    page_offset,
+    parse_keywords,
+    raw_cache_path,
+    read_json,
+    resolve_skill_version,
+    write_json,
+)
 
 API = "https://i.weread.qq.com/api/agent/gateway"
 # 被限流时的退避秒数；测试会把它 monkeypatch 成 0
@@ -159,6 +170,111 @@ def run_check(args):
     except ApiError as exc:
         print("接口不可用：%s" % exc, file=sys.stderr)
         return 1
+    return 0
+
+
+def run_search(args):
+    """按关键词批量搜、翻页、去重、按推荐值过滤，写缓存与候选。"""
+    api_key = os.environ.get("WEREAD_API_KEY")
+    if not api_key:
+        print("没设置 WEREAD_API_KEY；先设置环境变量再跑。")
+        return 2
+    try:
+        version, _source = resolve_skill_version(
+            args.skill_version,
+            os.environ.get("WEREAD_SKILL_VERSION"),
+            official_skill_paths(),
+        )
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    try:
+        cache = cache_dir(args.topic, args.cache_dir)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    try:
+        text = Path(args.keywords_file).read_text(encoding="utf-8")
+    except OSError as exc:
+        print("读不了关键词文件：%s" % exc, file=sys.stderr)
+        return 1
+    keywords = parse_keywords(text)
+    if not keywords:
+        print("关键词文件里没有词。", file=sys.stderr)
+        return 1
+
+    per_keyword = []
+    failed = []
+    for keyword in keywords:
+        path = raw_cache_path(cache, keyword)
+        books = None
+        if path.exists() and not args.refresh:
+            books = read_json(path, None)
+        if books is None:
+            books = []
+            try:
+                for page in range(args.pages):
+                    body = {
+                        "api_name": "/store/search",
+                        "keyword": keyword,
+                        "context": args.context,
+                        "scope": 10,
+                        "count": args.count,
+                        "skill_version": version,
+                    }
+                    offset = page_offset(page, args.count)
+                    if offset:
+                        body["maxIdx"] = offset
+                    payload = api_with_retry(
+                        body,
+                        api_key,
+                        retries=args.retries,
+                        delays=RETRY_DELAYS,
+                    )
+                    books.extend(flatten_books(payload.get("results")))
+                    if payload.get("hasMore") != 1:
+                        break
+                    time.sleep(PAGE_PAUSE)
+            except ApiError as exc:
+                failed.append(keyword)
+                print("关键词「%s」失败：%s" % (keyword, exc), file=sys.stderr)
+                continue
+            write_json(path, books)
+        per_keyword.append((keyword, books))
+        time.sleep(args.interval)
+
+    merged = merge_books(per_keyword)
+    candidates = filter_by_rating(merged, args.min_rating)
+    write_json(cache / "all_books.json", merged)
+    write_json(cache / "candidates.json", candidates)
+    meta = {
+        "topic": args.topic,
+        "title": args.title,
+        "keywords": keywords,
+        "min_rating": args.min_rating,
+        "pages": args.pages,
+        "count": args.count,
+        "unique_books": len(merged),
+        "candidates": len(candidates),
+        "skill_version": version,
+    }
+    write_json(cache / "search_meta.json", meta)
+
+    if failed:
+        (cache / "failed.txt").write_text(
+            "\n".join(failed) + "\n", encoding="utf-8"
+        )
+        print("有 %d 个关键词没搜成，结果不完整。" % len(failed))
+        return 3
+    failed_path = cache / "failed.txt"
+    if failed_path.exists():
+        failed_path.unlink()
+    if not candidates:
+        print("本次没有过线的书。")
+    print(
+        "检索 %d 个关键词，去重 %d 本；推荐值 %d%% 以上 %d 本。"
+        % (len(keywords), len(merged), args.min_rating // 10, len(candidates))
+    )
     return 0
 
 

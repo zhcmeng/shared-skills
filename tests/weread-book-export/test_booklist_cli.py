@@ -8,8 +8,10 @@
 import argparse
 import contextlib
 import io
+import json
 import os
 import sys
+import tempfile
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -19,6 +21,7 @@ sys.path.insert(
     str(HERE.parent.parent / "plugin" / "skills" / "weread-book-export" / "scripts"),
 )
 import weread_booklist  # noqa: E402
+from booklist import cache_dir, raw_cache_path  # noqa: E402
 
 
 def fake_payload(**overrides):
@@ -28,6 +31,35 @@ def fake_payload(**overrides):
     }
     data.update(overrides)
     return data
+
+
+def make_search_api(pages):
+    calls = []
+
+    def fake(body, key, **kw):
+        calls.append(dict(body))
+        page = (body.get("maxIdx") or 0) // body["count"]
+        return {
+            "results": [
+                {
+                    "books": [
+                        {
+                            "bookInfo": {
+                                "bookId": "%s-%d-%d" % (body["keyword"], page, i),
+                                "title": "%s 第 %d 页第 %d 本"
+                                % (body["keyword"], page, i),
+                                "newRating": 800 if i == 0 else 699,
+                                "newRatingCount": 100,
+                            }
+                        }
+                        for i in range(pages[page])
+                    ]
+                }
+            ],
+            "hasMore": 1 if page + 1 < len(pages) else 0,
+        }
+
+    return fake, calls
 
 
 def main():
@@ -116,6 +148,156 @@ def main():
     finally:
         os.environ.pop("WEREAD_API_KEY", None)
         weread_booklist.call_api = original
+
+    with tempfile.TemporaryDirectory() as tmp:
+        words = Path(tmp) / "words.txt"
+        words.write_text("AI\n", encoding="utf-8")
+        search_args = argparse.Namespace(
+            topic="t",
+            title="测试主题",
+            context="测试",
+            keywords_file=str(words),
+            min_rating=700,
+            pages=2,
+            count=2,
+            interval=0,
+            retries=2,
+            refresh=False,
+            cache_dir=tmp,
+            skill_version="1.0.6",
+        )
+        cache = cache_dir("t", base=tmp)
+        old_pause = weread_booklist.PAGE_PAUSE
+        old_delays = weread_booklist.RETRY_DELAYS
+        weread_booklist.PAGE_PAUSE = 0
+        os.environ["WEREAD_API_KEY"] = "wrk-test"
+        try:
+            fake, calls = make_search_api([2, 2])
+            weread_booklist.call_api = fake
+            code = weread_booklist.run_search(search_args)
+            eq("search 成功退出 0", code, 0)
+            eq("翻页请求次数", len(calls), 2)
+            eq("第一页不带 maxIdx", "maxIdx" in calls[0], False)
+            eq("第二页 maxIdx=2", calls[1].get("maxIdx"), 2)
+
+            all_books = json.loads(
+                (cache / "all_books.json").read_text(encoding="utf-8")
+            )
+            candidates = json.loads(
+                (cache / "candidates.json").read_text(encoding="utf-8")
+            )
+            meta = json.loads(
+                (cache / "search_meta.json").read_text(encoding="utf-8")
+            )
+            eq("去重后 4 本", len(all_books), 4)
+            eq("过线 2 本", len(candidates), 2)
+            eq("meta 关键词", meta["keywords"], ["AI"])
+            eq("meta 去重数", meta["unique_books"], 4)
+            eq("meta 过线数", meta["candidates"], 2)
+
+            before = len(calls)
+            code = weread_booklist.run_search(search_args)
+            eq("缓存复用不重复请求", len(calls), before)
+            eq("缓存复用仍退出 0", code, 0)
+
+            search_args.refresh = True
+            code = weread_booklist.run_search(search_args)
+            eq("--refresh 会重搜", len(calls) > before, True)
+            search_args.refresh = False
+
+            state = {"n": 0}
+            base, _ = make_search_api([2, 2])
+
+            def flaky(body, key, **kw):
+                if state["n"] == 0:
+                    state["n"] += 1
+                    raise weread_booklist.ApiError(499, "限流")
+                return base(body, key, **kw)
+
+            weread_booklist.call_api = flaky
+            weread_booklist.RETRY_DELAYS = (0, 0)
+            search_args.refresh = True
+            code = weread_booklist.run_search(search_args)
+            eq("499 重试后成功", code, 0)
+            search_args.refresh = False
+
+            def always_499(body, key, **kw):
+                raise weread_booklist.ApiError(499, "限流")
+
+            weread_booklist.call_api = always_499
+            search_args.refresh = True
+            code = weread_booklist.run_search(search_args)
+            eq("全部失败退出 3", code, 3)
+            eq(
+                "failed.txt 有词",
+                "AI" in (cache / "failed.txt").read_text(encoding="utf-8"),
+                True,
+            )
+            search_args.refresh = False
+            weread_booklist.RETRY_DELAYS = old_delays
+
+            def low(body, key, **kw):
+                return {
+                    "results": [
+                        {
+                            "books": [
+                                {
+                                    "bookInfo": {
+                                        "bookId": "x",
+                                        "title": "低分",
+                                        "newRating": 699,
+                                        "newRatingCount": 10,
+                                    }
+                                }
+                            ]
+                        }
+                    ],
+                    "hasMore": 0,
+                }
+
+            weread_booklist.call_api = low
+            search_args.refresh = True
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                code = weread_booklist.run_search(search_args)
+            eq("零候选退出 0", code, 0)
+            eq("零候选有提示", "本次没有过线的书" in out.getvalue(), True)
+            eq(
+                "零候选空列表",
+                json.loads(
+                    (cache / "candidates.json").read_text(encoding="utf-8")
+                ),
+                [],
+            )
+            search_args.refresh = False
+
+            fake2, calls2 = make_search_api([2, 2])
+            weread_booklist.call_api = fake2
+            bad_path = raw_cache_path(cache, "AI")
+            bad_path.parent.mkdir(parents=True, exist_ok=True)
+            bad_path.write_text("{坏", encoding="utf-8")
+            code = weread_booklist.run_search(search_args)
+            eq("坏缓存会重搜", len(calls2) > 0, True)
+
+            os.environ.pop("WEREAD_API_KEY", None)
+            code = weread_booklist.run_search(search_args)
+            eq("search 缺 Key 退出 2", code, 2)
+            os.environ["WEREAD_API_KEY"] = "wrk-test"
+
+            original_resolve = weread_booklist.resolve_skill_version
+            weread_booklist.resolve_skill_version = lambda *a: (_ for _ in ()).throw(
+                ValueError("找不到版本号")
+            )
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err):
+                code = weread_booklist.run_search(search_args)
+            eq("search 缺版本号退出 1", code, 1)
+            weread_booklist.resolve_skill_version = original_resolve
+        finally:
+            os.environ.pop("WEREAD_API_KEY", None)
+            weread_booklist.call_api = original
+            weread_booklist.PAGE_PAUSE = old_pause
+            weread_booklist.RETRY_DELAYS = old_delays
 
     print()
     if bad:
