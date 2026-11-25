@@ -272,6 +272,7 @@ git commit -m "feat(weread): 新增书单纯逻辑的版本号、关键词与缓
     eq("详情覆盖标题", details["1"]["title"], "书一")
     eq("详情补简介", details["1"]["intro"], "简介")
     eq("只有详情也保留", details["2"]["title"], "书二")
+```
 
 - [ ] **Step 2: 跑测试，确认失败**
 
