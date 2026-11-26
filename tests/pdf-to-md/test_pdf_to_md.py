@@ -2227,8 +2227,7 @@ class TestParseArgs(unittest.TestCase):
     def test_defaults(self):
         args = convert.parse_args(["a.pdf", "--output", self.output()])
         self.assertEqual(args.model, aistudio.DEFAULT_MODEL)
-        # 默认走官网方式，一次只能处理一份；api 方式才是 4。
-        self.assertEqual(args.jobs, 1)
+        self.assertEqual(args.jobs, 4)
         self.assertEqual(args.page_jobs, 4)
         self.assertEqual(args.source_type, "general")
         self.assertFalse(args.force)
@@ -2241,7 +2240,6 @@ class TestParseArgs(unittest.TestCase):
 
     def test_financial_mode_pins_the_model(self):
         args = convert.parse_args(["a.pdf", "--output", self.output(),
-                                   "--backend", "api",
                                    "--source-type", "financial"])
         self.assertEqual(args.source_type, "financial")
         self.assertEqual(args.model, aistudio.FINANCIAL_MODEL)
@@ -2253,7 +2251,6 @@ class TestParseArgs(unittest.TestCase):
         with mock.patch.object(sys, "stderr", err), \
              self.assertRaises(SystemExit) as ctx:
             convert.parse_args(["a.pdf", "--output", self.output(),
-                                "--backend", "api",
                                 "--source-type", "financial",
                                 "--model", "PP-StructureV3"])
         self.assertEqual(ctx.exception.code, 2)
@@ -2289,67 +2286,54 @@ class TestParseArgs(unittest.TestCase):
         self.assertIn("目录", err.getvalue())
 
 
-class TestParseArgsBackend(unittest.TestCase):
+class TestWebEntryIsGone(unittest.TestCase):
     def parse(self, *extra):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         return convert.parse_args(
             ["a.pdf", "--output", os.path.join(tmp.name, "out"), *extra])
 
-    def test_official_web_is_the_default(self):
-        args = self.parse()
-        self.assertEqual(args.backend, "official-web")
-        self.assertEqual(args.source_type, "general")
+    def test_web_options_are_not_accepted(self):
+        for option, value in (
+                ("--backend", "api"),
+                ("--browser-profile", "p"),
+                ("--browser-channel", "chrome"),
+                ("--web-timeout", "60"),
+                ("--login-timeout", "30")):
+            err = io.StringIO()
+            with mock.patch.object(sys, "stderr", err), \
+                 self.assertRaises(SystemExit) as ctx:
+                self.parse(option, value)
+            self.assertEqual(ctx.exception.code, 2)
+            self.assertIn(option, err.getvalue())
 
-    def test_api_can_be_selected(self):
-        self.assertEqual(self.parse("--backend", "api").backend, "api")
-
-    def test_api_defaults_to_four_jobs(self):
-        # api 方式能并发提交多份，默认沿用原来的 4。
-        self.assertEqual(self.parse("--backend", "api").jobs, 4)
-
-    def test_official_web_defaults_to_one_job(self):
-        self.assertEqual(self.parse().jobs, 1)
-
-    def test_financial_is_only_for_the_api_backend(self):
+    def test_no_wait_login_is_not_accepted(self):
         err = io.StringIO()
         with mock.patch.object(sys, "stderr", err), \
              self.assertRaises(SystemExit) as ctx:
-            self.parse("--backend", "official-web",
-                       "--source-type", "financial")
+            self.parse("--no-wait-login")
         self.assertEqual(ctx.exception.code, 2)
-        self.assertIn("financial", err.getvalue())
+        self.assertIn("--no-wait-login", err.getvalue())
 
-    def test_a_different_model_is_rejected_for_the_web_backend(self):
-        err = io.StringIO()
-        with mock.patch.object(sys, "stderr", err), \
-             self.assertRaises(SystemExit) as ctx:
-            self.parse("--model", "PP-StructureV3")
-        self.assertEqual(ctx.exception.code, 2)
-        self.assertIn(aistudio.DEFAULT_MODEL, err.getvalue())
+    def test_jobs_defaults_to_four(self):
+        self.assertEqual(self.parse().jobs, 4)
 
-    def test_the_api_backend_still_accepts_another_model(self):
-        args = self.parse("--backend", "api", "--model", "PP-StructureV3")
-        self.assertEqual(args.model, "PP-StructureV3")
+    def test_another_model_is_still_accepted(self):
+        self.assertEqual(
+            self.parse("--model", "PP-StructureV3").model, "PP-StructureV3")
 
-    def test_web_options_are_parsed(self):
-        args = self.parse("--browser-profile", "p",
-                          "--browser-channel", "chrome",
-                          "--web-timeout", "60", "--login-timeout", "30",
-                          "--no-wait-login")
-        self.assertEqual(args.browser_profile, "p")
-        self.assertEqual(args.browser_channel, "chrome")
-        self.assertEqual(args.web_timeout, 60)
-        self.assertEqual(args.login_timeout, 30)
-        self.assertTrue(args.no_wait_login)
 
-    def test_web_timeout_must_be_positive(self):
-        err = io.StringIO()
-        with mock.patch.object(sys, "stderr", err), \
-             self.assertRaises(SystemExit) as ctx:
-            self.parse("--web-timeout", "0")
-        self.assertEqual(ctx.exception.code, 2)
-        self.assertIn("web-timeout", err.getvalue())
+class TestMainDependencies(unittest.TestCase):
+    def test_main_checks_only_the_api_dependencies(self):
+        """接口方式不需要 playwright；官网那套依赖不该再被查。"""
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        out = os.path.join(tmp.name, "out")
+        with mock.patch.object(convert, "check_dependencies") as check, \
+             mock.patch.object(convert, "collect_inputs", return_value=[]), \
+             mock.patch.object(convert, "run", return_value=0):
+            self.assertEqual(convert.main(["--output", out, "a.pdf"]), 0)
+        self.assertEqual(check.call_args.args, (convert.REQUIRED,))
 
 
 class TestAlreadyDone(unittest.TestCase):
@@ -3672,7 +3656,7 @@ class TestUtf8WhenRedirected(unittest.TestCase):
             f.write("# 已经转过\n")
         proc = subprocess.run(
             [sys.executable, os.path.abspath(convert.__file__),
-             pdf, "--output", out, "--backend", "api"],
+             pdf, "--output", out],
             capture_output=True, env=dict(os.environ, PYTHONIOENCODING="gbk"))
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("跳过", proc.stderr.decode("utf-8"))
@@ -3901,10 +3885,7 @@ class TestDoctorSmokeCheck(unittest.TestCase):
         return run
 
     def test_the_official_web_command_is_the_one_the_skill_documents(self):
-        """跑的是使用者平时跑的那条命令行，不是把转换的逻辑再写一遍。
-
-        再写一遍等于验了另一套代码——真命令行哪天坏了，体检照样全绿。
-        """
+        """残留的官网命令：入口已移除，这里只钉住这个函数当前的样子。"""
         cmd = doctor.smoke_command("official-web", "OUT")
         self.assertEqual(cmd[:1], ["uv"])
         for package in ("requests", "lxml", "tabulate", "playwright"):
@@ -3921,7 +3902,7 @@ class TestDoctorSmokeCheck(unittest.TestCase):
         for package in ("requests", "lxml", "tabulate", "pypdf"):
             self.assertIn(package, cmd)
         self.assertNotIn("playwright", cmd)
-        self.assertEqual(cmd[cmd.index("--backend") + 1], "api")
+        self.assertNotIn("--backend", cmd)
         self.assertNotIn("--no-wait-login", cmd)
 
     def test_the_web_smoke_allows_time_for_the_browser(self):
@@ -3975,6 +3956,8 @@ class TestDoctorSmokeCheck(unittest.TestCase):
             exc=subprocess.TimeoutExpired("uv", doctor.SMOKE_TIMEOUT)))
         self.assertFalse(check.ok)
         self.assertIn("超时", check.detail)
+        self.assertIn("服务", check.fix)
+        self.assertNotIn("浏览器", check.fix)
 
     def test_a_missing_sample_file_says_the_install_is_incomplete(self):
         # 只拷了 scripts/ 没拷 assets/：这不是环境问题，是装得不全
@@ -3983,6 +3966,16 @@ class TestDoctorSmokeCheck(unittest.TestCase):
             check = doctor.check_smoke(runner=self._runner())
         self.assertFalse(check.ok)
         self.assertIn("样例", check.detail)
+
+
+class TestDoctorArgs(unittest.TestCase):
+    def test_backend_is_not_accepted(self):
+        err = io.StringIO()
+        with mock.patch.object(sys, "stderr", err), \
+             self.assertRaises(SystemExit) as ctx:
+            doctor.parse_args(["--backend", "api"])
+        self.assertEqual(ctx.exception.code, 2)
+        self.assertIn("--backend", err.getvalue())
 
 
 class TestDoctorMain(unittest.TestCase):
@@ -4028,27 +4021,23 @@ class TestDoctorMain(unittest.TestCase):
         # 样例转出来的东西落在哪，是跑体检的人会问的第一件事
         self.assertIn("临时目录", text)
 
-    def test_the_web_backend_does_not_need_a_token(self):
+    def test_the_token_check_runs_and_the_browser_checks_do_not(self):
         mocks = self._patch()
         self.assertEqual(doctor.main([]), 0)
-        self.assertEqual(mocks["token"].call_count, 0)
-        self.assertEqual(mocks["profile_dir"].call_count, 1)
-        self.assertEqual(mocks["credentials"].call_count, 1)
-
-    def test_the_api_backend_checks_the_token_instead(self):
-        mocks = self._patch(token=False)
-        self.assertEqual(doctor.main(["--backend", "api"]), 2)
         self.assertEqual(mocks["token"].call_count, 1)
         self.assertEqual(mocks["profile_dir"].call_count, 0)
         self.assertEqual(mocks["credentials"].call_count, 0)
+
+    def test_a_missing_token_stops_with_exit_2(self):
+        mocks = self._patch(token=False)
+        self.assertEqual(doctor.main([]), 2)
+        self.assertEqual(mocks["token"].call_count, 1)
         self.assertIn("环境里没有它。", self.out.getvalue())
 
-    def test_the_smoke_step_gets_the_selected_backend(self):
+    def test_the_smoke_step_always_gets_the_api_backend(self):
         mocks = self._patch()
-        doctor.main(["--backend", "api"])
+        doctor.main([])
         self.assertEqual(mocks["smoke"].call_args.args, ("api",))
-        self.assertEqual(doctor.main([]), 0)
-        self.assertEqual(mocks["smoke"].call_args.args, ("official-web",))
 
     def test_anything_red_says_it_cannot_and_exits_2(self):
         self.assertEqual(self._run_main([], smoke=False), 2)
@@ -4056,22 +4045,22 @@ class TestDoctorMain(unittest.TestCase):
 
     def test_a_local_failure_stops_before_the_smoke_step(self):
         """本地就没配好时不去花配额——这条钉的正是白花配额那件事。"""
-        mocks = self._patch(credential=False)
+        mocks = self._patch(token=False)
         self.assertEqual(doctor.main([]), 2)
         self.assertEqual(mocks["smoke"].call_count, 0)
         self.assertIn("没跑", self.out.getvalue())
 
     def test_every_local_check_runs_so_all_the_problems_show_at_once(self):
         """本机那几项一次全跑完：让人修一个跑一次太折腾。"""
-        mocks = self._patch(uv=False, credential=False)
+        mocks = self._patch(uv=False, token=False)
         self.assertEqual(doctor.main([]), 2)
         self.assertEqual(mocks["uv"].call_count, 1)
-        self.assertEqual(mocks["profile_dir"].call_count, 1)
-        self.assertEqual(mocks["credentials"].call_count, 1)
+        self.assertEqual(mocks["token"].call_count, 1)
+        self.assertEqual(mocks["profile_dir"].call_count, 0)
+        self.assertEqual(mocks["credentials"].call_count, 0)
         text = self.out.getvalue()
         self.assertIn("找不到 uv。", text)
-        self.assertIn("配置目录写不进去。", text)
-        self.assertIn("凭据文件坏了。", text)
+        self.assertIn("环境里没有它。", text)
 
     def test_the_output_dir_is_probed_only_when_one_is_given(self):
         path = tempfile.TemporaryDirectory()
@@ -4106,15 +4095,8 @@ class TestDoctorMain(unittest.TestCase):
         self.assertEqual(proc.returncode, 2,
                          text + proc.stderr.decode("utf-8", "replace"))
         self.assertIn("uv", text)
-        # 默认走官网方式：报告里要提浏览器配置与凭据，不提 token。
-        self.assertIn("浏览器配置目录", text)
-        self.assertNotIn(doctor.TOKEN_ENV, text)
-
-        proc = run("--backend", "api")
-        text = proc.stdout.decode("utf-8")
-        self.assertEqual(proc.returncode, 2,
-                         text + proc.stderr.decode("utf-8", "replace"))
         self.assertIn(doctor.TOKEN_ENV, text)
+        self.assertNotIn("浏览器配置目录", text)
 
 
 class TestMain(unittest.TestCase):

@@ -36,6 +36,8 @@
 
 脚本默认用 Edge。要换 `--browser-channel chrome`。
 
+导出期间可以把浏览器窗口最小化：脚本会改用阅读器预渲染的 HTML 取正文，不影响导出内容。PDF、导入书这类没有预渲染的格式不适用，脚本会把窗口叫回前台再按画布取字。
+
 ## 搜书与列各期
 
 搜索用另一个脚本，默认无头，不需要真浏览器：
@@ -102,6 +104,24 @@ uv run --with playwright python "<skill目录>/scripts/weread_search.py" --serie
 - 导出来的内容**只供自己学习用**，别再分发
 - 平台要求验证、限流时脚本会停下，不会换 IP、不会反复重试
 
+## 按主题筛书单（需要 API Key）
+
+按主题找一批书，只要推荐值 70% 以上的，按推荐值排名取前 N 本。走微信读书 Agent API，不用浏览器；需要环境变量 `WEREAD_API_KEY`。
+
+```bash
+python "<skill目录>/scripts/weread_booklist.py" check
+python "<skill目录>/scripts/weread_booklist.py" search --topic ai-impact --title "AI 的影响" --context "找 AI 相关的书" --keywords-file words.txt
+python "<skill目录>/scripts/weread_booklist.py" info --topic ai-impact --shortlist shortlist.json
+python "<skill目录>/scripts/weread_booklist.py" render --topic ai-impact --picks picks.json
+```
+
+- 关键词由模型按主题展开，一行一个写进文件；也可以用 `--keywords "AI,大模型"` 直接给。脚本不内置词表。
+- `--group` 按主主题分组，`--min-ratings` 收紧评分人数，`--top` 改数量。
+- 缓存与成品在 `%LOCALAPPDATA%\weread-book-export\booklist\<主题>\`；同主题重跑默认复用缓存，`--refresh` 重搜。
+- 成品默认 `booklist-<日期>.md`，`--out` 可改。
+- 退出码：`0` 跑完；`2` 没设 Key；`3` 部分失败；`1` 参数或版本号错误。
+- 测试：`python -X utf8 tests/weread-book-export/test_booklist.py` 与 `test_booklist_cli.py`。
+
 ## 脚本分工
 
 `scripts/` 下每个文件各管一段：
@@ -110,6 +130,8 @@ uv run --with playwright python "<skill目录>/scripts/weread_search.py" --serie
 |:---|:---|
 | `weread_export.py` | 导出命令行入口，把下面这些串成一趟导出 |
 | `weread_search.py` | 搜索命令行入口：精确、模糊、语义、按系列逐期列全 |
+| `weread_booklist.py` | 书单命令行入口：检索、拉详情、渲染 |
+| `booklist.py` | 书单纯逻辑：版本号、关键词、去重、过滤、排序、渲染 |
 | `weread.py` | 页面上的动作：登录判定、搜书、目录、切滚动模式、装钩子、截预渲染 HTML 与字形、翻章、取图 |
 | `issues.py` | 期刊各期的纯逻辑：标题模板、缺号、清单渲染 |
 | `matches.py` | 搜书的纯逻辑：标题归一化、精确/模糊匹配、相关词合并排序、文字输出 |
