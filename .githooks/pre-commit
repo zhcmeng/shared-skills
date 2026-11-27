@@ -1,0 +1,8 @@
+#!/bin/sh
+# 提交前只跑本次改动碰到的校验模块，失败就拦住这次提交。
+# 启用一次：git config core.hooksPath .githooks
+# 临时绕过：git commit --no-verify
+# 不跑全量、也不跑 tests/run.sh：全量约两分钟，按需手动跑。
+root="$(git rev-parse --show-toplevel)" || exit 1
+cd "$root" || exit 1
+bash checks/verify.sh --changed || exit 1

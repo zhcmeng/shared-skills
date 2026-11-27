@@ -348,11 +348,10 @@ U+FE0F 同样不要用——它会把 BMP 字符显示成彩色 emoji。
   这份名单会过期（90 就是后加的），以各模块文件头的 `# watch:` 声明为准——那一行写着这块
   盯哪些路径，也就是「改了哪儿该跑哪一块」的答案。
   加校验就加模块，别往入口里塞
-- **CI**：`.github/workflows/verify.yml` 在推送到 main 和每个 PR 上跑，用 `windows-latest`：
-  先 `bash checks/verify.sh` 跑全部模块，再 `bash tests/run.sh` 跑技能自己的测试。
-  选 Windows 机器是因为 50 那块要 Windows PowerShell（`powershell.exe`）、10 和 40 还要走
-  cmd.exe 批处理分支，换 Linux 会把这几项静默跳过。它只跑检查，不格式化、不改文件；
-  90 那块要的 `skill-up` 不在仓库依赖里，CI 上不装，`evals/` 批次配置的校验会跳过
+- **提交前钩子**：`.githooks/pre-commit` 在每次 `git commit` 前跑 `bash checks/verify.sh --changed`，
+  只跑本次改动碰到的模块，失败就拦住提交。每个克隆启用一次：`git config core.hooksPath .githooks`；
+  临时绕过用 `git commit --no-verify`。它不跑全量、也不跑 `tests/run.sh`——全量约两分钟，按需手动跑。
+  仓库没有远程 CI
 - **抬版本号**：**交付前抬一次，且只在插件本身有实际变动时抬**——判据是这批改动动没动到 `plugin/`
   下的东西；仓库根下那些（`checks/`、`docs/`、`evals/`、`tests/`）不跟着发出去，改了不抬。要推到远端、
   要让别人（或你另一个会话）拿到这批内容时，把 `plugin/.claude-plugin/plugin.json` 与
