@@ -87,7 +87,7 @@
 
 - `bash checks/verify.sh test-case-design` 跑两件事：`tests/test-case-design/test_*.py`，以及 `evals/*/eval.yaml` 的 `skill-up validate`（本机没有 `skill-up` 时只跑前一件）。
 - 升级 skill-up 后按 3.3 的核验索引重核，并改 `usage-notes.md` 顶部的版本行（版本自查在使用者侧，`checks/` 里不做比对）。
-- 插件版本在 `plugin/.claude-plugin/plugin.json` 与 `.claude-plugin/marketplace.json` 两处，一起抬、必须一致。新增功能抬中间那位；对原有内容的修改抬最后一位。只在 `plugin/` 有实际变动时抬——仓库根下的 `checks/`、`docs/`、`evals/`、`tests/` 不随插件发出，改了不抬。
+- 插件版本在 `plugin/.claude-plugin/plugin.json` 与 `.claude-plugin/marketplace.json` 两处，一起抬、必须一致。新增功能抬中间那位；新增常驻规则、对原有内容的修改抬最后一位。只在 `plugin/` 有实际变动时抬——仓库根下的 `checks/`、`docs/`、`evals/`、`tests/` 不随插件发出，改了不抬。
 
 ## 五、不随插件发出
 
